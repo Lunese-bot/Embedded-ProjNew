@@ -20,8 +20,9 @@
    or 0 when nothing is queued. */
 int	s1_bridge_pop(char *topic, int topic_max, char *payload, int payload_max);
 
-/* A message arrived on S1_TOPIC_CMD.  Payloads understood:
-   "start", "stop", "reset", "speed <mm/s>". */
+/* A message arrived on S1_TOPIC_CMD.  Only the exact payloads "start",
+   "stop" and "reset" are accepted (trailing CR/LF/space ignored); anything
+   else is ignored. */
 void	s1_bridge_on_command(const char *payload, int len);
 
 /* Broker connection state, from mqtt_utk.c's connection callback */

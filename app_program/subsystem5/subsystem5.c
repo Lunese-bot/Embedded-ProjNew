@@ -31,11 +31,6 @@ EXPORT UW	s5_evt_dropped;
 
 LOCAL S5_STATUS	s5_status;
 
-#define BUDDY1_MBF_ATTR		TA_TFIFO
-
-LOCAL ID	mbf_telemetry;
-LOCAL ID	mbf_commands;
-
 EXPORT ER subsystem5_init(void)
 {
 	T_CMBF	cmbf = {0};

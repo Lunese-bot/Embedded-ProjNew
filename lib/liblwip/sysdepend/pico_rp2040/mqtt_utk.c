@@ -20,17 +20,15 @@
 #include "lwip/timeouts.h"
 #include "wifi_secrets.h"
 #include "mqtt_utk.h"
-#include "buddy1_mqtt.h"
 #include <tm/tmonitor.h>
 /* Robot telemetry / command bridge (app_program/subsystem1, Buddy 1).
  * Plain-C header: safe to include here. */
 #include "../../../../app_program/subsystem1/s1_bridge.h"
 
 #define MQTT_UTK_HEARTBEAT_MS   5000
-#define MQTT_UTK_TELEMETRY_MS   200
 #define MQTT_UTK_KEEPALIVE_S    60
 #define MQTT_UTK_RETRY_MS       3000
-#define MQTT_UTK_TELEMETRY_MS   100	/* drain the S1 queue this often */
+#define MQTT_UTK_TELEMETRY_MS   100	/* poll the S1 queue this often; S1 queues a line every 200 ms */
 #define MQTT_UTK_TELEMETRY_MAX  4	/* messages per drain */
 
 /* Inbound message staging. A publish arrives as one topic callback followed by
@@ -84,7 +82,6 @@ static void incoming_publish_cb(void *arg, const char *topic, u32_t tot_len)
 static void incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
 {
 	u16_t	i;
-	int	result;
 
 	(void)arg;
 

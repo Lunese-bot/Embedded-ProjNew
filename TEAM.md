@@ -134,13 +134,13 @@ What students can do:
   cyw43_utk_get_status(&st);   /* st.ready, st.link_status, st.ip_addr, ... */
   ```
 - **Exchange application data with the existing MQTT service** through
-  `app_program/subsystem5/`; application tasks never call lwIP or MQTT
-  directly. Bounded T-Kernel message buffers carry telemetry snapshots to
-  the service and validated commands to the Vehicle Controller. The service
-  drains telemetry without waiting and publishes the newest snapshot every
-  200 ms; disconnected/stale snapshots are discarded rather than replayed.
-  Commands are limited to the exact payloads `start`, `stop`, `pause`, and
-  `resume`. This bridge requires `NET=lwip MQTT=1`.
+  `app_program/subsystem1/`; application tasks never call lwIP or MQTT
+  directly. Any task queues a telemetry/event line with `s1_post()` into the
+  bounded `mbf_telemetry` buffer. The service polls it every 100 ms without
+  waiting (up to 4 lines per poll) and publishes under `robot/g10/`. If the
+  queue is full the oldest line is dropped and counted. `robot/g10/cmd`
+  commands go to the Vehicle Controller as events (`start`, `stop`, `reset`).
+  This bridge requires `NET=lwip MQTT=1`.
 
 ## 4. Task priorities
 

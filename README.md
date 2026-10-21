@@ -253,19 +253,17 @@ The makefile also has `NET=lwip` and `MQTT=1` (TCP/IP and MQTT over WiFi).
 They need the SDK's `lib/lwip` submodule and a local
 `config/wifi_secrets.h` copied from `config/wifi_secrets.example.h`.
 
-Buddy 1's application interface lives in `app_program/subsystem5/`.
-Application tasks enqueue `BUDDY1_TELEMETRY` snapshots with
-`subsystem5_publish_telemetry()` and receive allowlisted commands with
-`subsystem5_receive_command()`. The existing `cyw43_utk_task()` alone calls
-lwIP/MQTT; it publishes heartbeat JSON to `robot/group10/heartbeat`,
-telemetry JSON to `robot/group10/telemetry`, and listens on
-`robot/group10/command`. Accepted command payloads are exactly `start`,
-`stop`, `pause`, and `resume`. Queues are bounded; telemetry queue-full
-errors are returned to the producer, and older snapshots are discarded
-rather than replayed after a disconnect. Use `make SMP=1 WIFI=cyw43
-NET=lwip MQTT=1` for this profile. The current MQTT transport is plain TCP,
-so use only on a trusted test network; it is not appropriate for untrusted
-networks or safety-critical remote control.
+Buddy 1's application interface lives in `app_program/subsystem1/`.
+Any task queues a message with `s1_post(topic, text)`; the telemetry task
+posts a JSON status line to `robot/g10/telemetry` every 200 ms. The existing
+`cyw43_utk_task()` alone calls lwIP/MQTT: it polls the queue every 100 ms,
+publishes the lines under `robot/g10/`, sends a heartbeat to
+`robot/group10/heartbeat`, and listens on `robot/g10/cmd`. Commands
+(`start`, `stop`, `reset`) are forwarded to the Vehicle Controller as events.
+The queue is bounded; when full the oldest line is dropped and counted. Use
+`make SMP=1 WIFI=cyw43 NET=lwip MQTT=1` for this profile. The current MQTT
+transport is plain TCP, so use only on a trusted test network; it is not
+appropriate for untrusted networks or safety-critical remote control.
 
 ---
 

@@ -37,16 +37,20 @@ EXPORT int s1_bridge_pop(char *topic, int topic_max, char *payload, int payload_
 	return k;
 }
 
-LOCAL BOOL starts_with(const char *s, INT len, const char *w)
+/* Exact allowlist match; only trailing CR/LF/space (terminal tools) is ignored */
+LOCAL BOOL cmd_is(const char *s, INT len, const char *w)
 {
 	INT	i;
 
+	while (len > 0 && (s[len - 1] == '\r' || s[len - 1] == '\n' || s[len - 1] == ' ')) {
+		len--;
+	}
 	for (i = 0; w[i] != '\0'; i++) {
 		if (i >= len || s[i] != w[i]) {
 			return FALSE;
 		}
 	}
-	return TRUE;
+	return i == len;
 }
 
 EXPORT void s1_bridge_on_command(const char *p, int len)
@@ -54,11 +58,11 @@ EXPORT void s1_bridge_on_command(const char *p, int len)
 	s1_stat.commands++;
 	/* Remote commands go to the Vehicle Controller (subsystem 6), never
 	   to the motors (design review 8.1, Buddy 1 decision). */
-	if (starts_with(p, len, "start")) {
+	if (cmd_is(p, len, "start")) {
 		vc_post_event(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0, TMO_POL);
-	} else if (starts_with(p, len, "stop")) {
+	} else if (cmd_is(p, len, "stop")) {
 		vc_post_event(VC_SRC_COMMS, VC_EV_CMD_STOP, 0, 0, TMO_POL);
-	} else if (starts_with(p, len, "reset")) {
+	} else if (cmd_is(p, len, "reset")) {
 		vc_post_event(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0, TMO_POL);
 	}
 	/* TODO(Buddy 1): JSON commands, acknowledgements on robot/g10/ack,

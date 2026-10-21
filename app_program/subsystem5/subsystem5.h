@@ -32,20 +32,7 @@
 #define SUBSYSTEM5_H
 
 #include "../app.h"
-#include "buddy1_mqtt.h"
 
-<<<<<<< HEAD
-#define BUDDY1_TELEMETRY_DEPTH	4
-#define BUDDY1_COMMAND_DEPTH	4
-
-/* Applications may enqueue telemetry without waiting. If its bounded queue
-   is full, the caller receives E_TMOUT and can count/report the dropped
-   update. MQTT drains the queue to the newest snapshot every 200 ms. */
-IMPORT ER subsystem5_publish_telemetry(const BUDDY1_TELEMETRY *telemetry);
-
-/* The Vehicle Controller consumes validated MQTT commands from this queue. */
-IMPORT ER subsystem5_receive_command(BUDDY1_COMMAND *command, TMO timeout);
-=======
 /* ---------------------------------------------------------------------
  *  Pins (design review section 2; claim them in TEAM.md section 2)
  * --------------------------------------------------------------------- */
@@ -187,6 +174,5 @@ IMPORT ER	s5_get_status(S5_STATUS *out);
 /* Hooks to other subsystems.  Defined __attribute__((weak)) in
    s5_ports.c; the owning subsystem overrides them with a real one. */
 IMPORT BOOL	s5_port_line_detected(void);	/* S3: any IR sees line */
->>>>>>> test
 
 #endif /* SUBSYSTEM5_H */
