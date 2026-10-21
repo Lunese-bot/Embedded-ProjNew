@@ -26,10 +26,18 @@
 #include "../../../../app_program/subsystem1/s1_bridge.h"
 
 #define MQTT_UTK_HEARTBEAT_MS   5000
-#define MQTT_UTK_KEEPALIVE_S    60
+/* lwIP pings at half this interval and closes the connection (status
+ * MQTT_CONNECT_TIMEOUT -> connection_cb) when the broker stays silent, so a
+ * dead broker or link is noticed within about this time. */
+#define MQTT_UTK_KEEPALIVE_S    15
 #define MQTT_UTK_RETRY_MS       3000
 #define MQTT_UTK_TELEMETRY_MS   100	/* poll the S1 queue this often; S1 queues a line every 200 ms */
 #define MQTT_UTK_TELEMETRY_MAX  4	/* messages per drain */
+
+/* Everything lives under S1_TOPIC_ROOT.  "status" is retained: "online" when
+ * connected, "offline" published by the broker as the last will. */
+#define MQTT_UTK_TOPIC_HEARTBEAT	S1_TOPIC_ROOT "heartbeat"
+#define MQTT_UTK_TOPIC_STATUS		S1_TOPIC_ROOT "status"
 
 /* Inbound message staging. A publish arrives as one topic callback followed by
  * one or more data callbacks, so the topic has to be kept until the fragment
@@ -108,7 +116,7 @@ static void subscribe_done_cb(void *arg, err_t result)
 {
 	(void)arg;
 	if(result == ERR_OK) {
-		tm_printf((UB*)"mqtt: subscribed to " MQTT_COMMAND_TOPIC "\n");
+		tm_printf((UB*)"mqtt: subscribed to " S1_TOPIC_CMD "\n");
 	} else {
 		tm_printf((UB*)"mqtt: subscribe failed, err=%d\n", (int)result);
 	}
@@ -136,7 +144,7 @@ static void heartbeat_timeout(void *arg)
 				 (const UB*)"{\"status\":\"online\",\"seq\":%u}",
 				 count++);
 		if(len > 0 && len < sizeof(payload)) {
-			err = mqtt_publish(client, MQTT_HEARTBEAT_TOPIC, payload,
+			err = mqtt_publish(client, MQTT_UTK_TOPIC_HEARTBEAT, payload,
 					   (u16_t)len, 0 /* qos */, 0 /* retain */,
 					   publish_done_cb, NULL);
 			if(err != ERR_OK) {
@@ -199,27 +207,25 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
 
 		tm_printf((UB*)"mqtt: connected to " MQTT_BROKER_IP "\n");
 
-		/* Register receive callbacks before subscribing. Commands are
-		 * validated against a fixed allowlist before entering the app queue. */
+		/* Register receive callbacks before subscribing. Only the exact
+		 * payloads accepted by s1_bridge_on_command() have any effect. */
 		mqtt_set_inpub_callback(client, incoming_publish_cb,
 					incoming_data_cb, NULL);
 
-		err = mqtt_subscribe(client, MQTT_COMMAND_TOPIC, 0 /* qos */,
-				     subscribe_done_cb, NULL);
-		if(err != ERR_OK) {
-			tm_printf((UB*)"mqtt: mqtt_subscribe() failed, err=%d\n",
-				  (int)err);
-		}
-		/* robot remote commands (subsystem 1) */
 		err = mqtt_subscribe(client, S1_TOPIC_CMD, 0 /* qos */,
 				     subscribe_done_cb, NULL);
 		if(err != ERR_OK) {
 			tm_printf((UB*)"mqtt: subscribe " S1_TOPIC_CMD " failed, err=%d\n",
 				  (int)err);
 		}
+
+		/* Also drops telemetry queued while offline, so a reconnect
+		 * never publishes obsolete vehicle state. */
 		s1_bridge_set_connected(1);
-		sys_untimeout(telemetry_timeout, NULL);
-		sys_timeout(MQTT_UTK_TELEMETRY_MS, telemetry_timeout, NULL);
+
+		(void)mqtt_publish(client, MQTT_UTK_TOPIC_STATUS, "online", 6,
+				   0 /* qos */, 1 /* retain */,
+				   publish_done_cb, NULL);
 
 		/* Keep exactly one timer chain for each periodic publisher. */
 		sys_untimeout(heartbeat_timeout, NULL);
@@ -264,6 +270,10 @@ void mqtt_utk_start(void)
 
 	client_info.client_id = MQTT_CLIENT_ID;
 	client_info.keep_alive = MQTT_UTK_KEEPALIVE_S;
+	client_info.will_topic = MQTT_UTK_TOPIC_STATUS;
+	client_info.will_msg = "offline";
+	client_info.will_qos = 0;
+	client_info.will_retain = 1;
 
 	connecting = 1;
 	err = mqtt_client_connect(client, &broker_addr, MQTT_BROKER_PORT,

@@ -51,6 +51,7 @@ typedef struct
 	UW	sent;
 	UW	dropped;
 	UW	commands;
+	UW	rejected;	/* commands not allowlisted or not accepted by S6 */
 } COMMS_STATUS;
 
 IMPORT ER	s1_get_status(COMMS_STATUS *st);

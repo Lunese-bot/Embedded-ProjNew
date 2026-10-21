@@ -22,7 +22,7 @@ int	s1_bridge_pop(char *topic, int topic_max, char *payload, int payload_max);
 
 /* A message arrived on S1_TOPIC_CMD.  Only the exact payloads "start",
    "stop" and "reset" are accepted (trailing CR/LF/space ignored); anything
-   else is ignored. */
+   else is ignored.  Every command is answered on robot/g10/ack. */
 void	s1_bridge_on_command(const char *payload, int len);
 
 /* Broker connection state, from mqtt_utk.c's connection callback */

@@ -258,8 +258,15 @@ Any task queues a message with `s1_post(topic, text)`; the telemetry task
 posts a JSON status line to `robot/g10/telemetry` every 200 ms. The existing
 `cyw43_utk_task()` alone calls lwIP/MQTT: it polls the queue every 100 ms,
 publishes the lines under `robot/g10/`, sends a heartbeat to
-`robot/group10/heartbeat`, and listens on `robot/g10/cmd`. Commands
-(`start`, `stop`, `reset`) are forwarded to the Vehicle Controller as events.
+`robot/g10/heartbeat` every 5 s, and listens on `robot/g10/cmd`. A retained
+`robot/g10/status` topic reads `online` while connected and `offline` (MQTT
+last will) otherwise; the keepalive is 15 s, so a dead broker is noticed in
+about that time. Telemetry queued while offline is discarded on reconnect.
+Commands (`start`, `stop`, `reset`) are forwarded to the Vehicle Controller
+as events and answered on `robot/g10/ack` with `{"cmd":"start","res":"sent"}`
+(`busy` if the controller queue is full, `{"cmd":"?","res":"rejected"}` for
+anything else). `sent` means queued; the `st` field of the telemetry shows
+whether the controller acted on it.
 The queue is bounded; when full the oldest line is dropped and counted. Use
 `make SMP=1 WIFI=cyw43 NET=lwip MQTT=1` for this profile. The current MQTT
 transport is plain TCP, so use only on a trusted test network; it is not
