@@ -257,6 +257,28 @@ int main(void)
 	CHECK("S6-H41", has_request(VC_SRC_LINE, VC_REQ_BARCODE_OFF),
 	      "AVOID: barcode reading switched off");
 
+	/* pause / resume */
+	start_mission();
+	feed(VC_SRC_COMMS, VC_EV_CMD_PAUSE, 0, 0);
+	CHECK("S6-H42", sm.st.paused && has_move(VC_MOVE_STOP, 0, 0)
+	      && sm.st.state == VC_ST_FOLLOW_LINE, "pause: stop motors, keep state");
+	feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_STEER, 500);
+	CHECK("S6-H43", out.n == 0, "paused: no motion accepted");
+	advance(VC_AVOID_MS + VC_TERRAIN_MS + 1000);
+	CHECK("S6-H44", sm.st.state == VC_ST_FOLLOW_LINE && sm.st.paused,
+	      "paused: no timeout faults");
+	feed(VC_SRC_COMMS, VC_EV_CMD_RESUME, 0, 0);
+	CHECK("S6-H45", !sm.st.paused && has_move(VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS, 1),
+	      "resume: state re-entered, driving again");
+	feed(VC_SRC_COMMS, VC_EV_CMD_PAUSE, 0, 0);
+	feed(VC_SRC_IMU, VC_EV_IMPACT, 0, 0);
+	CHECK("S6-H46", sm.st.state == VC_ST_FAULT && !sm.st.paused,
+	      "impact while paused -> FAULT");
+	feed(VC_SRC_COMMS, VC_EV_CMD_RESUME, 0, 0);
+	CHECK("S6-H47", sm.st.state == VC_ST_IDLE, "resume in FAULT = remote reset");
+	feed(VC_SRC_COMMS, VC_EV_CMD_PAUSE, 0, 0);
+	CHECK("S6-H48", !sm.st.paused, "pause ignored when not running");
+
 	printf("[TEST] subsystem6 host SUMMARY %d passed, %d failed\n", passed, failed);
 	return failed ? 1 : 0;
 }

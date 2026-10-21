@@ -36,7 +36,8 @@ LOCAL const char * const state_names[VC_ST_COUNT] = {
 
 LOCAL const char * const event_names[VC_EV_COUNT] = {
 	"NONE", "READY", "MOVE_REQUEST", "FAULT",
-	"CMD_START", "CMD_STOP", "CMD_RESET", "WIFI_DOWN", "WIFI_UP",
+	"CMD_START", "CMD_STOP", "CMD_RESET", "CMD_PAUSE", "CMD_RESUME",
+	"WIFI_DOWN", "WIFI_UP",
 	"MANOEUVRE_DONE",
 	"LINE_LOST", "LINE_FOUND", "JUNCTION", "BARCODE_START",
 	"BARCODE_DECODED", "BARCODE_FAILED", "END_OF_COURSE",
@@ -177,6 +178,7 @@ LOCAL void enter(VC_SM *sm, VC_STATE next, UW now_ms, VC_ACTIONS *out)
 
 	sm->st.prev_state     = prev;
 	sm->st.state          = next;
+	sm->st.paused         = FALSE;
 	sm->st.state_since_ms = now_ms;
 	sm->attempt_since_ms  = now_ms;
 	emit(out, VC_ACT_STATE, VC_SRC_VC, (W)next, (W)prev);
@@ -379,7 +381,33 @@ EXPORT void vc_sm_handle(VC_SM *sm, const VC_EVENT *ev, UW now_ms,
 		sm->st.max_hump_um = ev->p1;
 	}
 
+	if (type == VC_EV_CMD_PAUSE) {
+		if (vc_sm_is_active(sm->st.state) && !sm->st.paused) {
+			sm->st.paused = TRUE;
+			move(out, VC_MOVE_STOP, 0);
+		}
+		return;
+	}
+	if (type == VC_EV_CMD_RESUME) {
+		if (sm->st.paused) {
+			/* re-enter: reissues the state's requests, restarts timers */
+			enter(sm, sm->st.state, now_ms, out);
+		} else if (sm->st.state == VC_ST_FAULT
+			   || sm->st.state == VC_ST_MISSION_COMPLETE) {
+			enter(sm, VC_ST_IDLE, now_ms, out);	/* remote reset */
+		}
+		return;
+	}
+
+	/* paused: no motion, no timeouts; safety events below still act */
+	if (sm->st.paused && (type == VC_EV_MOVE_REQUEST || type == VC_EV_TICK)) {
+		return;
+	}
+
 	if (handle_common(sm, ev, now_ms, out)) {
+		return;
+	}
+	if (sm->st.paused) {
 		return;
 	}
 

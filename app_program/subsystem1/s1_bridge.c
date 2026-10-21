@@ -5,110 +5,77 @@
  */
 
 #include "subsystem1.h"
+#include "s1_codec.h"
 #include "../subsystem6/subsystem6.h"
 
 EXPORT int s1_bridge_pop(char *topic, int topic_max, char *payload, int payload_max)
 {
-	char	line[S1_LINE_MAX];
+	UB	line[S1_LINE_MAX];
 	INT	n, i, k, r;
 
 	n = tk_rcv_mbf(mbf_telemetry, line, TMO_POL);
 	if (n <= 0) {
 		return 0;
 	}
-	/* stored as "<suffix>\0<payload>" */
+	/* stored as "<suffix>\0<payload bytes>" */
 	k = 0;
 	for (r = 0; S1_TOPIC_ROOT[r] != '\0' && k < topic_max - 1; r++) {
 		topic[k++] = S1_TOPIC_ROOT[r];
 	}
 	for (i = 0; i < n && line[i] != '\0' && k < topic_max - 1; i++) {
-		topic[k++] = line[i];
+		topic[k++] = (char)line[i];
 	}
 	topic[k] = '\0';
 	while (i < n && line[i] != '\0') {
 		i++;
 	}
 	i++;					/* skip the NUL */
-	for (k = 0; i < n && line[i] != '\0' && k < payload_max - 1; i++) {
-		payload[k++] = line[i];
+	for (k = 0; i < n && k < payload_max; i++) {
+		payload[k++] = (char)line[i];
 	}
-	payload[k] = '\0';
 	s1_stat.sent++;
 	return k;
 }
 
-/* Exact allowlist match; only trailing CR/LF/space (terminal tools) is ignored */
-LOCAL BOOL cmd_is(const char *s, INT len, const char *w)
+/* One ack byte on robot/g10/ack: result + the command's sequence.
+   SENT means queued, not executed: the controller may still refuse the
+   command in its current state; the telemetry state shows the outcome. */
+LOCAL void ack(S1_ACK res, UB seq)
 {
-	INT	i;
+	UB	b = s1_ack_encode(res, seq);
 
-	while (len > 0 && (s[len - 1] == '\r' || s[len - 1] == '\n' || s[len - 1] == ' ')) {
-		len--;
-	}
-	for (i = 0; w[i] != '\0'; i++) {
-		if (i >= len || s[i] != w[i]) {
-			return FALSE;
-		}
-	}
-	return i == len;
-}
-
-/* Acknowledge on robot/g10/ack so the operator knows what happened:
-   {"cmd":"start","res":"sent"}      handed to the Vehicle Controller
-   {"cmd":"start","res":"busy"}      controller queue full, send it again
-   {"cmd":"?","res":"rejected"}      not in the allowlist (nothing was done)
-   "sent" means queued, not executed: the controller may still refuse it
-   in its current state; the "st" field in telemetry shows the outcome. */
-LOCAL void ack(const char *cmd, const char *res)
-{
-	char	buf[48];
-	INT	k = 0;
-	const char *s;
-
-	s = "{\"cmd\":\"";
-	while (*s != '\0') { buf[k++] = *s++; }
-	s = cmd;
-	while (*s != '\0') { buf[k++] = *s++; }
-	s = "\",\"res\":\"";
-	while (*s != '\0') { buf[k++] = *s++; }
-	s = res;
-	while (*s != '\0') { buf[k++] = *s++; }
-	buf[k++] = '"';
-	buf[k++] = '}';
-	buf[k] = '\0';
-	(void)s1_post("ack", buf);
+	(void)s1_post("ack", &b, 1);
 }
 
 EXPORT void s1_bridge_on_command(const char *p, int len)
 {
-	const char	*name = NULL;
-	VC_EVENT_TYPE	ev = VC_EV_NONE;
+	UB		b;
+	VC_EVENT_TYPE	ev;
 
 	s1_stat.commands++;
+	/* The payload is untrusted: exactly one byte, never echoed.  All four
+	   2-bit codes are valid, so a bad length is the only way to be refused. */
+	if (len != 1) {
+		s1_stat.rejected++;
+		ack(S1_ACK_REJECTED, 0);
+		return;
+	}
+	b = (UB)p[0];
+
 	/* Remote commands go to the Vehicle Controller (subsystem 6), never
 	   to the motors (design review 8.1, Buddy 1 decision). */
-	if (cmd_is(p, len, "start")) {
-		name = "start"; ev = VC_EV_CMD_START;
-	} else if (cmd_is(p, len, "stop")) {
-		name = "stop"; ev = VC_EV_CMD_STOP;
-	} else if (cmd_is(p, len, "reset")) {
-		name = "reset"; ev = VC_EV_CMD_RESET;
-	}
-
-	if (name == NULL) {
-		/* the rejected payload is not echoed: it is untrusted text */
-		s1_stat.rejected++;
-		ack("?", "rejected");
-		return;
+	switch (s1_cmd_code(b)) {
+	case S1_CMD_START:	ev = VC_EV_CMD_START;	break;
+	case S1_CMD_STOP:	ev = VC_EV_CMD_STOP;	break;
+	case S1_CMD_PAUSE:	ev = VC_EV_CMD_PAUSE;	break;
+	default:		ev = VC_EV_CMD_RESUME;	break;
 	}
 	if (vc_post_event(VC_SRC_COMMS, ev, 0, 0, TMO_POL) < E_OK) {
 		s1_stat.rejected++;
-		ack(name, "busy");
+		ack(S1_ACK_BUSY, s1_cmd_seq(b));
 		return;
 	}
-	ack(name, "sent");
-	/* TODO(Buddy 1): JSON commands and a speed command (needs a VC event
-	   in subsystem 6 first) */
+	ack(S1_ACK_SENT, s1_cmd_seq(b));
 }
 
 /* Drop telemetry lines queued while offline (they are obsolete), but keep
@@ -132,7 +99,7 @@ LOCAL void flush_stale_telemetry(void)
 	INT		n, i, nkept = 0, budget = S1_QUEUE_LINES * 2;
 
 	while (budget-- > 0 && (n = tk_rcv_mbf(mbf_telemetry, line, TMO_POL)) > 0) {
-		if (str_eq(line, "telemetry")) {
+		if (str_eq(line, S1_TOPIC_TLM)) {
 			s1_stat.dropped++;
 		} else if (nkept < S1_KEEP_MAX) {
 			for (i = 0; i < n; i++) {

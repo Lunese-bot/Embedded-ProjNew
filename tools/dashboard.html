@@ -91,7 +91,8 @@ canvas { width: 100%; height: 90px; display: block; }
   <button id="btnMqtt">Connect MQTT</button>
   <button class="cmd" data-cmd="start" disabled>Start</button>
   <button class="cmd" data-cmd="stop" disabled>Stop</button>
-  <button class="cmd" data-cmd="reset" disabled>Reset</button>
+  <button class="cmd" data-cmd="pause" disabled>Pause</button>
+  <button class="cmd" data-cmd="resume" disabled>Resume</button>
   <span id="status"><span class="dot" id="dot"></span><span id="statusText">Not connected</span></span>
 </header>
 
@@ -379,10 +380,26 @@ canvas { width: 100%; height: 90px; display: block; }
     mqttClient.on("error", e => setStatus("MQTT: " + e.message, false));
     mqttClient.on("close", () => { if (mqttClient) setStatus("MQTT reconnecting…", false); });
     mqttClient.on("message", (topic, payload) => {
-      const s = payload.toString();
-      if (topic.endsWith("/telemetry")) handleLine(s);
-      else if (topic.endsWith("/fault")) { addEvent("fault " + s); allLines.push("[mqtt " + topic + "] " + s); scheduleLog(); }
-      else { allLines.push("[mqtt " + topic + "] " + s); scheduleLog(); }
+      const name = topic.split("/").pop(), b = new Uint8Array(payload);
+      let note = null;
+      if (name === "t") {
+        const j = decodeTlm(b);
+        if (!j) note = "bad telemetry frame, " + b.length + " bytes";
+        else {
+          if (lastSeq !== null && j.seq !== ((lastSeq + 1) & 255)) note = "telemetry gap: seq " + lastSeq + " -> " + j.seq;
+          lastSeq = j.seq; onTelemetry(j);
+        }
+      } else if (name === "f") {
+        const sev = b[0] >> 6, src = (b[0] >> 2) & 15, code = ((b[0] & 3) << 14) | (b[1] << 6) | (b[2] >> 2);
+        note = "fault S" + src + " " + (["non-critical", "recoverable", "CRITICAL"][sev] || sev) + " 0x" + code.toString(16);
+        addEvent(note);
+      } else if (name === "ack") {
+        note = "ack " + (["sent", "busy", "rejected"][b[0] >> 6] || "?") + " seq " + (b[0] & 63);
+        addEvent(note);
+      } else if (name === "status") note = b[0] === 1 ? "robot online" : "robot OFFLINE";
+      else if (name === "heartbeat") return;
+      else note = Array.from(b).map(x => x.toString(16).padStart(2, "0")).join(" ");
+      if (note) { allLines.push("[mqtt " + name + "] " + note); scheduleLog(); }
     });
   };
   function mqttUi(on) {
@@ -391,9 +408,38 @@ canvas { width: 100%; height: 90px; display: block; }
   }
   document.querySelectorAll(".cmd").forEach(b => b.onclick = () => {
     if (b.dataset.cmd === "start" && !confirm("Start the mission? The wheels will turn.")) return;
-    mqttClient && mqttClient.publish("robot/g10/cmd", b.dataset.cmd);
-    addEvent("sent " + b.dataset.cmd);
+    const code = CMD_CODES[b.dataset.cmd];
+    cmdSeq = (cmdSeq + 1) & 63;
+    mqttClient && mqttClient.publish("robot/g10/cmd", new Uint8Array([(code << 6) | cmdSeq]));
+    addEvent("sent " + b.dataset.cmd + " seq " + cmdSeq);
   });
+
+  /* ---------- binary telemetry (layout: app_program/subsystem1/s1_codec.h) ---------- */
+  const STATES = ["IDLE", "MISSION_START", "FOLLOW_LINE", "LOST_LINE", "AVOID_OBSTACLE", "DECODE_BARCODE",
+                  "EXECUTE_ACTION", "TERRAIN_CHECK", "FAULT", "MISSION_COMPLETE"];
+  const CMD_CODES = { start: 0, stop: 1, pause: 2, resume: 3 };
+  /* placeholder scales: keep in step with s1_codec.h */
+  const SPEED_STEP = 4, LINE_STEP = 8, PITCH_STEP = 50, HUMP_STEP = 500;
+  let lastSeq = null, cmdSeq = 0;
+  function decodeTlm(b) {
+    if (b.length !== 14) return null;
+    let pos = 0;
+    const u = n => { let v = 0; for (let i = 0; i < n; i++, pos++) v = v * 2 + ((b[pos >> 3] >> (7 - (pos & 7))) & 1); return v; };
+    const s = n => { const v = u(n); return v >= 2 ** (n - 1) ? v - 2 ** n : v; };
+    if (u(3) !== 1) return null;				/* protocol version */
+    const j = {};
+    j.seq = u(8); j.st = STATES[u(4)] || "?";
+    j.v = [s(8) * SPEED_STEP, s(8) * SPEED_STEP];
+    j.odo = u(16); j.line = s(8) * LINE_STEP;
+    const cm = u(7), det = u(1); u(2);				/* obstacle direction not used yet */
+    j.us = cm === 127 ? 0 : cm * 10; j.obs = det ? 2 : 1;
+    j.nav = u(3); j.bc = u(4);
+    j.pitch = s(8) * PITCH_STEP;
+    j.hump = u(6) * HUMP_STEP / 1000; j.maxhump = u(6) * HUMP_STEP / 1000;
+    j.fault = u(16); j.wifi = u(1); j.paused = u(1);
+    if (j.paused) j.st += " (paused)";
+    return j;
+  }
 
   renderTests(); drawAll();
 })();

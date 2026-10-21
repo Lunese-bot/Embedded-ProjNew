@@ -135,11 +135,12 @@ What students can do:
   ```
 - **Exchange application data with the existing MQTT service** through
   `app_program/subsystem1/`; application tasks never call lwIP or MQTT
-  directly. Any task queues a telemetry/event line with `s1_post()` into the
+  directly. Any task queues a binary message with `s1_post()` into the
   bounded `mbf_telemetry` buffer. The service polls it every 100 ms without
-  waiting (up to 4 lines per poll) and publishes under `robot/g10/`. If the
-  queue is full the oldest line is dropped and counted. `robot/g10/cmd`
-  commands go to the Vehicle Controller as events (`start`, `stop`, `reset`).
+  waiting (up to 4 messages per poll) and publishes under `robot/g10/`. If the
+  queue is full the oldest message is dropped and counted. `robot/g10/cmd`
+  commands (one byte) go to the Vehicle Controller as events (`start`, `stop`,
+  `pause`, `resume`). Formats: `app_program/subsystem1/s1_codec.h`.
   This bridge requires `NET=lwip MQTT=1`.
 
 ## 4. Task priorities
@@ -166,8 +167,8 @@ sends to it or waits on it. Agree on the data format before coding.
 
 | ID | From → To | Mechanism | Object ID name | Data / meaning | Agreed by |
 |---|---|---|---|---|---|
-| IF-T1 | any → S1 | message buffer (owned by S1) | `mbf_telemetry`, `s1_post()` | topic suffix + text; drained by `mqtt_utk.c` with `TMO_POL` | |
-| IF-T2 | S1 → S6 | S6's event buffer | `vc_post_event(VC_SRC_COMMS, ...)` | MQTT `robot/g10/cmd`: `start` / `stop` / `reset`; WiFi up/down | |
+| IF-T1 | any → S1 | message buffer (owned by S1) | `mbf_telemetry`, `s1_post(topic, data, len)` | topic suffix + packed bytes (`s1_codec.h`); drained by `mqtt_utk.c` with `TMO_POL` | |
+| IF-T2 | S1 → S6 | S6's event buffer | `vc_post_event(VC_SRC_COMMS, ...)` | MQTT `robot/g10/cmd` byte: start / stop / pause / resume; WiFi up/down | |
 | IF-M1 | S6 → S2 | message buffer (owned by S2) | `mbf_motion_cmd` | `MOTION_CMD`, or `s2_cmd_drive/drive_dist/turn/stop/reset()` | |
 | IF-M2 | S2 → anyone | shared data under mutex (owned by S2) | `mtx_motion`, `s2_get_status()` | `MOTION_STATUS` | |
 | IF-M3 | S2 → S6 | event flag (owned by S2) | `flg_motion` | `MFLG_CMD_DONE`, `_STOPPED`, `_SAFE_STOPPED`, `_FAULT`, `_CMD_TIMEOUT` | |
@@ -185,7 +186,7 @@ sends to it or waits on it. Agree on the data format before coding.
 | IF-S5d | S3 → S5 | function overriding S5's weak hook | `s5_port_line_detected()` | TRUE when an IR sensor sees black | |
 | IF-06 | any → S6 | message buffer (owned by S6) | `mbf_vc_events`, `vc_post_event()` | `VC_EVENT` in `vc_types.h` | |
 | IF-07 | S6 → anyone | shared data under mutex + event flag (owned by S6) | `mtx_vc_status`, `flg_vc_state` | `VC_STATUS`, via `vc_get_status()` | |
-| IF-08 | S6 → S1 | S1's telemetry buffer | `s1_post("fault", ...)` in `vc_port_report()` | fault reports to MQTT `robot/g10/fault` | |
+| IF-08 | S6 → S1 | S1's telemetry buffer | `s1_post("f", ...)` in `vc_port_report()` | 3-byte fault frame to MQTT `robot/g10/f` | |
 
 Each interface is tested by at least one integration test
 (`testing/integration/TEST_LOG.md`).

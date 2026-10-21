@@ -38,6 +38,8 @@
  * connected, "offline" published by the broker as the last will. */
 #define MQTT_UTK_TOPIC_HEARTBEAT	S1_TOPIC_ROOT "heartbeat"
 #define MQTT_UTK_TOPIC_STATUS		S1_TOPIC_ROOT "status"
+#define MQTT_UTK_STATUS_ONLINE		"\001"	/* S1_STATUS_ONLINE  */
+#define MQTT_UTK_STATUS_OFFLINE		"\002"	/* S1_STATUS_OFFLINE */
 
 /* Inbound message staging. A publish arrives as one topic callback followed by
  * one or more data callbacks, so the topic has to be kept until the fragment
@@ -104,7 +106,8 @@ static void incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
 
 	if((flags & MQTT_DATA_FLAG_LAST) != 0) {
 		rx_data[rx_len] = '\0';
-		tm_printf((UB*)"mqtt: RX [%s] \"%s\"%s\n", rx_topic, rx_data,
+		tm_printf((UB*)"mqtt: RX [%s] %d byte(s), first 0x%02x%s\n", rx_topic,
+			  (int)rx_len, (unsigned)rx_data[0],
 			  rx_truncated? " (truncated)": "");
 		if(topic_is(rx_topic, S1_TOPIC_CMD)) {
 			s1_bridge_on_command((const char *)rx_data, (int)rx_len);
@@ -133,26 +136,20 @@ static void publish_done_cb(void *arg, err_t result)
 static void heartbeat_timeout(void *arg)
 {
 	static unsigned int	count = 0;
-	UB			payload[48];
-	int			len;
+	UB			payload[1];
 	err_t			err;
 
 	(void)arg;
 
 	if(mqtt_client_is_connected(client)) {
-		len = tm_sprintf(payload,
-				 (const UB*)"{\"status\":\"online\",\"seq\":%u}",
-				 count++);
-		if(len > 0 && len < sizeof(payload)) {
-			err = mqtt_publish(client, MQTT_UTK_TOPIC_HEARTBEAT, payload,
-					   (u16_t)len, 0 /* qos */, 0 /* retain */,
-					   publish_done_cb, NULL);
-			if(err != ERR_OK) {
-				tm_printf((UB*)"mqtt: heartbeat enqueue failed, err=%d\n",
-					  (int)err);
-			}
-		} else {
-			tm_printf((UB*)"mqtt: heartbeat formatting failed\n");
+		/* one byte: rolling counter, a gap means the link stalled */
+		payload[0] = (UB)(count++ & 0xFF);
+		err = mqtt_publish(client, MQTT_UTK_TOPIC_HEARTBEAT, payload,
+				   1, 0 /* qos */, 0 /* retain */,
+				   publish_done_cb, NULL);
+		if(err != ERR_OK) {
+			tm_printf((UB*)"mqtt: heartbeat enqueue failed, err=%d\n",
+				  (int)err);
 		}
 	}
 
@@ -166,7 +163,7 @@ static void heartbeat_timeout(void *arg)
  * task keeps servicing the radio. Re-arms itself like the heartbeat. */
 static void telemetry_timeout(void *arg)
 {
-	static char	topic[S1_BRIDGE_TOPIC_MAX];
+	static char	topic[S1_BRIDGE_FULL_TOPIC_MAX];
 	static char	payload[S1_BRIDGE_LINE_MAX];
 	int		i, len;
 
@@ -223,7 +220,7 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
 		 * never publishes obsolete vehicle state. */
 		s1_bridge_set_connected(1);
 
-		(void)mqtt_publish(client, MQTT_UTK_TOPIC_STATUS, "online", 6,
+		(void)mqtt_publish(client, MQTT_UTK_TOPIC_STATUS, MQTT_UTK_STATUS_ONLINE, 1,
 				   0 /* qos */, 1 /* retain */,
 				   publish_done_cb, NULL);
 
@@ -271,7 +268,7 @@ void mqtt_utk_start(void)
 	client_info.client_id = MQTT_CLIENT_ID;
 	client_info.keep_alive = MQTT_UTK_KEEPALIVE_S;
 	client_info.will_topic = MQTT_UTK_TOPIC_STATUS;
-	client_info.will_msg = "offline";
+	client_info.will_msg = MQTT_UTK_STATUS_OFFLINE;	/* 1 byte */
 	client_info.will_qos = 0;
 	client_info.will_retain = 1;
 

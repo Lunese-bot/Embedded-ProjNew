@@ -46,26 +46,35 @@ EXPORT ER subsystem1_start(void)
 	return (cyc_telemetry < E_OK) ? cyc_telemetry : E_OK;
 }
 
-/* IF-T1 */
-EXPORT ER s1_post(const char *topic, const char *text)
+/* IF-T1: stored as "<topic suffix>\0<payload bytes>" */
+EXPORT ER s1_post(const char *topic, const void *data, INT len)
 {
-	char	line[S1_LINE_MAX];
+	UB	line[S1_LINE_MAX];
+	const UB *src = (const UB *)data;
 	INT	k = 0, i;
 	ER	er;
 
-	for (i = 0; topic[i] != '\0' && k < S1_BRIDGE_TOPIC_MAX; i++) {
-		line[k++] = topic[i];
+	if (len < 1) {
+		return E_PAR;
+	}
+	for (i = 0; topic[i] != '\0'; i++) {
+		if (k >= S1_BRIDGE_TOPIC_MAX) {
+			return E_PAR;
+		}
+		line[k++] = (UB)topic[i];
+	}
+	if (k + 1 + len > S1_LINE_MAX) {
+		return E_PAR;
 	}
 	line[k++] = '\0';
-	for (i = 0; text[i] != '\0' && k < S1_LINE_MAX - 1; i++) {
-		line[k++] = text[i];
+	for (i = 0; i < len; i++) {
+		line[k++] = src[i];
 	}
-	line[k++] = '\0';
 
 	er = tk_snd_mbf(mbf_telemetry, line, k, TMO_POL);
 	if (er < E_OK) {
 		/* full: drop the OLDEST line so telemetry stays fresh */
-		char	old[S1_LINE_MAX];
+		UB	old[S1_LINE_MAX];
 		(void)tk_rcv_mbf(mbf_telemetry, old, TMO_POL);
 		s1_stat.dropped++;
 		er = tk_snd_mbf(mbf_telemetry, line, k, TMO_POL);

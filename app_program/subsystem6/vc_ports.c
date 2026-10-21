@@ -87,13 +87,12 @@ EXPORT ER vc_port_report(VC_SOURCE src, VC_FAULT_SEVERITY sev, UW code)
 
 	vc_port_log.reports++;
 
-	/* Fault message to MQTT (robot/g10/fault) through S1's queue;
+	/* Fault message to MQTT (robot/g10/f, 3 bytes) through S1's queue;
 	 * s1_post() never blocks, so the controller cannot stall (FR8). */
 	{
-		UB	msg[64];
-		tm_sprintf(msg, (const UB*)"{\"src\":%d,\"sev\":%d,\"code\":%u}",
-			   (INT)src, (INT)sev, (unsigned)code);
-		(void)s1_post("fault", (const char *)msg);
+		UB	msg[S1_FAULT_BYTES];
+		s1_fault_encode((INT)sev, (INT)src, (uint32_t)code, msg);
+		(void)s1_post("f", msg, S1_FAULT_BYTES);
 	}
 	tm_printf((UB*)"vc: fault from S%d  %s  code 0x%04x\n", (INT)src,
 		  ((UINT)sev <= 2U) ? sev_names[sev] : "?", code);

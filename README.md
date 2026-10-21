@@ -254,19 +254,25 @@ They need the SDK's `lib/lwip` submodule and a local
 `config/wifi_secrets.h` copied from `config/wifi_secrets.example.h`.
 
 Buddy 1's application interface lives in `app_program/subsystem1/`.
-Any task queues a message with `s1_post(topic, text)`; the telemetry task
-posts a JSON status line to `robot/g10/telemetry` every 200 ms. The existing
+Any task queues a binary message with `s1_post(topic, data, len)`; the
+telemetry task posts a packed 14-byte frame to `robot/g10/t` every 200 ms
+(layout, widths and scales in `app_program/subsystem1/s1_codec.h`; the scales
+are placeholders until agreed). Faults go to `robot/g10/f` (3 bytes). The existing
 `cyw43_utk_task()` alone calls lwIP/MQTT: it polls the queue every 100 ms,
-publishes the lines under `robot/g10/`, sends a heartbeat to
+publishes the messages under `robot/g10/`, sends a 1-byte rolling counter to
 `robot/g10/heartbeat` every 5 s, and listens on `robot/g10/cmd`. A retained
-`robot/g10/status` topic reads `online` while connected and `offline` (MQTT
-last will) otherwise; the keepalive is 15 s, so a dead broker is noticed in
-about that time. Telemetry queued while offline is discarded on reconnect.
-Commands (`start`, `stop`, `reset`) are forwarded to the Vehicle Controller
-as events and answered on `robot/g10/ack` with `{"cmd":"start","res":"sent"}`
-(`busy` if the controller queue is full, `{"cmd":"?","res":"rejected"}` for
-anything else). `sent` means queued; the `st` field of the telemetry shows
-whether the controller acted on it.
+1-byte `robot/g10/status` reads 1 (online) while connected and 2 (offline,
+MQTT last will) otherwise; the keepalive is 15 s, so a dead broker is noticed
+in about that time. Telemetry queued while offline is discarded on reconnect.
+A command is one byte: 2-bit code (0 start, 1 stop, 2 pause, 3 resume) and a
+6-bit sequence. It is forwarded to the Vehicle Controller as an event and
+answered on `robot/g10/ack` with one byte: 2-bit result (0 sent, 1 busy,
+2 rejected) and the command's sequence. `sent` means queued; the state in the
+telemetry shows whether the controller acted on it. Resume in FAULT or
+MISSION_COMPLETE acts as a remote reset to IDLE. The USB console still prints
+a readable JSON line once a second while MQTT is down (used by
+`tools/dashboard.html`). The codec has PC tests:
+`make -C testing/subsystem1/host_test`.
 The queue is bounded; when full the oldest line is dropped and counted. Use
 `make SMP=1 WIFI=cyw43 NET=lwip MQTT=1` for this profile. The current MQTT
 transport is plain TCP, so use only on a trusted test network; it is not

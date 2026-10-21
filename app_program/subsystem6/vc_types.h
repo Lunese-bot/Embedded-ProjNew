@@ -70,6 +70,8 @@ typedef enum {
 	VC_EV_CMD_START,	/* start the mission */
 	VC_EV_CMD_STOP,		/* stop: go to FAULT (operator stop) */
 	VC_EV_CMD_RESET,	/* acknowledge fault, back to IDLE */
+	VC_EV_CMD_PAUSE,	/* hold still, timers frozen */
+	VC_EV_CMD_RESUME,	/* continue; in FAULT/COMPLETE: back to IDLE */
 	VC_EV_WIFI_DOWN,	/* non-critical: keep navigating */
 	VC_EV_WIFI_UP,
 
@@ -185,6 +187,7 @@ typedef struct {
 	UW			events_handled;
 	UW			moves_rejected;	/* requests from a non-owner */
 	BOOL			wifi_up;
+	BOOL			paused;		/* operator pause active */
 } VC_STATUS;
 
 #endif /* VC_TYPES_H */
