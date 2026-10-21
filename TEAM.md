@@ -18,20 +18,12 @@ subsystem, ask its owner or open a pull request for them to review.
 
 | # | Subsystem (what it does) | Student ID | GitHub username | Code | Tests |
 |---|---|---|---|---|---|
-<<<<<<< HEAD
-| 1 | *example:* LED heartbeat on GP19 | | | `app_program/subsystem1/` | `testing/subsystem1/` |
-| 2 | *example:* Producer: makes a sample every 300 ms | | | `app_program/subsystem2/` | `testing/subsystem2/` |
-| 3 | *example:* Consumer: collects samples into statistics | | | `app_program/subsystem3/` | `testing/subsystem3/` |
-| 4 | *example:* Monitor: prints reports, pauses the LED | | | `app_program/subsystem4/` | `testing/subsystem4/` |
-| 5 | Buddy 1: Wi-Fi/MQTT application interface | | | `app_program/subsystem5/` | `testing/subsystem5/` |
-=======
 | 1 | WiFi communication, remote commands, MQTT telemetry | 2500577 | | `app_program/subsystem1/` | `testing/subsystem1/` |
 | 2 | Motion control: motors, encoders, PID | 2503000 | | `app_program/subsystem2/` | `testing/subsystem2/` |
 | 3 | IR line following + barcode navigation | 2500193 | | `app_program/subsystem3/` | `testing/subsystem3/` |
 | 4 | IMU motion and terrain monitoring (LSM303DLHC) | 2500366 | | `app_program/subsystem4/` | `testing/subsystem4/` |
 | 5 | Ultrasonic obstacle detection and avoidance | 2503330 | | `app_program/subsystem5/` | `testing/subsystem5/` |
 | 6 | Vehicle Controller: mission state, sole movement authority (team) | | | `app_program/subsystem6/` | `testing/subsystem6/` |
->>>>>>> test
 
 Shared files (`app_program/app_main.c`, `app_program/app.h`, this file)
 are changed only by agreement of the team. The exception is claiming an empty
@@ -174,15 +166,6 @@ sends to it or waits on it. Agree on the data format before coding.
 
 | ID | From → To | Mechanism | Object ID name | Data / meaning | Agreed by |
 |---|---|---|---|---|---|
-<<<<<<< HEAD
-| IF-01 | S2 → S3 | mailbox (owned by S3) | `mbx_samples` | `SAMPLE_MSG` in `subsystem2.h` | *example* |
-| IF-02 | S3 → S2 | semaphore + fixed memory pool (owned by S2) | `sem_slots`, `mpf_samples` | receiver returns the block, then 1 slot | *example* |
-| IF-03 | S3 → S4 | message buffer + event flag (owned by S4) | `mbf_summary`, `flg_events` | text line ≤ `S4_SUMMARY_MAX` bytes, then `FLG_BATCH` | *example* |
-| IF-04 | S4 → S3 | shared data under a mutex (owned by S3) | `app_stats`, `mtx_stats` | `APP_STATS`, read only while locked | *example* |
-| IF-05 | S4 → S1 | task control | `tid_led` | `tk_sus_tsk` / `tk_rsm_tsk` / `tk_chg_pri` | *example* |
-| IF-06 | Vehicle Controller / sensor tasks → MQTT service | message buffer (owned by S5) | `mbf_telemetry` | `BUDDY1_TELEMETRY` snapshot; bounded queue, drop is returned to sender | Buddy 1 |
-| IF-07 | MQTT service → Vehicle Controller | message buffer (owned by S5) | `mbf_commands` | validated `BUDDY1_COMMAND`; exact payload allowlist | Buddy 1 |
-=======
 | IF-T1 | any → S1 | message buffer (owned by S1) | `mbf_telemetry`, `s1_post()` | topic suffix + text; drained by `mqtt_utk.c` with `TMO_POL` | |
 | IF-T2 | S1 → S6 | S6's event buffer | `vc_post_event(VC_SRC_COMMS, ...)` | MQTT `robot/g10/cmd`: `start` / `stop` / `reset`; WiFi up/down | |
 | IF-M1 | S6 → S2 | message buffer (owned by S2) | `mbf_motion_cmd` | `MOTION_CMD`, or `s2_cmd_drive/drive_dist/turn/stop/reset()` | |
@@ -203,7 +186,6 @@ sends to it or waits on it. Agree on the data format before coding.
 | IF-06 | any → S6 | message buffer (owned by S6) | `mbf_vc_events`, `vc_post_event()` | `VC_EVENT` in `vc_types.h` | |
 | IF-07 | S6 → anyone | shared data under mutex + event flag (owned by S6) | `mtx_vc_status`, `flg_vc_state` | `VC_STATUS`, via `vc_get_status()` | |
 | IF-08 | S6 → S1 | S1's telemetry buffer | `s1_post("fault", ...)` in `vc_port_report()` | fault reports to MQTT `robot/g10/fault` | |
->>>>>>> test
 
 Each interface is tested by at least one integration test
 (`testing/integration/TEST_LOG.md`).
@@ -213,20 +195,6 @@ Each interface is tested by at least one integration test
 Limits are set in `config/config.h`. If the team needs more, raise the
 limit there. The numbers below are the robot's usage.
 
-<<<<<<< HEAD
-| Object | Limit | S1 | S2 | S3 | S4 | S5 |
-|---|---|---|---|---|---|---|
-| Task | 32 | 1 | 1 | 1 | 1 | |
-| Semaphore | 16 | | 1 | | | |
-| Event flag | 16 | | | | 1 | |
-| Mailbox | 12 | | | 1 | | |
-| Mutex | 12 | | | 1 | | |
-| Message buffer | 12 | | | | 1 | 2 |
-| Fixed memory pool | 12 | | 1 | | | |
-| Variable memory pool | 12 | | | | | |
-| Cyclic handler | 12 | 1 | | | | |
-| Alarm handler | 12 | | | | 1 | |
-=======
 | Object | Limit | S1 | S2 | S3 | S4 | S5 | S6 |
 |---|---|---|---|---|---|---|---|
 | Task | 32 | 1 | 1 (+1 demo) | 2 | 1 | 2 | 1 |
@@ -239,6 +207,5 @@ limit there. The numbers below are the robot's usage.
 | Variable memory pool | 12 | | | | | | |
 | Cyclic handler | 12 | 1 | 1 | 1 | 1 | | |
 | Alarm handler | 12 | | | | | | |
->>>>>>> test
 
 (The kernel's USB and WiFi service tasks also use a few of these.)
