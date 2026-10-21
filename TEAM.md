@@ -1,7 +1,8 @@
 # Team and subsystems
 
-The tables are pre-filled with the **example** in `app_program/` (marked
-*example*). Replace those rows with your own as you replace the example code.
+The tables below are filled in from the robot base code (five buddy
+subsystems plus the Vehicle Controller in `subsystem6/`). Keep them up to
+date as the code changes.
 
 Fill this in at the start of the project and keep it up to date. It is the
 single place that says **who owns what**, so that five people can work in
@@ -17,11 +18,20 @@ subsystem, ask its owner or open a pull request for them to review.
 
 | # | Subsystem (what it does) | Student ID | GitHub username | Code | Tests |
 |---|---|---|---|---|---|
+<<<<<<< HEAD
 | 1 | *example:* LED heartbeat on GP19 | | | `app_program/subsystem1/` | `testing/subsystem1/` |
 | 2 | *example:* Producer: makes a sample every 300 ms | | | `app_program/subsystem2/` | `testing/subsystem2/` |
 | 3 | *example:* Consumer: collects samples into statistics | | | `app_program/subsystem3/` | `testing/subsystem3/` |
 | 4 | *example:* Monitor: prints reports, pauses the LED | | | `app_program/subsystem4/` | `testing/subsystem4/` |
 | 5 | Buddy 1: Wi-Fi/MQTT application interface | | | `app_program/subsystem5/` | `testing/subsystem5/` |
+=======
+| 1 | WiFi communication, remote commands, MQTT telemetry | 2500577 | | `app_program/subsystem1/` | `testing/subsystem1/` |
+| 2 | Motion control: motors, encoders, PID | 2503000 | | `app_program/subsystem2/` | `testing/subsystem2/` |
+| 3 | IR line following + barcode navigation | 2500193 | | `app_program/subsystem3/` | `testing/subsystem3/` |
+| 4 | IMU motion and terrain monitoring (LSM303DLHC) | 2500366 | | `app_program/subsystem4/` | `testing/subsystem4/` |
+| 5 | Ultrasonic obstacle detection and avoidance | 2503330 | | `app_program/subsystem5/` | `testing/subsystem5/` |
+| 6 | Vehicle Controller: mission state, sole movement authority (team) | | | `app_program/subsystem6/` | `testing/subsystem6/` |
+>>>>>>> test
 
 Shared files (`app_program/app_main.c`, `app_program/app.h`, this file)
 are changed only by agreement of the team. The exception is claiming an empty
@@ -48,31 +58,31 @@ fixed.
 | Pin | Owner | Used for |
 |---|---|---|
 | GP23, GP24, GP25, GP29 | *reserved* | Pico W radio |
-| GP0 | | (taken whenever the team builds with `CRASH_REPORT=1`) |
-| GP1 | | (taken whenever the team builds with `CRASH_REPORT=1`) |
-| GP2 | | |
-| GP3 | | |
-| GP4 | | |
-| GP5 | | |
-| GP6 | | |
+| GP0 | S4 | I2C0 SDA, IMU (clashes with `CRASH_REPORT=1`: unplug the IMU for those builds) |
+| GP1 | S4 | I2C0 SCL, IMU (clashes with `CRASH_REPORT=1`) |
+| GP2 | | (Grove 2, left free by S2) |
+| GP3 | S2 | right wheel encoder (PWM slice 1 B counter) |
+| GP4 | | (Grove 3, left free by S2) |
+| GP5 | S2 | left wheel encoder (PWM slice 2 B counter) |
+| GP6 | S3 | IR_L, barcode sensor (digital in) |
 | GP7 | | |
-| GP8 | | |
-| GP9 | | |
-| GP10 | | |
-| GP11 | | |
-| GP12 | | |
+| GP8 | S2 | left motor M1A (PWM slice 4) |
+| GP9 | S2 | left motor M1B (PWM slice 4) |
+| GP10 | S2 | right motor M2A (PWM slice 5) |
+| GP11 | S2 | right motor M2B (PWM slice 5) |
+| GP12 | S5 | scan servo (PWM slice 6 A, 50 Hz; GP13 shares the slice) |
 | GP13 | | |
 | GP14 | | |
 | GP15 | | |
-| GP16 | | |
-| GP17 | | |
+| GP16 | S5 | ultrasonic ECHO (input, via 5 V → 3.3 V divider) |
+| GP17 | S5 | ultrasonic TRIG (output) |
 | GP18 | | |
-| GP19 | *example:* S1 | external LED (LED + 330 Ω to GND) |
+| GP19 | | |
 | GP20 | | |
 | GP21 | | |
 | GP22 | | |
-| GP26 | | (ADC0 capable) |
-| GP27 | | (ADC1 capable) |
+| GP26 | S3 | IR_C, line position (digital in, or ADC0 when `S3_IR_USE_ADC=1`) |
+| GP27 | S3 | IR_R, line position (digital in, or ADC1 when `S3_IR_USE_ADC=1`) |
 | GP28 | | (ADC2 capable) |
 
 ## 3. Peripherals
@@ -106,13 +116,15 @@ the drivers have no locking to stop it.
 | Peripheral | Owner subsystem | Owning task | Pins |
 |---|---|---|---|
 | UART1 | | | |
-| I2C0 | | | |
+| I2C0 (kernel `iica` driver) | S4 | `imu_task` | GP0, GP1 |
 | I2C1 | | | |
 | SPI0 | | | |
 | SPI1 | | | |
-| ADC | | | GP26–GP28 |
-| PWM slices (list) | | | |
-| WiFi radio, TCP/IP, MQTT | *kernel* | `cyw43_utk_task` (built in) | GP23–25, GP29 |
+| ADC (only when `S3_IR_USE_ADC=1`) | S3 | `line_task` | GP26, GP27 |
+| PWM slices 1, 2 (encoder counters), 4, 5 (motors) | S2 | `motion_task` | GP3, GP5, GP8–GP11 |
+| PWM slice 6 | S5 | `s5_scan_task` | GP12 |
+| TIMER (read only, TIMERAWL) | shared, read only | S3 `line_task`, S5 `s5_scan_task` | — |
+| WiFi radio, TCP/IP, MQTT | *kernel* | `cyw43_utk_task` (built in); S1 code runs inside it via `mqtt_utk.c` → `s1_bridge.c` | GP23–25, GP29 |
 
 ### WiFi and MQTT are special
 
@@ -145,11 +157,12 @@ change it only by team agreement. Write down every task you create.
 
 | Subsystem | Priority band | Tasks (name – priority – core) |
 |---|---|---|
-| 1 | 12–13 | *example:* led_task – 12 – any |
-| 2 | 14–15 | *example:* producer_task – 14 – core 1 |
-| 3 | 16–17 | *example:* consumer_task – 16 – core 0 |
-| 4 | 18–19 | *example:* monitor_task – 18 – any |
-| 5 | 20–21 | |
+| 6 | 10–11 (**proposed**) | vehicle_ctrl – 10 – any |
+| 1 | 12–13 | telemetry_task – 12 – any |
+| 2 | 14–15 | motion_task – 14 – core 1; optional s2_demo_task – 15 – any (`S2_DEMO`) |
+| 3 | 16–17 | line_task – 16 – core 0; barcode_task – 17 – core 0 |
+| 4 | 18–19 | imu_task – 18 – core 1 |
+| 5 | 20–21 | s5_avoid_task – 20 – any; s5_scan_task – 21 – any (design review rates these High: team to agree) |
 
 Core: `TP_PRC1` = core 0, `TP_PRC2` = core 1, or "any".
 
@@ -161,6 +174,7 @@ sends to it or waits on it. Agree on the data format before coding.
 
 | ID | From → To | Mechanism | Object ID name | Data / meaning | Agreed by |
 |---|---|---|---|---|---|
+<<<<<<< HEAD
 | IF-01 | S2 → S3 | mailbox (owned by S3) | `mbx_samples` | `SAMPLE_MSG` in `subsystem2.h` | *example* |
 | IF-02 | S3 → S2 | semaphore + fixed memory pool (owned by S2) | `sem_slots`, `mpf_samples` | receiver returns the block, then 1 slot | *example* |
 | IF-03 | S3 → S4 | message buffer + event flag (owned by S4) | `mbf_summary`, `flg_events` | text line ≤ `S4_SUMMARY_MAX` bytes, then `FLG_BATCH` | *example* |
@@ -168,6 +182,28 @@ sends to it or waits on it. Agree on the data format before coding.
 | IF-05 | S4 → S1 | task control | `tid_led` | `tk_sus_tsk` / `tk_rsm_tsk` / `tk_chg_pri` | *example* |
 | IF-06 | Vehicle Controller / sensor tasks → MQTT service | message buffer (owned by S5) | `mbf_telemetry` | `BUDDY1_TELEMETRY` snapshot; bounded queue, drop is returned to sender | Buddy 1 |
 | IF-07 | MQTT service → Vehicle Controller | message buffer (owned by S5) | `mbf_commands` | validated `BUDDY1_COMMAND`; exact payload allowlist | Buddy 1 |
+=======
+| IF-T1 | any → S1 | message buffer (owned by S1) | `mbf_telemetry`, `s1_post()` | topic suffix + text; drained by `mqtt_utk.c` with `TMO_POL` | |
+| IF-T2 | S1 → S6 | S6's event buffer | `vc_post_event(VC_SRC_COMMS, ...)` | MQTT `robot/g10/cmd`: `start` / `stop` / `reset`; WiFi up/down | |
+| IF-M1 | S6 → S2 | message buffer (owned by S2) | `mbf_motion_cmd` | `MOTION_CMD`, or `s2_cmd_drive/drive_dist/turn/stop/reset()` | |
+| IF-M2 | S2 → anyone | shared data under mutex (owned by S2) | `mtx_motion`, `s2_get_status()` | `MOTION_STATUS` | |
+| IF-M3 | S2 → S6 | event flag (owned by S2) | `flg_motion` | `MFLG_CMD_DONE`, `_STOPPED`, `_SAFE_STOPPED`, `_FAULT`, `_CMD_TIMEOUT` | |
+| — | any → S2 | function | `s2_emergency_stop()` | latched Safe Stop until `MOTION_RESET` | |
+| IF-31 | S3 → anyone | shared data under mutex (owned by S3) | `s3_get_line_status()`, `mtx_s3_status` | `S3_LINE_STATUS` | |
+| IF-32 | S3 → S6 | message buffer (owned by S3) | `mbf_s3_events` | `S3_EVENT`: line lost/found, junction, barcode start/decoded/failed | |
+| IF-33 | S6 → S3 | event flag (owned by S3) | `s3_request()`, `flg_s3_req` | `S3_REQ_CALIBRATE`, `_RESET_LINE`, `_BC_ENABLE/DISABLE/REARM` | |
+| IF-S4-1 | S4 → S6 | message buffer (owned by S4) | `mbf_imu_evt` | `IMU_EVENT_MSG`: hump, impact, tilt, faults (FR8 severity) | |
+| IF-S4-2 | S4 → anyone | shared data under mutex (owned by S4) | `s4_get_status()` | `IMU_STATUS` | |
+| IF-S4-3 | S2 → S4 | function (owned by S4) | `s4_set_speed_mm_s()` | measured speed every 10 ms, for hump height | |
+| IF-S4-4 | S6 → S4 | event flag (owned by S4) | `s4_request_calibration()`, `s4_request_peak_reset()` | requests | |
+| IF-S5a | S6 → S5 | message buffer (owned by S5) | `mbf_s5_cmd` | `S5_CMD` | |
+| IF-S5b | S5 → S6 | message buffer (owned by S5) | `mbf_s5_evt` | `S5_EVT` (incl. `S5_MOTION_REQ`) | |
+| IF-S5c | S5 → anyone | function + mutex | `s5_get_status()` | `S5_STATUS` | |
+| IF-S5d | S3 → S5 | function overriding S5's weak hook | `s5_port_line_detected()` | TRUE when an IR sensor sees black | |
+| IF-06 | any → S6 | message buffer (owned by S6) | `mbf_vc_events`, `vc_post_event()` | `VC_EVENT` in `vc_types.h` | |
+| IF-07 | S6 → anyone | shared data under mutex + event flag (owned by S6) | `mtx_vc_status`, `flg_vc_state` | `VC_STATUS`, via `vc_get_status()` | |
+| IF-08 | S6 → S1 | S1's telemetry buffer | `s1_post("fault", ...)` in `vc_port_report()` | fault reports to MQTT `robot/g10/fault` | |
+>>>>>>> test
 
 Each interface is tested by at least one integration test
 (`testing/integration/TEST_LOG.md`).
@@ -175,8 +211,9 @@ Each interface is tested by at least one integration test
 ## 6. Kernel object budget
 
 Limits are set in `config/config.h`. If the team needs more, raise the
-limit there. The numbers below are the example's usage.
+limit there. The numbers below are the robot's usage.
 
+<<<<<<< HEAD
 | Object | Limit | S1 | S2 | S3 | S4 | S5 |
 |---|---|---|---|---|---|---|
 | Task | 32 | 1 | 1 | 1 | 1 | |
@@ -189,5 +226,19 @@ limit there. The numbers below are the example's usage.
 | Variable memory pool | 12 | | | | | |
 | Cyclic handler | 12 | 1 | | | | |
 | Alarm handler | 12 | | | | 1 | |
+=======
+| Object | Limit | S1 | S2 | S3 | S4 | S5 | S6 |
+|---|---|---|---|---|---|---|---|
+| Task | 32 | 1 | 1 (+1 demo) | 2 | 1 | 2 | 1 |
+| Semaphore | 16 | | | | | | |
+| Event flag | 16 | | 1 | 1 | 1 | 1 | 1 |
+| Mailbox | 12 | | | | | | |
+| Mutex | 12 | | 1 | 1 | 1 | 1 | 1 |
+| Message buffer | 12 | 1 | 1 | 2 | 1 | 2 | 1 |
+| Fixed memory pool | 12 | | | | | | |
+| Variable memory pool | 12 | | | | | | |
+| Cyclic handler | 12 | 1 | 1 | 1 | 1 | | |
+| Alarm handler | 12 | | | | | | |
+>>>>>>> test
 
 (The kernel's USB and WiFi service tasks also use a few of these.)

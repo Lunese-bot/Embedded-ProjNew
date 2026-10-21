@@ -1,35 +1,80 @@
 /*
  *	subsystem1.c
- *	Subsystem 1 -- LED heartbeat: creates its objects and starts its task.
- *
- *	APIs shown: tk_cre_cyc, tk_sta_cyc
+ *	Subsystem 1 -- telemetry: objects, task start, IF-T1.
  */
 
 #include "subsystem1.h"
 
-EXPORT ID	tid_led;	/* IF-05, see subsystem1.h */
-EXPORT ID	cyc_led;
+EXPORT ID		tid_telemetry;
+EXPORT ID		mbf_telemetry;	/* IF-T1 */
+EXPORT COMMS_STATUS	s1_stat;
+
+LOCAL ID		cyc_telemetry;
+
+/* Cyclic handler: wake telemetry_task every S1_PERIOD_MS */
+LOCAL void telemetry_cyclic(void *exinf)
+{
+	(void)exinf;
+	tk_wup_tsk(tid_telemetry);
+}
 
 EXPORT ER subsystem1_init(void)
 {
-	T_CCYC	ccyc = {0};
+	T_CMBF	cmbf = {0};
 
-	/* Cyclic handler: once started, the kernel calls led_cyclic_handler
-	   every S1_TICK_MS.  Without TA_STA it is created stopped; it is
-	   started in subsystem1_start(), once the task it wakes exists. */
-	ccyc.cycatr = TA_HLNG;
-	ccyc.cychdr = (FP)led_cyclic_handler;
-	ccyc.cyctim = S1_TICK_MS;	/* period, ms */
-	ccyc.cycphs = S1_TICK_MS;	/* delay before the first call, ms */
-	cyc_led = tk_cre_cyc(&ccyc);
-	return (cyc_led < E_OK) ? cyc_led : E_OK;
+	cmbf.mbfatr = TA_TFIFO;
+	cmbf.bufsz  = S1_QUEUE_LINES * (S1_LINE_MAX / 2 + 4);	/* typical line */
+	cmbf.maxmsz = S1_LINE_MAX;
+	mbf_telemetry = tk_cre_mbf(&cmbf);
+	return (mbf_telemetry < E_OK) ? mbf_telemetry : E_OK;
 }
 
 EXPORT ER subsystem1_start(void)
 {
-	tid_led = app_start_task(led_task, S1_PRI_LED, 0, "led_task");
-	if (tid_led < E_OK) {
-		return tid_led;
+	T_CCYC	ccyc = {0};
+
+	tid_telemetry = app_start_task(telemetry_task, S1_PRI_TELEMETRY, 0,
+				       "telemetry_task");
+	if (tid_telemetry < E_OK) {
+		return tid_telemetry;
 	}
-	return tk_sta_cyc(cyc_led);	/* start the cyclic handler now */
+	ccyc.cycatr = TA_HLNG | TA_STA;
+	ccyc.cychdr = (FP)telemetry_cyclic;
+	ccyc.cyctim = S1_PERIOD_MS;
+	ccyc.cycphs = S1_PERIOD_MS;
+	cyc_telemetry = tk_cre_cyc(&ccyc);
+	return (cyc_telemetry < E_OK) ? cyc_telemetry : E_OK;
+}
+
+/* IF-T1 */
+EXPORT ER s1_post(const char *topic, const char *text)
+{
+	char	line[S1_LINE_MAX];
+	INT	k = 0, i;
+	ER	er;
+
+	for (i = 0; topic[i] != '\0' && k < S1_BRIDGE_TOPIC_MAX; i++) {
+		line[k++] = topic[i];
+	}
+	line[k++] = '\0';
+	for (i = 0; text[i] != '\0' && k < S1_LINE_MAX - 1; i++) {
+		line[k++] = text[i];
+	}
+	line[k++] = '\0';
+
+	er = tk_snd_mbf(mbf_telemetry, line, k, TMO_POL);
+	if (er < E_OK) {
+		/* full: drop the OLDEST line so telemetry stays fresh */
+		char	old[S1_LINE_MAX];
+		(void)tk_rcv_mbf(mbf_telemetry, old, TMO_POL);
+		s1_stat.dropped++;
+		er = tk_snd_mbf(mbf_telemetry, line, k, TMO_POL);
+	}
+	return er;
+}
+
+EXPORT ER s1_get_status(COMMS_STATUS *st)
+{
+	*st = s1_stat;
+	return E_OK;
 }

@@ -44,12 +44,14 @@ IMPORT ER subsystem2_init(void);
 IMPORT ER subsystem3_init(void);
 IMPORT ER subsystem4_init(void);
 IMPORT ER subsystem5_init(void);
+IMPORT ER subsystem6_init(void);	/* Vehicle Controller */
 
 IMPORT ER subsystem1_start(void);
 IMPORT ER subsystem2_start(void);
 IMPORT ER subsystem3_start(void);
 IMPORT ER subsystem4_start(void);
 IMPORT ER subsystem5_start(void);
+IMPORT ER subsystem6_start(void);
 
 #if APP_TEST
 IMPORT void subsystem1_test(void);
@@ -57,6 +59,7 @@ IMPORT void subsystem2_test(void);
 IMPORT void subsystem3_test(void);
 IMPORT void subsystem4_test(void);
 IMPORT void subsystem5_test(void);
+IMPORT void subsystem6_test(void);
 #endif
 
 /* Print a readable message if a kernel call failed (negative error code) */
