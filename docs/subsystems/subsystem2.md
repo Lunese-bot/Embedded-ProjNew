@@ -34,9 +34,9 @@ real robot yet.**
 
 | ID | From → To | Mechanism | Object | Data |
 |---|---|---|---|---|
-| IF-M1 | Vehicle Controller → S2 | message buffer (owned by S2) | `mbf_motion_cmd` | `MOTION_CMD`, or call `s2_cmd_drive/drive_dist/turn/stop/reset()` |
-| IF-M2 | S2 → anyone | shared data under mutex (owned by S2) | `mtx_motion` | `MOTION_STATUS` via `s2_get_status()` |
-| IF-M3 | S2 → Vehicle Controller | event flag (owned by S2) | `flg_motion` | `MFLG_CMD_DONE`, `MFLG_STOPPED`, `MFLG_SAFE_STOPPED`, `MFLG_FAULT`, `MFLG_CMD_TIMEOUT` |
+| IF-M1 | Vehicle Controller → S2 | message buffer (owned by S2) | `g_mbf_motion_cmd` | `motion_cmd_t`, or call `s2_cmd_drive/drive_dist/turn/stop/reset()` |
+| IF-M2 | S2 → anyone | shared data under mutex (owned by S2) | `g_mtx_motion` | `motion_status_t` via `s2_get_status()` |
+| IF-M3 | S2 → Vehicle Controller | event flag (owned by S2) | `g_flg_motion` | `MFLG_CMD_DONE`, `MFLG_STOPPED`, `MFLG_SAFE_STOPPED`, `MFLG_FAULT`, `MFLG_CMD_TIMEOUT` |
 | — | any task → S2 | function | `s2_emergency_stop()` | latched Safe Stop until `MOTION_RESET` |
 | IF-S4-3 | S2 → S4 | function (owned by S4) | `s4_set_speed_mm_s()` | measured vehicle speed, mm/s, every 10 ms, for hump height |
 
@@ -46,10 +46,10 @@ while subsystem 4 is the course example. Once the new subsystem 4 is
 installed, the call happens without any further change.
 
 Angles and steering use **+ = left (counter-clockwise)**, the same as
-subsystem 5's `S5_MOTION_REQ`, so the Vehicle Controller can forward
+subsystem 5's `s5_motion_req_t`, so the Vehicle Controller can forward
 obstacle-avoidance moves directly:
 
-| `S5_MOTION_REQ` | Vehicle Controller sends | Reply `S5_CMD_MOTION_DONE` when |
+| `s5_motion_req_t` | Vehicle Controller sends | Reply `S5_CMD_MOTION_DONE` when |
 |---|---|---|
 | `S5_MOVE_FORWARD` | `s2_cmd_drive_dist(speed, +distance)` | `MFLG_CMD_DONE` |
 | `S5_MOVE_REVERSE` | `s2_cmd_drive_dist(speed, -distance)` | `MFLG_CMD_DONE` |

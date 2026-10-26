@@ -1,21 +1,21 @@
 /*
- *	vc_bridge.h
- *	Subsystem 6 -- adapters for subsystems that publish their OWN
- *	event channel to the Vehicle Controller instead of calling
- *	vc_post_event().  Each bridge reads that channel (never blocking)
- *	and turns it into VC events, and turns controller requests into
- *	that subsystem's commands, so the state machine never changes.
- *	All calls come from vehicle_ctrl_task only.
+ *      vc_bridge.h
+ *      Subsystem 6 -- adapters for subsystems that publish their OWN
+ *      event channel to the Vehicle Controller instead of calling
+ *      vc_post_event().  Each bridge reads that channel (never blocking)
+ *      and turns it into VC events, and turns controller requests into
+ *      that subsystem's commands, so the state machine never changes.
+ *      All calls come from vehicle_ctrl_task only.
  *
- *	  S2 motion    vc_bridge_s2.c   mbf_motion_cmd (s2_cmd_*), flg_motion
- *	  S3 line      vc_bridge_s3.c   mbf_s3_events, s3_get_line_status, s3_request
- *	  S4 IMU       vc_bridge_s4.c   mbf_imu_evt, s4_request_*()
- *	  S5 obstacle  vc_bridge_s5.c   mbf_s5_evt / mbf_s5_cmd
+ *        S2 motion    vc_bridge_s2.c   g_mbf_motion_cmd (s2_cmd_*),
+ * g_flg_motion S3 line      vc_bridge_s3.c   g_mbf_s3_events,
+ * s3_get_line_status, s3_request S4 IMU       vc_bridge_s4.c   g_mbf_imu_evt,
+ * s4_request_*() S5 obstacle  vc_bridge_s5.c   g_mbf_s5_evt / g_mbf_s5_cmd
  *
- *	S1 (WiFi/MQTT) has no bridge yet: see vc_port_report/telemetry.
+ *      S1 (WiFi/MQTT) has no bridge yet: see vc_port_report/telemetry.
  *
- *	A bridge compiles to empty functions while that subsystem's folder
- *	still holds the original example/template, so S6 always builds.
+ *      A bridge compiles to empty functions while that subsystem's folder
+ *      still holds the original example/template, so S6 always builds.
  */
 
 #ifndef VC_BRIDGE_H
@@ -26,45 +26,47 @@
 /* ---- S2 motion control -------------------------------------------- */
 
 /* One authorised movement command (called by vc_port_move) */
-IMPORT ER vc_bridge_s2_move(VC_MOVE m, W value);
+extern ER vc_bridge_s2_move(vc_move_t move, int32_t value);
 
 /* Next S2 event (manoeuvre done, fault) as a VC event */
-IMPORT BOOL vc_bridge_s2_next(VC_EVENT *ev);
+extern bool vc_bridge_s2_next(vc_event_t * p_event);
 
 /* Controller request for S2 (called by vc_port_request) */
-IMPORT ER vc_bridge_s2_request(VC_REQUEST req, W arg);
+extern ER vc_bridge_s2_request(vc_request_t req, int32_t arg);
 
 /* ---- S3 line following + barcode ---------------------------------- */
 
 /* Next S3 event, or S3's latest steering as a move request while S3
    owns motion in `state` */
-IMPORT BOOL vc_bridge_s3_next(VC_EVENT *ev, VC_STATE state);
+extern bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state);
 
 /* Controller request for S3 (called by vc_port_request) */
-IMPORT ER vc_bridge_s3_request(VC_REQUEST req, W arg);
+extern ER vc_bridge_s3_request(vc_request_t req, int32_t arg);
 
 /* ---- S4 IMU terrain monitoring ------------------------------------ */
 
 /* Next S4 event as a VC event; FALSE when there is none */
-IMPORT BOOL vc_bridge_s4_next(VC_EVENT *ev);
+extern bool vc_bridge_s4_next(vc_event_t * p_event);
 
 /* Controller request for S4 (called by vc_port_request) */
-IMPORT ER vc_bridge_s4_request(VC_REQUEST req, W arg);
+extern ER vc_bridge_s4_request(vc_request_t req, int32_t arg);
 
 /* ---- S5 ultrasonic obstacle avoidance ----------------------------- */
 
 /* Next S5 event as a VC event; FALSE when there is none */
-IMPORT BOOL vc_bridge_s5_next(VC_EVENT *ev);
+extern bool vc_bridge_s5_next(vc_event_t * p_event);
 
 /* Call after the state machine handled an event from
    vc_bridge_s5_next().  rejected = the move request was refused. */
-IMPORT void vc_bridge_s5_after(const VC_EVENT *ev, VC_STATE state_after,
-			       BOOL rejected);
+extern void vc_bridge_s5_after(const vc_event_t * p_event,
+                               vc_state_t state_after, bool b_rejected);
 
 /* Motion Control finished (or failed) a manoeuvre while S5 owns motion */
-IMPORT void vc_bridge_s5_manoeuvre_done(BOOL ok);
+extern void vc_bridge_s5_manoeuvre_done(bool b_ok);
 
 /* Controller request for S5 (called by vc_port_request) */
-IMPORT ER vc_bridge_s5_request(VC_REQUEST req, W arg);
+extern ER vc_bridge_s5_request(vc_request_t req, int32_t arg);
 
 #endif /* VC_BRIDGE_H */
+
+/*** end of file ***/

@@ -1,0 +1,50 @@
+# Layout rules from the BARR-C:2018 Embedded C Coding Standard
+# (1.2 line width, 1.3 braces, 3.1 white space, 3.2 alignment,
+#  3.4 indentation, 3.5 no tabs).  Run: clang-format -i <file>
+Language:                         Cpp
+ColumnLimit:                      80
+IndentWidth:                      4
+ContinuationIndentWidth:          4
+UseTab:                           Never
+BreakBeforeBraces:                Allman
+InsertBraces:                     true
+IndentCaseLabels:                 true
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine:     false
+AllowShortFunctionsOnASingleLine: None
+AllowShortBlocksOnASingleLine:    Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine:     false
+PointerAlignment:                 Middle
+SpaceBeforeParens:                ControlStatements
+SpaceAfterCStyleCast:             false
+SpacesInParentheses:              false
+SpaceBeforeAssignmentOperators:   true
+AlignAfterOpenBracket:            Align
+AlignConsecutiveAssignments:
+  Enabled:          true
+  AcrossEmptyLines: false
+  AcrossComments:   true
+AlignConsecutiveDeclarations:
+  Enabled:          true
+  AcrossEmptyLines: false
+  AcrossComments:   true
+AlignConsecutiveMacros:
+  Enabled:          true
+  AcrossEmptyLines: false
+  AcrossComments:   true
+AlignEscapedNewlines:             Left
+AlignOperands:                    Align
+AlignTrailingComments:            true
+BinPackArguments:                 true
+BinPackParameters:                true
+BreakBeforeBinaryOperators:       None
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep:              1
+ReflowComments:                   true
+SortIncludes:                     Never
+IndentPPDirectives:               None
+SpacesBeforeTrailingComments:     1
+Cpp11BracedListStyle:             false
+PenaltyBreakComment:              20
+PenaltyExcessCharacter:           1000000

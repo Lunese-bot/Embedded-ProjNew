@@ -1,23 +1,22 @@
 /*
- *	line_algo.c
- *	Subsystem 3 -- line-position estimation, steering and line state
- *	(see line_algo.h).
+ *      line_algo.c
+ *      Subsystem 3 -- line-position estimation, steering and line state
+ *      (see line_algo.h).
  *
- *	Line state machine (Design Review 6.2, LineState in robot_types.h):
+ *      Line state machine (Design Review 6.2, line_state_t in robot_types.h):
  *
- *	  INIT --reset--> SEARCH --line seen FOUND_SAMPLES--> FOLLOW
- *	  FOLLOW --no line LOST_SAMPLES--> LOST --line seen--> FOLLOW
- *	  FOLLOW --all JUNCTION_MASK black JUNCTION_SAMPLES--> JUNCTION
- *	  JUNCTION --not all black--> FOLLOW
- *	  (CALIBRATE is set by task_line.c while a calibration runs)
+ *        INIT --reset--> SEARCH --line seen FOUND_SAMPLES--> FOLLOW
+ *        FOLLOW --no line LOST_SAMPLES--> LOST --line seen--> FOLLOW
+ *        FOLLOW --all JUNCTION_MASK black JUNCTION_SAMPLES--> JUNCTION
+ *        JUNCTION --not all black--> FOLLOW
+ *        (CALIBRATE is set by task_line.c while a calibration runs)
  */
 
 #include "line_algo.h"
 
-#define ADC_FULL_SCALE  4095u
+#define ADC_FULL_SCALE 4095u
 
-static int16_t
-clamp16 (int32_t value, int16_t limit)
+static int16_t clamp16(int32_t value, int16_t limit)
 {
     if (value > limit)
     {
@@ -30,8 +29,7 @@ clamp16 (int32_t value, int16_t limit)
     return (int16_t)value;
 }
 
-void
-line_params_default (line_params_t * p_params)
+void line_params_default(line_params_t * p_params)
 {
     p_params->line_mask        = (uint8_t)S3_LINE_MASK;
     p_params->junction_mask    = (uint8_t)S3_JUNCTION_MASK;
@@ -48,8 +46,7 @@ line_params_default (line_params_t * p_params)
     p_params->gain_den         = S3_GAIN_DEN;
 }
 
-void
-line_cal_reset (line_cal_t * p_cal)
+void line_cal_reset(line_cal_t * p_cal)
 {
     uint8_t idx;
 
@@ -61,8 +58,7 @@ line_cal_reset (line_cal_t * p_cal)
     p_cal->b_valid = false;
 }
 
-void
-line_cal_update (line_cal_t * p_cal, uint16_t const p_raw[S3_IR_COUNT])
+void line_cal_update(line_cal_t * p_cal, uint16_t const p_raw[S3_IR_COUNT])
 {
     uint8_t idx;
 
@@ -79,8 +75,7 @@ line_cal_update (line_cal_t * p_cal, uint16_t const p_raw[S3_IR_COUNT])
     }
 }
 
-bool
-line_cal_finish (line_cal_t * p_cal, uint8_t used_mask, uint16_t min_span)
+bool line_cal_finish(line_cal_t * p_cal, uint8_t used_mask, uint16_t min_span)
 {
     uint8_t idx;
     bool    b_ok = true;
@@ -101,15 +96,14 @@ line_cal_finish (line_cal_t * p_cal, uint8_t used_mask, uint16_t min_span)
     return b_ok;
 }
 
-void
-line_normalise (line_cal_t const * p_cal, uint8_t analog_mask,
-                bool b_black_is_high, uint8_t digital_black_level,
-                uint16_t const p_raw[S3_IR_COUNT],
-                uint16_t p_norm[S3_IR_COUNT])
+void line_normalise(line_cal_t const * p_cal, uint8_t analog_mask,
+                    bool b_black_is_high, uint8_t digital_black_level,
+                    uint16_t const p_raw[S3_IR_COUNT],
+                    uint16_t       p_norm[S3_IR_COUNT])
 {
     uint8_t  idx;
-    uint32_t lo;
-    uint32_t hi;
+    uint32_t low;
+    uint32_t high;
     uint32_t value;
     uint32_t norm;
 
@@ -119,42 +113,45 @@ line_normalise (line_cal_t const * p_cal, uint8_t analog_mask,
         {
             /* Digital sensor */
             p_norm[idx] = (p_raw[idx] == digital_black_level)
-                          ? (uint16_t)LINE_NORM_MAX : 0u;
-            continue;
-        }
-
-        if ((NULL != p_cal) && p_cal->b_valid)
-        {
-            lo = p_cal->min[idx];
-            hi = p_cal->max[idx];
+                              ? (uint16_t)LINE_NORM_MAX
+                              : 0u;
         }
         else
         {
-            lo = 0u;
-            hi = ADC_FULL_SCALE;
-        }
+            if ((NULL != p_cal) && (p_cal->b_valid))
+            {
+                low  = p_cal->min[idx];
+                high = p_cal->max[idx];
+            }
+            else
+            {
+                low  = 0u;
+                high = ADC_FULL_SCALE;
+            }
 
-        value = p_raw[idx];
-        if (value < lo)
-        {
-            value = lo;
-        }
-        if (value > hi)
-        {
-            value = hi;
-        }
+            value = p_raw[idx];
+            if (value < low)
+            {
+                value = low;
+            }
+            if (value > high)
+            {
+                value = high;
+            }
 
-        norm = (hi > lo) ? (((value - lo) * LINE_NORM_MAX) / (hi - lo)) : 0u;
-        if (!b_black_is_high)
-        {
-            norm = LINE_NORM_MAX - norm;
+            norm = (high > low)
+                       ? (((value - low) * LINE_NORM_MAX) / (high - low))
+                       : 0u;
+            if (!b_black_is_high)
+            {
+                norm = LINE_NORM_MAX - norm;
+            }
+            p_norm[idx] = (uint16_t)norm;
         }
-        p_norm[idx] = (uint16_t)norm;
     }
 }
 
-void
-line_tracker_reset (line_tracker_t * p_trk)
+void line_tracker_reset(line_tracker_t * p_trk)
 {
     p_trk->state          = LINE_STATE_SEARCH;
     p_trk->position       = 0;
@@ -168,19 +165,73 @@ line_tracker_reset (line_tracker_t * p_trk)
     p_trk->prev_error     = 0;
 }
 
-line_evt_t
-line_tracker_step (line_tracker_t * p_trk, line_params_t const * p_params,
-                   uint16_t const p_norm[S3_IR_COUNT],
-                   bool b_junction_inhibit)
+/* Step 4 of line_tracker_step(): the line state machine */
+static line_evt_t tracker_update_state(line_tracker_t *      p_trk,
+                                       line_params_t const * p_params,
+                                       bool                  b_junction)
 {
-    int32_t    sum_w = 0;
-    int32_t    sum_n = 0;
-    int32_t    steer;
-    uint8_t    idx;
-    uint8_t    mask = 0u;
-    bool       b_line_seen;
-    bool       b_junction;
     line_evt_t evt = LINE_EVT_NONE;
+
+    switch (p_trk->state)
+    {
+        case LINE_STATE_INIT:
+        case LINE_STATE_CALIBRATE:
+            /* left by task_line.c calling line_tracker_reset() */
+            break;
+
+        case LINE_STATE_SEARCH:
+        case LINE_STATE_LOST:
+            if (p_trk->found_count >= p_params->found_samples)
+            {
+                p_trk->state = LINE_STATE_FOLLOW;
+                evt          = LINE_EVT_FOUND;
+            }
+            break;
+
+        case LINE_STATE_FOLLOW:
+            if (p_trk->junction_count >= p_params->junction_samples)
+            {
+                p_trk->state = LINE_STATE_JUNCTION;
+                evt          = LINE_EVT_JUNCTION;
+            }
+            else if (p_trk->lost_count >= p_params->lost_samples)
+            {
+                p_trk->state = LINE_STATE_LOST;
+                evt          = LINE_EVT_LOST;
+            }
+            else
+            {
+                /* keep following */
+            }
+            break;
+
+        case LINE_STATE_JUNCTION:
+            if (!b_junction)
+            {
+                p_trk->state = LINE_STATE_FOLLOW;
+            }
+            break;
+
+        default:
+            p_trk->state = LINE_STATE_SEARCH;
+            break;
+    }
+
+    return evt;
+}
+
+line_evt_t line_tracker_step(line_tracker_t *      p_trk,
+                             line_params_t const * p_params,
+                             uint16_t const        p_norm[S3_IR_COUNT],
+                             bool                  b_junction_inhibit)
+{
+    int32_t sum_w = 0;
+    int32_t sum_n = 0;
+    int32_t steer;
+    uint8_t idx;
+    uint8_t mask = 0u;
+    bool    b_line_seen;
+    bool    b_junction;
 
     /* 1. Which sensors see black, and the weighted line position */
     for (idx = 0u; idx < S3_IR_COUNT; idx++)
@@ -198,8 +249,9 @@ line_tracker_step (line_tracker_t * p_trk, line_params_t const * p_params,
     p_trk->black_mask = mask;
 
     b_line_seen = (0u != (mask & p_params->line_mask));
-    b_junction  = ((mask & p_params->junction_mask) ==
-                   p_params->junction_mask) && !b_junction_inhibit;
+    b_junction =
+        ((mask & p_params->junction_mask) == p_params->junction_mask) &&
+        (!b_junction_inhibit);
 
     if (b_line_seen && (sum_n > 0))
     {
@@ -226,7 +278,7 @@ line_tracker_step (line_tracker_t * p_trk, line_params_t const * p_params,
     /* 2. PD steering on the error */
     p_trk->error = clamp16((int32_t)p_trk->position - p_params->setpoint,
                            2 * LINE_POS_MAX);
-    steer = ((int32_t)p_params->kp_num * p_trk->error) +
+    steer        = ((int32_t)p_params->kp_num * p_trk->error) +
             ((int32_t)p_params->kd_num * (p_trk->error - p_trk->prev_error));
     if (p_params->gain_den != 0)
     {
@@ -236,55 +288,13 @@ line_tracker_step (line_tracker_t * p_trk, line_params_t const * p_params,
     p_trk->prev_error = p_trk->error;
 
     /* 3. Debounce counters */
-    p_trk->lost_count     = b_line_seen ? 0u : (uint16_t)(p_trk->lost_count + 1u);
-    p_trk->found_count    = b_line_seen ? (uint16_t)(p_trk->found_count + 1u) : 0u;
-    p_trk->junction_count = b_junction ? (uint16_t)(p_trk->junction_count + 1u) : 0u;
+    p_trk->lost_count  = b_line_seen ? 0u : (uint16_t)(p_trk->lost_count + 1u);
+    p_trk->found_count = b_line_seen ? (uint16_t)(p_trk->found_count + 1u) : 0u;
+    p_trk->junction_count =
+        b_junction ? (uint16_t)(p_trk->junction_count + 1u) : 0u;
 
     /* 4. State machine */
-    switch (p_trk->state)
-    {
-        case LINE_STATE_INIT:
-        case LINE_STATE_CALIBRATE:
-            /* left by task_line.c calling line_tracker_reset() */
-            break;
-
-        case LINE_STATE_SEARCH:
-        case LINE_STATE_LOST:
-            if (p_trk->found_count >= p_params->found_samples)
-            {
-                p_trk->state = LINE_STATE_FOLLOW;
-                evt = LINE_EVT_FOUND;
-            }
-            break;
-
-        case LINE_STATE_FOLLOW:
-            if (p_trk->junction_count >= p_params->junction_samples)
-            {
-                p_trk->state = LINE_STATE_JUNCTION;
-                evt = LINE_EVT_JUNCTION;
-            }
-            else if (p_trk->lost_count >= p_params->lost_samples)
-            {
-                p_trk->state = LINE_STATE_LOST;
-                evt = LINE_EVT_LOST;
-            }
-            else
-            {
-                /* keep following */
-            }
-            break;
-
-        case LINE_STATE_JUNCTION:
-            if (!b_junction)
-            {
-                p_trk->state = LINE_STATE_FOLLOW;
-            }
-            break;
-
-        default:
-            p_trk->state = LINE_STATE_SEARCH;
-            break;
-    }
-
-    return evt;
+    return tracker_update_state(p_trk, p_params, b_junction);
 }
+
+/*** end of file ***/

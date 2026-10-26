@@ -1,90 +1,97 @@
 /*
- *	subsystem6.c
- *	Subsystem 6 -- Vehicle Controller: creates its objects, starts its
- *	task, and provides the public calls of subsystem6.h.
+ *      subsystem6.c
+ *      Subsystem 6 -- Vehicle Controller: creates its objects, starts its
+ *      task, and provides the public calls of subsystem6.h.
  *
- *	Kernel objects (TEAM.md section 6):
- *	  1 task            vehicle_ctrl_task
- *	  1 message buffer  mbf_vc_events   IF-06 events in
- *	  1 mutex           mtx_vc_status   IF-07 status snapshot
- *	  1 event flag      flg_vc_state    IF-07 current state bits
+ *      Kernel objects (TEAM.md section 6):
+ *        1 task            vehicle_ctrl_task
+ *        1 message buffer  g_mbf_vc_events   IF-06 events in
+ *        1 mutex           g_mtx_vc_status   IF-07 status snapshot
+ *        1 event flag      g_flg_vc_state    IF-07 current state bits
  */
 
 #include "subsystem6.h"
 
-EXPORT ID	mbf_vc_events;
-EXPORT ID	mtx_vc_status;
-EXPORT ID	flg_vc_state;
-EXPORT ID	tid_vc;
+ID g_mbf_vc_events;
+ID g_mtx_vc_status;
+ID g_flg_vc_state;
+ID g_tid_vc;
 
-/* Written only by vehicle_ctrl_task, under mtx_vc_status */
-EXPORT VC_STATUS vc_status_shared;
+/* Written only by vehicle_ctrl_task, under g_mtx_vc_status */
+vc_status_t g_vc_status_shared;
 
-EXPORT ER subsystem6_init(void)
+ER subsystem6_init(void)
 {
-	T_CMBF	cmbf = {0};
-	T_CMTX	cmtx = {0};
-	T_CFLG	cflg = {0};
+    T_CMBF cmbf = { 0 };
+    T_CMTX cmtx = { 0 };
+    T_CFLG cflg = { 0 };
 
-	/* Message buffer: events are COPIED in, so senders need no memory
-	   pool and can send from any task on either core. */
-	cmbf.mbfatr = TA_TFIFO;
-	cmbf.bufsz  = S6_EVENT_QUEUE_LEN * (sizeof(VC_EVENT) + sizeof(INT));
-	cmbf.maxmsz = sizeof(VC_EVENT);
-	mbf_vc_events = tk_cre_mbf(&cmbf);
-	if (mbf_vc_events < E_OK) {
-		return mbf_vc_events;
-	}
+    /* Message buffer: events are COPIED in, so senders need no memory
+       pool and can send from any task on either core. */
+    cmbf.mbfatr = TA_TFIFO;
+    cmbf.bufsz  = S6_EVENT_QUEUE_LEN * (sizeof(vc_event_t) + sizeof(int32_t));
+    cmbf.maxmsz = sizeof(vc_event_t);
+    g_mbf_vc_events = tk_cre_mbf(&cmbf);
+    if (g_mbf_vc_events < E_OK)
+    {
+        return g_mbf_vc_events;
+    }
 
-	/* Mutex with priority inheritance: a low-priority reader (S1)
-	   cannot hold up the controller. */
-	cmtx.mtxatr = TA_INHERIT;
-	mtx_vc_status = tk_cre_mtx(&cmtx);
-	if (mtx_vc_status < E_OK) {
-		return mtx_vc_status;
-	}
+    /* Mutex with priority inheritance: a low-priority reader (S1)
+       cannot hold up the controller. */
+    cmtx.mtxatr     = TA_INHERIT;
+    g_mtx_vc_status = tk_cre_mtx(&cmtx);
+    if (g_mtx_vc_status < E_OK)
+    {
+        return g_mtx_vc_status;
+    }
 
-	cflg.flgatr  = TA_TFIFO | TA_WMUL;
-	cflg.iflgptn = VC_FLG_STATE(VC_ST_IDLE);
-	flg_vc_state = tk_cre_flg(&cflg);
-	if (flg_vc_state < E_OK) {
-		return flg_vc_state;
-	}
+    cflg.flgatr    = TA_TFIFO | TA_WMUL;
+    cflg.iflgptn   = VC_FLG_STATE(VC_ST_IDLE);
+    g_flg_vc_state = tk_cre_flg(&cflg);
+    if (g_flg_vc_state < E_OK)
+    {
+        return g_flg_vc_state;
+    }
 
-	vc_status_shared.state    = VC_ST_IDLE;
-	vc_status_shared.last_nav = NAV_NONE;
-	return E_OK;
+    g_vc_status_shared.state    = VC_ST_IDLE;
+    g_vc_status_shared.last_nav = NAV_NONE;
+    return E_OK;
 }
 
-EXPORT ER subsystem6_start(void)
+ER subsystem6_start(void)
 {
-	/* No affinity: event-driven, short, either core is fine */
-	tid_vc = app_start_task(vehicle_ctrl_task, S6_PRI_VC, 0, "vehicle_ctrl");
-	return (tid_vc < E_OK) ? tid_vc : E_OK;
+    /* No affinity: event-driven, short, either core is fine */
+    g_tid_vc = app_start_task(vehicle_ctrl_task, S6_PRI_VC, 0, "vehicle_ctrl");
+    return (g_tid_vc < E_OK) ? g_tid_vc : E_OK;
 }
 
-EXPORT ER vc_post_event(VC_SOURCE src, VC_EVENT_TYPE type, W p1, W p2, TMO tmo)
+ER vc_post_event(vc_source_t src, vc_event_type_t type, int32_t param1,
+                 int32_t param2, TMO tmo)
 {
-	VC_EVENT ev;
-	SYSTIM	 now;
+    vc_event_t event;
+    SYSTIM     now;
 
-	tk_get_tim(&now);
-	ev.src     = (UB)src;
-	ev.type    = (UB)type;
-	ev.rsv     = 0;
-	ev.p1      = p1;
-	ev.p2      = p2;
-	ev.time_ms = now.lo;
-	return tk_snd_mbf(mbf_vc_events, &ev, sizeof(ev), tmo);
+    tk_get_tim(&now);
+    event.src     = (uint8_t)src;
+    event.type    = (uint8_t)type;
+    event.rsv     = 0;
+    event.p1      = param1;
+    event.p2      = param2;
+    event.time_ms = now.lo;
+    return tk_snd_mbf(g_mbf_vc_events, &event, sizeof(event), tmo);
 }
 
-EXPORT ER vc_get_status(VC_STATUS *out)
+ER vc_get_status(vc_status_t * p_out)
 {
-	ER er = tk_loc_mtx(mtx_vc_status, 50);	/* held for a copy only */
-	if (er < E_OK) {
-		return er;
-	}
-	*out = vc_status_shared;
-	tk_unl_mtx(mtx_vc_status);
-	return E_OK;
+    ER ercd = tk_loc_mtx(g_mtx_vc_status, 50); /* held for a copy only */
+    if (ercd < E_OK)
+    {
+        return ercd;
+    }
+    *p_out = g_vc_status_shared;
+    tk_unl_mtx(g_mtx_vc_status);
+    return E_OK;
 }
+
+/*** end of file ***/

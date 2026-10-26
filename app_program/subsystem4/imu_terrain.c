@@ -1,452 +1,658 @@
 /*
- *	imu_terrain.c
- *	Subsystem 4 -- IMU processing and terrain state machine.
- *	See imu_terrain.h for the states, axes and units.
+ *      imu_terrain.c
+ *      Subsystem 4 -- IMU processing and terrain state machine.
+ *      See imu_terrain.h for the states, axes and units.
  *
- *	Hump height method
- *	------------------
- *	On a slope the accelerometer's forward axis sees gravity * sin(pitch),
- *	so sin(pitch) ~= ax / |a|.  Each sample the robot moves
- *	ds = speed * period, and climbs dh = ds * sin(pitch).  Summing dh
- *	from the foot of the hump gives its height; the largest value is the
- *	peak.  This avoids double-integrating vertical acceleration, which
- *	drifts badly (the "weak AI idea" rejected in design review 8.1).
- *	Accuracy depends on the speed from motion control (subsystem 2) and
- *	on the robot not accelerating hard on the slope; validate per A5.
+ *      Hump height method
+ *      ------------------
+ *      On a slope the accelerometer's forward axis sees gravity * sin(pitch),
+ *      so sin(pitch) ~= ax / |a|.  Each sample the robot moves
+ *      ds = speed * period, and climbs dh = ds * sin(pitch).  Summing dh
+ *      from the foot of the hump gives its height; the largest value is the
+ *      peak.  This avoids double-integrating vertical acceleration, which
+ *      drifts badly (the "weak AI idea" rejected in design review 8.1).
+ *      Accuracy depends on the speed from motion control (subsystem 2) and
+ *      on the robot not accelerating hard on the slope; validate per A5.
  */
 
 #include "imu_terrain.h"
 #include "imu_math.h"
 #include "subsystem4_cfg.h"
 
-#define ONE_G_MG	1000
+#define ONE_G_MG          1000
+#define S4_MS_PER_S       1000
+#define S4_TILT_HYST_CDEG 500 /* 5 deg hysteresis on the tilt latch */
 
 /* Exponential moving average kept at 2^shift scale */
-static int32_t ema_step(int32_t *acc, int32_t x, int32_t shift)
+static int32_t ema_step(int32_t * p_acc, int32_t input, int32_t shift)
 {
-	int32_t scale = (int32_t)1 << shift;
+    /* Cast: shift an unsigned 1; the shift count is 0..15. */
+    int32_t scale = (int32_t)(1U << (uint32_t)shift);
 
-	*acc += x - (*acc / scale);
-	return *acc / scale;
+    *p_acc += input - (*p_acc / scale);
+    return *p_acc / scale;
 }
 
-static int32_t iabs32(int32_t v)
+static int32_t iabs32(int32_t value)
 {
-	return (v < 0) ? -v : v;
+    return (value < 0) ? -value : value;
 }
 
-void imu_terrain_default_cfg(imu_cfg_t *cfg)
+void imu_terrain_default_cfg(imu_cfg_t * p_cfg)
 {
-	cfg->period_ms          = S4_PERIOD_MS;
-	cfg->lpf_shift          = S4_LPF_SHIFT;
-	cfg->cal_samples        = S4_CAL_SAMPLES;
-	cfg->cal_max_spread_mg  = S4_CAL_MAX_SPREAD_MG;
-	cfg->hump_enter_cdeg    = S4_HUMP_ENTER_CDEG;
-	cfg->hump_level_cdeg    = S4_HUMP_LEVEL_CDEG;
-	cfg->hump_confirm       = S4_HUMP_CONFIRM;
-	cfg->hump_timeout       = S4_HUMP_TIMEOUT;
-	cfg->hump_min_peak_um   = S4_HUMP_MIN_PEAK_UM;
-	cfg->nominal_speed_mm_s = S4_NOMINAL_SPEED_MM_S;
-	cfg->impact_mg          = S4_IMPACT_MG;
-	cfg->impact_holdoff     = S4_IMPACT_HOLDOFF;
-	cfg->tilt_limit_cdeg    = S4_TILT_LIMIT_CDEG;
-	cfg->accel_mg           = S4_ACCEL_MG;
-	cfg->still_mg           = S4_STILL_MG;
-	cfg->still_samples      = S4_STILL_SAMPLES;
-	cfg->turn_rate_cdeg_s   = S4_TURN_RATE_CDEG_S;
+    p_cfg->period_ms          = S4_PERIOD_MS;
+    p_cfg->lpf_shift          = S4_LPF_SHIFT;
+    p_cfg->cal_samples        = S4_CAL_SAMPLES;
+    p_cfg->cal_max_spread_mg  = S4_CAL_MAX_SPREAD_MG;
+    p_cfg->hump_enter_cdeg    = S4_HUMP_ENTER_CDEG;
+    p_cfg->hump_level_cdeg    = S4_HUMP_LEVEL_CDEG;
+    p_cfg->hump_confirm       = S4_HUMP_CONFIRM;
+    p_cfg->hump_timeout       = S4_HUMP_TIMEOUT;
+    p_cfg->hump_min_peak_um   = S4_HUMP_MIN_PEAK_UM;
+    p_cfg->nominal_speed_mm_s = S4_NOMINAL_SPEED_MM_S;
+    p_cfg->impact_mg          = S4_IMPACT_MG;
+    p_cfg->impact_holdoff     = S4_IMPACT_HOLDOFF;
+    p_cfg->tilt_limit_cdeg    = S4_TILT_LIMIT_CDEG;
+    p_cfg->accel_mg           = S4_ACCEL_MG;
+    p_cfg->still_mg           = S4_STILL_MG;
+    p_cfg->still_samples      = S4_STILL_SAMPLES;
+    p_cfg->turn_rate_cdeg_s   = S4_TURN_RATE_CDEG_S;
 }
 
-static void start_calibration(imu_terrain_t *t)
+static void start_calibration(imu_terrain_t * p_terrain)
 {
-	int i;
+    int32_t idx;
 
-	t->cal_n = 0;
-	for (i = 0; i < 3; i++) {
-		t->cal_sum[i] = 0;
-		t->cal_min[i] = INT16_MAX;
-		t->cal_max[i] = INT16_MIN;
-	}
-	t->st.state      = IMU_ST_CALIBRATING;
-	t->st.calibrated = 0U;
+    p_terrain->cal_n = 0;
+    for (idx = 0; idx < 3; idx++)
+    {
+        p_terrain->cal_sum[idx] = 0;
+        p_terrain->cal_min[idx] = INT16_MAX;
+        p_terrain->cal_max[idx] = INT16_MIN;
+    }
+    p_terrain->st.state      = IMU_ST_CALIBRATING;
+    p_terrain->st.calibrated = 0U;
 }
 
-void imu_terrain_init(imu_terrain_t *t, const imu_cfg_t *cfg)
+void imu_terrain_init(imu_terrain_t * p_terrain, const imu_cfg_t * p_cfg)
 {
-	uint8_t		*p = (uint8_t *)t;
-	uint32_t	i;
+    uint8_t * p_bytes = (uint8_t *)p_terrain;
+    uint32_t  idx;
 
-	for (i = 0U; i < sizeof(*t); i++) {	/* no memset in freestanding */
-		p[i] = 0U;
-	}
-	t->cfg       = *cfg;
-	t->st.state  = IMU_ST_INIT;
-	t->st.motion = IMU_MOT_UNKNOWN;
-	t->pending   = -1;
-	start_calibration(t);
+    for (idx = 0U; idx < sizeof(*p_terrain); idx++)
+    { /* no memset in freestanding */
+        p_bytes[idx] = 0U;
+    }
+    p_terrain->cfg       = *p_cfg;
+    p_terrain->st.state  = IMU_ST_INIT;
+    p_terrain->st.motion = IMU_MOT_UNKNOWN;
+    p_terrain->pending   = -1;
+    start_calibration(p_terrain);
 }
 
-void imu_terrain_recalibrate(imu_terrain_t *t)
+void imu_terrain_recalibrate(imu_terrain_t * p_terrain)
 {
-	start_calibration(t);
+    start_calibration(p_terrain);
 }
 
-void imu_terrain_reset_peaks(imu_terrain_t *t)
+void imu_terrain_reset_peaks(imu_terrain_t * p_terrain)
 {
-	t->st.last_peak_um = 0;
-	t->st.max_peak_um  = 0;
-	t->st.hump_count   = 0U;
+    p_terrain->st.last_peak_um = 0;
+    p_terrain->st.max_peak_um  = 0;
+    p_terrain->st.hump_count   = 0U;
 }
 
-void imu_terrain_set_fault(imu_terrain_t *t, int fault)
+void imu_terrain_set_fault(imu_terrain_t * p_terrain, int32_t fault)
 {
-	if (fault != 0) {
-		t->st.state = IMU_ST_ERROR;
-		t->st.fault = 1U;
-	} else if (t->st.fault != 0U) {
-		/* Recovered: the filters are stale, so calibrate again */
-		t->st.fault = 0U;
-		start_calibration(t);
-	} else {
-		/* not in fault: nothing to do */
-	}
+    if (fault != 0)
+    {
+        p_terrain->st.state = IMU_ST_ERROR;
+        p_terrain->st.fault = 1U;
+    }
+    else if (p_terrain->st.fault != 0U)
+    {
+        /* Recovered: the filters are stale, so calibrate again */
+        p_terrain->st.fault = 0U;
+        start_calibration(p_terrain);
+    }
+    else
+    {
+        /* not in fault: nothing to do */
+    }
 }
 
 /* ---------------------------------------------------------------------
  * Calibration: average still samples to find the accelerometer bias.
  * Assumes the robot is LEVEL and STILL (on the start line).
  * ------------------------------------------------------------------- */
-static uint32_t calibrate_step(imu_terrain_t *t, const imu_sample_t *s)
+static uint32_t calibrate_step(imu_terrain_t *      p_terrain,
+                               const imu_sample_t * p_sample)
 {
-	int16_t	v[3];
-	int	i;
+    int16_t vec[3];
+    int32_t idx;
 
-	v[0] = s->ax_mg;
-	v[1] = s->ay_mg;
-	v[2] = s->az_mg;
+    vec[0] = p_sample->ax_mg;
+    vec[1] = p_sample->ay_mg;
+    vec[2] = p_sample->az_mg;
 
-	for (i = 0; i < 3; i++) {
-		t->cal_sum[i] += v[i];
-		if (v[i] < t->cal_min[i]) {
-			t->cal_min[i] = v[i];
-		}
-		if (v[i] > t->cal_max[i]) {
-			t->cal_max[i] = v[i];
-		}
-	}
-	t->cal_n++;
+    for (idx = 0; idx < 3; idx++)
+    {
+        p_terrain->cal_sum[idx] += vec[idx];
+        if (vec[idx] < p_terrain->cal_min[idx])
+        {
+            p_terrain->cal_min[idx] = vec[idx];
+        }
+        if (vec[idx] > p_terrain->cal_max[idx])
+        {
+            p_terrain->cal_max[idx] = vec[idx];
+        }
+    }
+    p_terrain->cal_n++;
 
-	if (t->cal_n < t->cfg.cal_samples) {
-		return 0U;
-	}
+    if (p_terrain->cal_n < p_terrain->cfg.cal_samples)
+    {
+        return 0U;
+    }
 
-	for (i = 0; i < 3; i++) {
-		if ((t->cal_max[i] - t->cal_min[i]) > t->cfg.cal_max_spread_mg) {
-			start_calibration(t);		/* moved: try again */
-			return IMU_EV_CAL_FAILED;
-		}
-	}
+    for (idx = 0; idx < 3; idx++)
+    {
+        if ((p_terrain->cal_max[idx] - p_terrain->cal_min[idx]) >
+            p_terrain->cfg.cal_max_spread_mg)
+        {
+            start_calibration(p_terrain); /* moved: try again */
+            return IMU_EV_CAL_FAILED;
+        }
+    }
 
-	t->bias[0] = (int16_t)(t->cal_sum[0] / t->cal_n);
-	t->bias[1] = (int16_t)(t->cal_sum[1] / t->cal_n);
-	t->bias[2] = (int16_t)((t->cal_sum[2] / t->cal_n) - ONE_G_MG);
+    p_terrain->bias[0] = (int16_t)(p_terrain->cal_sum[0] / p_terrain->cal_n);
+    p_terrain->bias[1] = (int16_t)(p_terrain->cal_sum[1] / p_terrain->cal_n);
+    p_terrain->bias[2] =
+        (int16_t)((p_terrain->cal_sum[2] / p_terrain->cal_n) - ONE_G_MG);
 
-	/* Seed the filters with a level, still robot */
-	t->f_acc[0] = 0;
-	t->f_acc[1] = 0;
-	t->f_acc[2] = ONE_G_MG << t->cfg.lpf_shift;
-	t->f_rate   = 0;
-	t->have_heading = 0U;
+    /* Seed the filters with a level, still robot */
+    p_terrain->f_acc[0] = 0;
+    p_terrain->f_acc[1] = 0;
+    p_terrain->f_acc[2] =
+        ONE_G_MG * (int32_t)(1U << (uint32_t)p_terrain->cfg.lpf_shift);
+    p_terrain->f_rate       = 0;
+    p_terrain->have_heading = 0U;
 
-	t->st.calibrated     = 1U;
-	t->st.state          = IMU_ST_MONITORING;
-	t->st.hump_height_um = 0;
-	t->pending           = -1;
-	t->confirm           = 0;
-	return IMU_EV_CAL_DONE;
+    p_terrain->st.calibrated     = 1U;
+    p_terrain->st.state          = IMU_ST_MONITORING;
+    p_terrain->st.hump_height_um = 0;
+    p_terrain->pending           = -1;
+    p_terrain->confirm           = 0;
+    return IMU_EV_CAL_DONE;
 }
 
 /* A transition happens only after `hump_confirm` samples in a row
    asked for the same next state (debounce). */
-static int confirmed(imu_terrain_t *t, imu_state_t next)
+static bool confirmed(imu_terrain_t * p_terrain, imu_state_t next)
 {
-	if (t->pending == (int32_t)next) {
-		t->confirm++;
-	} else {
-		t->pending = (int32_t)next;
-		t->confirm = 1;
-	}
-	return (t->confirm >= t->cfg.hump_confirm);
+    if (p_terrain->pending == (int32_t)next)
+    {
+        p_terrain->confirm++;
+    }
+    else
+    {
+        p_terrain->pending = (int32_t)next;
+        p_terrain->confirm = 1;
+    }
+    return (p_terrain->confirm >= p_terrain->cfg.hump_confirm);
 }
 
-static void enter(imu_terrain_t *t, imu_state_t next)
+static void enter(imu_terrain_t * p_terrain, imu_state_t next)
 {
-	t->st.state = next;
-	t->in_state = 0;
-	t->pending  = -1;
-	t->confirm  = 0;
+    p_terrain->st.state = next;
+    p_terrain->in_state = 0;
+    p_terrain->pending  = -1;
+    p_terrain->confirm  = 0;
 }
 
 /* ---------------------------------------------------------------------
  * Hump state machine (Statechart 4)
  * ------------------------------------------------------------------- */
-static uint32_t hump_step(imu_terrain_t *t, int32_t pitch)
+static void hump_reset_height(imu_terrain_t * p_terrain)
 {
-	const imu_cfg_t	*c = &t->cfg;
-	uint32_t	ev = 0U;
-	int		up    = (pitch >  c->hump_enter_cdeg);
-	int		down  = (pitch < -c->hump_enter_cdeg);
-	int		level = (iabs32(pitch) < c->hump_level_cdeg);
+    p_terrain->st.hump_height_um = 0;
+    p_terrain->peak_um           = 0;
+}
 
-	if (t->st.hump_height_um > t->peak_um) {
-		t->peak_um = t->st.hump_height_um;
-	}
+static uint32_t hump_monitoring(imu_terrain_t * p_terrain, bool b_rising,
+                                bool b_level)
+{
+    uint32_t events = 0U;
 
-	switch (t->st.state) {
-	case IMU_ST_MONITORING:
-		if (level) {
-			t->st.hump_height_um = 0;	/* re-zero on flat ground */
-			t->peak_um = 0;
-		}
-		if (up) {
-			if (confirmed(t, IMU_ST_CLIMBING)) {
-				enter(t, IMU_ST_CLIMBING);
-				ev |= IMU_EV_HUMP_START;
-			}
-		} else {
-			t->pending = -1;
-			t->confirm = 0;
-		}
-		break;
+    if (b_level)
+    {
+        hump_reset_height(p_terrain); /* re-zero on flat ground */
+    }
+    if (b_rising)
+    {
+        if (confirmed(p_terrain, IMU_ST_CLIMBING))
+        {
+            enter(p_terrain, IMU_ST_CLIMBING);
+            events |= IMU_EV_HUMP_START;
+        }
+    }
+    else
+    {
+        p_terrain->pending = -1;
+        p_terrain->confirm = 0;
+    }
+    return events;
+}
 
-	case IMU_ST_CLIMBING:
-		if (level && confirmed(t, IMU_ST_AT_PEAK)) {
-			enter(t, IMU_ST_AT_PEAK);
-			ev |= IMU_EV_HUMP_PEAK;
-		} else if (down && confirmed(t, IMU_ST_DESCENDING)) {
-			enter(t, IMU_ST_DESCENDING);	/* sharp crest */
-			ev |= IMU_EV_HUMP_PEAK;
-		} else if (up) {
-			t->pending = -1;
-			t->confirm = 0;
-		} else {
-			/* between thresholds: keep waiting */
-		}
-		break;
+static uint32_t hump_climbing(imu_terrain_t * p_terrain, bool b_rising,
+                              bool b_down, bool b_level)
+{
+    uint32_t events = 0U;
 
-	case IMU_ST_AT_PEAK:
-		if (down && confirmed(t, IMU_ST_DESCENDING)) {
-			enter(t, IMU_ST_DESCENDING);
-		} else if (up && confirmed(t, IMU_ST_CLIMBING)) {
-			enter(t, IMU_ST_CLIMBING);	/* plateau, then more climb */
-		} else {
-			/* still on top */
-		}
-		break;
+    if (b_level && (confirmed(p_terrain, IMU_ST_AT_PEAK)))
+    {
+        enter(p_terrain, IMU_ST_AT_PEAK);
+        events |= IMU_EV_HUMP_PEAK;
+    }
+    else if (b_down && (confirmed(p_terrain, IMU_ST_DESCENDING)))
+    {
+        enter(p_terrain, IMU_ST_DESCENDING); /* sharp crest */
+        events |= IMU_EV_HUMP_PEAK;
+    }
+    else if (b_rising)
+    {
+        p_terrain->pending = -1;
+        p_terrain->confirm = 0;
+    }
+    else
+    {
+        /* between thresholds: keep waiting */
+    }
+    return events;
+}
 
-	case IMU_ST_DESCENDING:
-		if (level && confirmed(t, IMU_ST_MONITORING)) {
-			t->st.last_peak_um = t->peak_um;
-			if (t->peak_um >= c->hump_min_peak_um) {
-				t->st.hump_count++;
-				if (t->peak_um > t->st.max_peak_um) {
-					t->st.max_peak_um = t->peak_um;
-				}
-				ev |= IMU_EV_HUMP_END;
-			} else {
-				ev |= IMU_EV_HUMP_ABORT;	/* too small */
-			}
-			enter(t, IMU_ST_MONITORING);
-			t->st.hump_height_um = 0;
-			t->peak_um = 0;
-		} else if (up && confirmed(t, IMU_ST_CLIMBING)) {
-			enter(t, IMU_ST_CLIMBING);	/* double hump */
-		} else {
-			/* still descending */
-		}
-		break;
+static void hump_at_peak(imu_terrain_t * p_terrain, bool b_rising, bool b_down)
+{
+    if (b_down && (confirmed(p_terrain, IMU_ST_DESCENDING)))
+    {
+        enter(p_terrain, IMU_ST_DESCENDING);
+    }
+    else if (b_rising && (confirmed(p_terrain, IMU_ST_CLIMBING)))
+    {
+        /* plateau, then more climb */
+        enter(p_terrain, IMU_ST_CLIMBING);
+    }
+    else
+    {
+        /* still on top */
+    }
+}
 
-	default:
-		break;
-	}
+static uint32_t hump_descending(imu_terrain_t * p_terrain, bool b_rising,
+                                bool b_level)
+{
+    uint32_t events = 0U;
 
-	/* Bounded time in any hump state (NFR5) */
-	if ((t->st.state == IMU_ST_CLIMBING) ||
-	    (t->st.state == IMU_ST_AT_PEAK) ||
-	    (t->st.state == IMU_ST_DESCENDING)) {
-		if (++t->in_state > c->hump_timeout) {
-			enter(t, IMU_ST_MONITORING);
-			t->st.hump_height_um = 0;
-			t->peak_um = 0;
-			ev |= IMU_EV_HUMP_ABORT;
-		}
-	}
-	return ev;
+    if (b_level && (confirmed(p_terrain, IMU_ST_MONITORING)))
+    {
+        p_terrain->st.last_peak_um = p_terrain->peak_um;
+        if (p_terrain->peak_um >= p_terrain->cfg.hump_min_peak_um)
+        {
+            p_terrain->st.hump_count++;
+            if (p_terrain->peak_um > p_terrain->st.max_peak_um)
+            {
+                p_terrain->st.max_peak_um = p_terrain->peak_um;
+            }
+            events |= IMU_EV_HUMP_END;
+        }
+        else
+        {
+            events |= IMU_EV_HUMP_ABORT; /* too small */
+        }
+        enter(p_terrain, IMU_ST_MONITORING);
+        hump_reset_height(p_terrain);
+    }
+    else if (b_rising && (confirmed(p_terrain, IMU_ST_CLIMBING)))
+    {
+        enter(p_terrain, IMU_ST_CLIMBING); /* double hump */
+    }
+    else
+    {
+        /* still descending */
+    }
+    return events;
+}
+
+static uint32_t hump_step(imu_terrain_t * p_terrain, int32_t pitch)
+{
+    const imu_cfg_t * p_cfg    = &p_terrain->cfg;
+    uint32_t          events   = 0U;
+    bool              b_rising = (pitch > p_cfg->hump_enter_cdeg);
+    bool              b_down   = (pitch < -p_cfg->hump_enter_cdeg);
+    bool              b_level  = (iabs32(pitch) < p_cfg->hump_level_cdeg);
+
+    if (p_terrain->st.hump_height_um > p_terrain->peak_um)
+    {
+        p_terrain->peak_um = p_terrain->st.hump_height_um;
+    }
+
+    switch (p_terrain->st.state)
+    {
+        case IMU_ST_MONITORING:
+            events |= hump_monitoring(p_terrain, b_rising, b_level);
+            break;
+
+        case IMU_ST_CLIMBING:
+            events |= hump_climbing(p_terrain, b_rising, b_down, b_level);
+            break;
+
+        case IMU_ST_AT_PEAK:
+            hump_at_peak(p_terrain, b_rising, b_down);
+            break;
+
+        case IMU_ST_DESCENDING:
+            events |= hump_descending(p_terrain, b_rising, b_level);
+            break;
+
+        default:
+            break;
+    }
+
+    /* Bounded time in any hump state (NFR5) */
+    if ((IMU_ST_CLIMBING == p_terrain->st.state) ||
+        (IMU_ST_AT_PEAK == p_terrain->st.state) ||
+        (IMU_ST_DESCENDING == p_terrain->st.state))
+    {
+        p_terrain->in_state++;
+        if (p_terrain->in_state > p_cfg->hump_timeout)
+        {
+            enter(p_terrain, IMU_ST_MONITORING);
+            hump_reset_height(p_terrain);
+            events |= IMU_EV_HUMP_ABORT;
+        }
+    }
+    return events;
 }
 
 /* ---------------------------------------------------------------------
  * Motion classification (only meaningful on level ground)
  * ------------------------------------------------------------------- */
-static imu_motion_t classify(imu_terrain_t *t, int32_t dyn_mg,
-			     int32_t speed_mm_s)
+static imu_motion_t classify(imu_terrain_t * p_terrain, int32_t dyn_mg,
+                             int32_t speed_mm_s)
 {
-	const imu_cfg_t	*c = &t->cfg;
+    const imu_cfg_t * p_cfg = &p_terrain->cfg;
+    imu_motion_t      motion;
 
-	if (iabs32(dyn_mg) < c->still_mg) {
-		t->still_cnt++;
-	} else {
-		t->still_cnt = 0;
-	}
+    if (iabs32(dyn_mg) < p_cfg->still_mg)
+    {
+        p_terrain->still_cnt++;
+    }
+    else
+    {
+        p_terrain->still_cnt = 0;
+    }
 
-	if (t->st.turn_rate_cdeg_s > c->turn_rate_cdeg_s) {
-		return IMU_MOT_TURNING_LEFT;
-	}
-	if (t->st.turn_rate_cdeg_s < -c->turn_rate_cdeg_s) {
-		return IMU_MOT_TURNING_RIGHT;
-	}
-	if (t->st.ax_mg > c->accel_mg) {
-		return IMU_MOT_ACCELERATING;
-	}
-	if (t->st.ax_mg < -c->accel_mg) {
-		return IMU_MOT_BRAKING;
-	}
-	/* An accelerometer cannot tell "still" from "constant speed", so
-	   trust the wheel speed when motion control provides it. */
-	if ((speed_mm_s == 0) ||
-	    ((speed_mm_s < 0) && (t->still_cnt >= c->still_samples))) {
-		return IMU_MOT_STATIONARY;
-	}
-	return IMU_MOT_CRUISING;
+    if (p_terrain->st.turn_rate_cdeg_s > p_cfg->turn_rate_cdeg_s)
+    {
+        motion = IMU_MOT_TURNING_LEFT;
+    }
+    else if (p_terrain->st.turn_rate_cdeg_s < -p_cfg->turn_rate_cdeg_s)
+    {
+        motion = IMU_MOT_TURNING_RIGHT;
+    }
+    else if (p_terrain->st.ax_mg > p_cfg->accel_mg)
+    {
+        motion = IMU_MOT_ACCELERATING;
+    }
+    else if (p_terrain->st.ax_mg < -p_cfg->accel_mg)
+    {
+        motion = IMU_MOT_BRAKING;
+    }
+    /* An accelerometer cannot tell "still" from "constant speed", so
+       trust the wheel speed when motion control provides it. */
+    else if ((0 == speed_mm_s) || ((speed_mm_s < 0) && (p_terrain->still_cnt >=
+                                                        p_cfg->still_samples)))
+    {
+        motion = IMU_MOT_STATIONARY;
+    }
+    else
+    {
+        motion = IMU_MOT_CRUISING;
+    }
+    return motion;
 }
 
-uint32_t imu_terrain_update(imu_terrain_t *t, const imu_sample_t *s,
-			    int32_t speed_mm_s)
+/* Step 2: impact check on the RAW magnitude (filtering would hide it) */
+static uint32_t check_impact(imu_terrain_t * p_terrain, int32_t raw_norm)
 {
-	const imu_cfg_t	*c = &t->cfg;
-	uint32_t	ev = 0U;
-	int32_t		ax;
-	int32_t		ay;
-	int32_t		az;
-	int32_t		raw_norm;
-	int32_t		norm;
-	int32_t		heading;
-	int32_t		rate;
-	int32_t		ds_um;
-	imu_motion_t	m;
+    uint32_t events = 0U;
 
-	t->st.sample_count++;
-
-	if (t->st.state == IMU_ST_ERROR) {
-		return 0U;
-	}
-	if (t->st.state == IMU_ST_CALIBRATING) {
-		return calibrate_step(t, s);
-	}
-
-	/* 1. Remove bias */
-	ax = (int32_t)s->ax_mg - t->bias[0];
-	ay = (int32_t)s->ay_mg - t->bias[1];
-	az = (int32_t)s->az_mg - t->bias[2];
-
-	/* 2. Impact check on the RAW magnitude (filtering would hide it) */
-	raw_norm = (int32_t)imu_norm3(ax, ay, az);
-	if (t->holdoff > 0) {
-		t->holdoff--;
-	} else if (iabs32(raw_norm - ONE_G_MG) > c->impact_mg) {
-		t->st.impact_count++;
-		t->st.last_impact_mg = raw_norm - ONE_G_MG;
-		t->holdoff = c->impact_holdoff;
-		ev |= IMU_EV_IMPACT;
-	} else {
-		/* no impact */
-	}
-
-	/* 3. Low-pass filter, then tilt */
-	t->st.ax_mg = (int16_t)ema_step(&t->f_acc[0], ax, c->lpf_shift);
-	t->st.ay_mg = (int16_t)ema_step(&t->f_acc[1], ay, c->lpf_shift);
-	t->st.az_mg = (int16_t)ema_step(&t->f_acc[2], az, c->lpf_shift);
-
-	t->st.pitch_cdeg = (int16_t)imu_atan2_cdeg(t->st.ax_mg,
-		(int32_t)imu_isqrt32((uint32_t)(t->st.ay_mg * t->st.ay_mg) +
-				     (uint32_t)(t->st.az_mg * t->st.az_mg)));
-	t->st.roll_cdeg  = (int16_t)imu_atan2_cdeg(t->st.ay_mg, t->st.az_mg);
-
-	if ((iabs32(t->st.pitch_cdeg) > c->tilt_limit_cdeg) ||
-	    (iabs32(t->st.roll_cdeg)  > c->tilt_limit_cdeg)) {
-		if (t->tilt_latched == 0U) {
-			t->tilt_latched = 1U;
-			ev |= IMU_EV_TILT_LIMIT;
-		}
-	} else if ((iabs32(t->st.pitch_cdeg) < c->tilt_limit_cdeg - 500) &&
-		   (iabs32(t->st.roll_cdeg)  < c->tilt_limit_cdeg - 500)) {
-		t->tilt_latched = 0U;		/* 5 deg hysteresis */
-	} else {
-		/* in the hysteresis band */
-	}
-
-	/* 4. Heading and turn rate from the magnetometer.
-	      Not tilt compensated: on a hump the heading wobbles, which is
-	      why turning is only classified on level ground. */
-	heading = imu_atan2_cdeg(s->my, s->mx);
-	if (t->have_heading != 0U) {
-		rate = imu_wrap_cdeg(heading - t->prev_heading) *
-		       (1000 / c->period_ms);
-		t->st.turn_rate_cdeg_s = ema_step(&t->f_rate, rate,
-						  c->lpf_shift);
-	}
-	t->prev_heading    = (int16_t)heading;
-	t->have_heading    = 1U;
-	t->st.heading_cdeg = (int16_t)heading;
-
-	/* 5. Height: dh = ds * sin(pitch) = ds * ax / |a| */
-	if (speed_mm_s < 0) {
-		speed_mm_s = c->nominal_speed_mm_s;
-	}
-	ds_um = speed_mm_s * c->period_ms;	/* mm/s * ms = um */
-	norm  = (int32_t)imu_norm3(t->st.ax_mg, t->st.ay_mg, t->st.az_mg);
-	if (norm > 0) {
-		t->st.hump_height_um += (ds_um * t->st.ax_mg) / norm;
-	}
-
-	/* 6. Hump state machine */
-	ev |= hump_step(t, t->st.pitch_cdeg);
-
-	/* 7. Motion class */
-	if (t->st.state == IMU_ST_MONITORING) {
-		m = classify(t, raw_norm - ONE_G_MG, speed_mm_s);
-	} else {
-		m = IMU_MOT_CRUISING;		/* on a hump */
-	}
-	if (m != t->st.motion) {
-		t->st.motion = m;
-		ev |= IMU_EV_MOTION_CHANGE;
-	}
-
-	return ev;
+    if (p_terrain->holdoff > 0)
+    {
+        p_terrain->holdoff--;
+    }
+    else if (iabs32(raw_norm - ONE_G_MG) > p_terrain->cfg.impact_mg)
+    {
+        p_terrain->st.impact_count++;
+        p_terrain->st.last_impact_mg = raw_norm - ONE_G_MG;
+        p_terrain->holdoff           = p_terrain->cfg.impact_holdoff;
+        events |= IMU_EV_IMPACT;
+    }
+    else
+    {
+        /* no impact */
+    }
+    return events;
 }
 
-const char *imu_state_name(imu_state_t s)
+/* Step 3: low-pass filter, then tilt and the tilt-limit latch */
+static uint32_t update_tilt(imu_terrain_t * p_terrain, int32_t acc_x,
+                            int32_t acc_y, int32_t acc_z)
 {
-	switch (s) {
-	case IMU_ST_INIT:		return "INIT";
-	case IMU_ST_CALIBRATING:	return "CALIBRATING";
-	case IMU_ST_MONITORING:		return "MONITORING";
-	case IMU_ST_CLIMBING:		return "CLIMBING";
-	case IMU_ST_AT_PEAK:		return "AT_PEAK";
-	case IMU_ST_DESCENDING:		return "DESCENDING";
-	case IMU_ST_ERROR:		return "ERROR";
-	default:			return "?";
-	}
+    const imu_cfg_t * p_cfg        = &p_terrain->cfg;
+    uint32_t          events       = 0U;
+    int32_t           release_cdeg = p_cfg->tilt_limit_cdeg - S4_TILT_HYST_CDEG;
+
+    /* Cast: filtered values stay within the +-2 g sensor range. */
+    p_terrain->st.ax_mg =
+        (int16_t)ema_step(&p_terrain->f_acc[0], acc_x, p_cfg->lpf_shift);
+    p_terrain->st.ay_mg =
+        (int16_t)ema_step(&p_terrain->f_acc[1], acc_y, p_cfg->lpf_shift);
+    p_terrain->st.az_mg =
+        (int16_t)ema_step(&p_terrain->f_acc[2], acc_z, p_cfg->lpf_shift);
+
+    /* Cast: angles are within +-18000 cdeg; squares are non-negative. */
+    p_terrain->st.pitch_cdeg = (int16_t)imu_atan2_cdeg(
+        p_terrain->st.ax_mg,
+        (int32_t)imu_isqrt32(
+            (uint32_t)(p_terrain->st.ay_mg * p_terrain->st.ay_mg) +
+            (uint32_t)(p_terrain->st.az_mg * p_terrain->st.az_mg)));
+    p_terrain->st.roll_cdeg =
+        (int16_t)imu_atan2_cdeg(p_terrain->st.ay_mg, p_terrain->st.az_mg);
+
+    if ((iabs32(p_terrain->st.pitch_cdeg) > p_cfg->tilt_limit_cdeg) ||
+        (iabs32(p_terrain->st.roll_cdeg) > p_cfg->tilt_limit_cdeg))
+    {
+        if (0U == p_terrain->tilt_latched)
+        {
+            p_terrain->tilt_latched = 1U;
+            events |= IMU_EV_TILT_LIMIT;
+        }
+    }
+    else if ((iabs32(p_terrain->st.pitch_cdeg) < release_cdeg) &&
+             (iabs32(p_terrain->st.roll_cdeg) < release_cdeg))
+    {
+        p_terrain->tilt_latched = 0U;
+    }
+    else
+    {
+        /* in the hysteresis band */
+    }
+    return events;
 }
 
-const char *imu_motion_name(imu_motion_t m)
+/* Step 4: heading and turn rate from the magnetometer.
+   Not tilt compensated: on a hump the heading wobbles, which is
+   why turning is only classified on level ground. */
+static void update_heading(imu_terrain_t *      p_terrain,
+                           const imu_sample_t * p_sample)
 {
-	switch (m) {
-	case IMU_MOT_STATIONARY:	return "STATIONARY";
-	case IMU_MOT_CRUISING:		return "CRUISING";
-	case IMU_MOT_ACCELERATING:	return "ACCELERATING";
-	case IMU_MOT_BRAKING:		return "BRAKING";
-	case IMU_MOT_TURNING_LEFT:	return "TURN_LEFT";
-	case IMU_MOT_TURNING_RIGHT:	return "TURN_RIGHT";
-	default:			return "UNKNOWN";
-	}
+    int32_t heading;
+    int32_t rate;
+
+    heading = imu_atan2_cdeg(p_sample->my, p_sample->mx);
+    if (p_terrain->have_heading != 0U)
+    {
+        rate = imu_wrap_cdeg(heading - p_terrain->prev_heading) *
+               (S4_MS_PER_S / p_terrain->cfg.period_ms);
+        p_terrain->st.turn_rate_cdeg_s =
+            ema_step(&p_terrain->f_rate, rate, p_terrain->cfg.lpf_shift);
+    }
+    /* Cast: the heading is within +-18000 cdeg. */
+    p_terrain->prev_heading    = (int16_t)heading;
+    p_terrain->have_heading    = 1U;
+    p_terrain->st.heading_cdeg = (int16_t)heading;
 }
+
+/* Step 5: height, dh = ds * sin(pitch) = ds * ax / |a| */
+static void update_height(imu_terrain_t * p_terrain, int32_t speed_mm_s)
+{
+    int32_t ds_um;
+    int32_t norm;
+
+    ds_um = speed_mm_s * p_terrain->cfg.period_ms; /* mm/s * ms = um */
+    /* Cast: the norm of a +-2 g vector fits int32_t. */
+    norm  = (int32_t)imu_norm3(p_terrain->st.ax_mg, p_terrain->st.ay_mg,
+                               p_terrain->st.az_mg);
+    if (norm > 0)
+    {
+        p_terrain->st.hump_height_um += (ds_um * p_terrain->st.ax_mg) / norm;
+    }
+}
+
+uint32_t imu_terrain_update(imu_terrain_t *      p_terrain,
+                            const imu_sample_t * p_sample, int32_t speed_mm_s)
+{
+    uint32_t     events = 0U;
+    int32_t      acc_x;
+    int32_t      acc_y;
+    int32_t      acc_z;
+    int32_t      raw_norm;
+    int32_t      speed;
+    imu_motion_t motion;
+
+    p_terrain->st.sample_count++;
+
+    if (IMU_ST_ERROR == p_terrain->st.state)
+    {
+        events = 0U;
+    }
+    else if (IMU_ST_CALIBRATING == p_terrain->st.state)
+    {
+        events = calibrate_step(p_terrain, p_sample);
+    }
+    else
+    {
+        /* 1. Remove bias */
+        acc_x = (int32_t)p_sample->ax_mg - p_terrain->bias[0];
+        acc_y = (int32_t)p_sample->ay_mg - p_terrain->bias[1];
+        acc_z = (int32_t)p_sample->az_mg - p_terrain->bias[2];
+
+        /* 2. Impact, 3. tilt, 4. heading */
+        /* Cast: the norm of a +-2 g vector fits int32_t. */
+        raw_norm = (int32_t)imu_norm3(acc_x, acc_y, acc_z);
+        events |= check_impact(p_terrain, raw_norm);
+        events |= update_tilt(p_terrain, acc_x, acc_y, acc_z);
+        update_heading(p_terrain, p_sample);
+
+        /* 5. Height (no wheel speed: assume the nominal speed) */
+        speed =
+            (speed_mm_s < 0) ? p_terrain->cfg.nominal_speed_mm_s : speed_mm_s;
+        update_height(p_terrain, speed);
+
+        /* 6. Hump state machine */
+        events |= hump_step(p_terrain, p_terrain->st.pitch_cdeg);
+
+        /* 7. Motion class */
+        if (IMU_ST_MONITORING == p_terrain->st.state)
+        {
+            motion = classify(p_terrain, raw_norm - ONE_G_MG, speed);
+        }
+        else
+        {
+            motion = IMU_MOT_CRUISING; /* on a hump */
+        }
+        if (motion != p_terrain->st.motion)
+        {
+            p_terrain->st.motion = motion;
+            events |= IMU_EV_MOTION_CHANGE;
+        }
+    }
+    return events;
+}
+
+const char * imu_state_name(imu_state_t state)
+{
+    const char * p_name;
+
+    switch (state)
+    {
+        case IMU_ST_INIT:
+            p_name = "INIT";
+            break;
+        case IMU_ST_CALIBRATING:
+            p_name = "CALIBRATING";
+            break;
+        case IMU_ST_MONITORING:
+            p_name = "MONITORING";
+            break;
+        case IMU_ST_CLIMBING:
+            p_name = "CLIMBING";
+            break;
+        case IMU_ST_AT_PEAK:
+            p_name = "AT_PEAK";
+            break;
+        case IMU_ST_DESCENDING:
+            p_name = "DESCENDING";
+            break;
+        case IMU_ST_ERROR:
+            p_name = "ERROR";
+            break;
+        default:
+            p_name = "?";
+            break;
+    }
+    return p_name;
+}
+
+const char * imu_motion_name(imu_motion_t motion)
+{
+    const char * p_name;
+
+    switch (motion)
+    {
+        case IMU_MOT_STATIONARY:
+            p_name = "STATIONARY";
+            break;
+        case IMU_MOT_CRUISING:
+            p_name = "CRUISING";
+            break;
+        case IMU_MOT_ACCELERATING:
+            p_name = "ACCELERATING";
+            break;
+        case IMU_MOT_BRAKING:
+            p_name = "BRAKING";
+            break;
+        case IMU_MOT_TURNING_LEFT:
+            p_name = "TURN_LEFT";
+            break;
+        case IMU_MOT_TURNING_RIGHT:
+            p_name = "TURN_RIGHT";
+            break;
+        default:
+            p_name = "UNKNOWN";
+            break;
+    }
+    return p_name;
+}
+
+/*** end of file ***/

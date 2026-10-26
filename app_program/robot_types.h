@@ -1,5 +1,14 @@
+/*
+ *      robot_types.h
+ *      Line, barcode and navigation types shared by subsystems 3 and 6
+ *      (Design Review 6.2).  Plain C: no kernel types, so the Vehicle
+ *      Controller state machine can also be built on a PC (host_test).
+ */
+
 #ifndef ROBOT_TYPES_H
 #define ROBOT_TYPES_H
+
+#include <stdint.h>
 
 typedef enum
 {
@@ -9,7 +18,7 @@ typedef enum
     LINE_STATE_FOLLOW,
     LINE_STATE_LOST,
     LINE_STATE_JUNCTION
-} LineState;
+} line_state_t;
 
 typedef enum
 {
@@ -19,7 +28,7 @@ typedef enum
     BARCODE_STATE_DECODE,
     BARCODE_STATE_RETRY,
     BARCODE_STATE_COMPLETE
-} BarcodeState;
+} barcode_state_t;
 
 typedef enum
 {
@@ -28,13 +37,15 @@ typedef enum
     NAV_RIGHT,
     NAV_STRAIGHT,
     NAV_U_TURN
-} NavigationCommand;
+} navigation_command_t;
 
 typedef struct
 {
-    int left;
-    int centre;
-    int right;
-} IRReading;
+    int32_t left;
+    int32_t centre;
+    int32_t right;
+} ir_reading_t;
 
-#endif
+#endif /* ROBOT_TYPES_H */
+
+/*** end of file ***/

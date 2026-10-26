@@ -26,7 +26,7 @@ the firmware.
 
 | File | What it does |
 |---|---|
-| `subsystem6.h` | Public interface: `vc_post_event()`, `vc_get_status()`, `flg_vc_state`, priority, 10 ms tick |
+| `subsystem6.h` | Public interface: `vc_post_event()`, `vc_get_status()`, `g_flg_vc_state`, priority, 10 ms tick |
 | `vc_types.h` | Shared formats: mission states, events, fault severities/codes, movement commands, status |
 | `vc_sm.c/.h` | The mission statechart as pure logic (no kernel calls). Returns a list of actions. Tuning values at the top of `vc_sm.h` |
 | `task_vehicle_ctrl.c` | The controller task: waits for events (10 ms tick), reads the other subsystems' channels, runs the state machine, carries out actions |
@@ -71,13 +71,13 @@ that folder still holds the zip's example, so S6 builds either way.
 | Subsystem | Into the controller | Out of the controller | State |
 |---|---|---|---|
 | S1 WiFi/MQTT | `vc_post_event(VC_SRC_COMMS, VC_EV_CMD_START / CMD_STOP / CMD_RESET / WIFI_DOWN / WIFI_UP …)` | fault reports + 200 ms status via `vc_port_report()` / `vc_port_telemetry()` | **stub**: prints, waits for S1's telemetry buffer |
-| S2 Motion | `flg_motion`: CMD_DONE → manoeuvre done, FAULT / CMD_TIMEOUT → critical | `s2_cmd_drive/turn/drive_dist/stop/reset`, `s2_emergency_stop` | **bound** (`vc_bridge_s2.c`) |
-| S3 Line + barcode | `mbf_s3_events` (lost/found/junction/barcode); steering read from `s3_get_line_status()` every 10 ms | `s3_request(BC_ENABLE / BC_REARM / BC_DISABLE)` | **bound** (`vc_bridge_s3.c`) |
-| S4 IMU | `mbf_imu_evt` (calibrated, hump start/end, impact, faults) | `s4_request_calibration()` + `s4_request_peak_reset()` at mission start | **bound** (`vc_bridge_s4.c`) |
-| S5 Obstacle | `mbf_s5_evt` (obstacle, motion requests, line reacquired, failed) | `mbf_s5_cmd`: ENABLE / START_AVOID / MOTION_DONE / ABORT / DISABLE | **bound** (`vc_bridge_s5.c`) |
+| S2 Motion | `g_flg_motion`: CMD_DONE → manoeuvre done, FAULT / CMD_TIMEOUT → critical | `s2_cmd_drive/turn/drive_dist/stop/reset`, `s2_emergency_stop` | **bound** (`vc_bridge_s2.c`) |
+| S3 Line + barcode | `g_mbf_s3_events` (lost/found/junction/barcode); steering read from `s3_get_line_status()` every 10 ms | `s3_request(BC_ENABLE / BC_REARM / BC_DISABLE)` | **bound** (`vc_bridge_s3.c`) |
+| S4 IMU | `g_mbf_imu_evt` (calibrated, hump start/end, impact, faults) | `s4_request_calibration()` + `s4_request_peak_reset()` at mission start | **bound** (`vc_bridge_s4.c`) |
+| S5 Obstacle | `g_mbf_s5_evt` (obstacle, motion requests, line reacquired, failed) | `g_mbf_s5_cmd`: ENABLE / START_AVOID / MOTION_DONE / ABORT / DISABLE | **bound** (`vc_bridge_s5.c`) |
 
 Any subsystem can also read the mission state with `vc_get_status()` or wait
-on `flg_vc_state` (one bit per state, plus `VC_FLG_RUNNING`).
+on `g_flg_vc_state` (one bit per state, plus `VC_FLG_RUNNING`).
 
 ## What is still stubbed
 
@@ -115,12 +115,12 @@ Section 5:
 
 | ID | From → To | Mechanism | Object ID name | Data / meaning |
 |---|---|---|---|---|
-| IF-06 | any → S6 | message buffer (owned by S6) | `mbf_vc_events` | `VC_EVENT` in `vc_types.h`, via `vc_post_event()` |
-| IF-07 | S6 → any | shared data under mutex + event flag (owned by S6) | `mtx_vc_status`, `flg_vc_state` | `VC_STATUS`, via `vc_get_status()` |
-| (S2's IF-M1/M3) | S6 ↔ S2 | S2's message buffer + event flag | `mbf_motion_cmd`, `flg_motion` | `vc_bridge_s2.c` |
-| (S3's IF-31..33) | S3 ↔ S6 | S3's message buffer, status, requests | `mbf_s3_events` | `vc_bridge_s3.c` |
-| (S4's IF-S4-1/4) | S4 ↔ S6 | S4's message buffer, requests | `mbf_imu_evt` | `vc_bridge_s4.c` |
-| (S5's channels) | S5 ↔ S6 | S5's message buffers | `mbf_s5_evt`, `mbf_s5_cmd` | `vc_bridge_s5.c` |
+| IF-06 | any → S6 | message buffer (owned by S6) | `g_mbf_vc_events` | `vc_event_t` in `vc_types.h`, via `vc_post_event()` |
+| IF-07 | S6 → any | shared data under mutex + event flag (owned by S6) | `g_mtx_vc_status`, `g_flg_vc_state` | `vc_status_t`, via `vc_get_status()` |
+| (S2's IF-M1/M3) | S6 ↔ S2 | S2's message buffer + event flag | `g_mbf_motion_cmd`, `g_flg_motion` | `vc_bridge_s2.c` |
+| (S3's IF-31..33) | S3 ↔ S6 | S3's message buffer, status, requests | `g_mbf_s3_events` | `vc_bridge_s3.c` |
+| (S4's IF-S4-1/4) | S4 ↔ S6 | S4's message buffer, requests | `g_mbf_imu_evt` | `vc_bridge_s4.c` |
+| (S5's channels) | S5 ↔ S6 | S5's message buffers | `g_mbf_s5_evt`, `g_mbf_s5_cmd` | `vc_bridge_s5.c` |
 
 Section 6 (kernel objects): S6 uses 1 task, 1 message buffer, 1 mutex,
 1 event flag.

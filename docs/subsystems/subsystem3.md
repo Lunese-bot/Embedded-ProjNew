@@ -48,8 +48,8 @@ in `subsystem2/` and `subsystem4/`.
 ```c
 #include "../subsystem3/subsystem3.h"
 
-S3_EVENT evt;
-if (tk_rcv_mbf(mbf_s3_events, &evt, TMO_POL) == sizeof(evt)) {
+s3_event_t evt;
+if (tk_rcv_mbf(g_mbf_s3_events, &evt, TMO_POL) == sizeof(evt)) {
     switch (evt.type) {
     case S3_EVT_BARCODE_START:   /* slow down: DECODE_BARCODE */ break;
     case S3_EVT_BARCODE_DECODED: /* evt.nav: NAV_LEFT/RIGHT/... */ break;
@@ -59,7 +59,7 @@ if (tk_rcv_mbf(mbf_s3_events, &evt, TMO_POL) == sizeof(evt)) {
     }
 }
 
-S3_LINE_STATUS st;
+s3_line_status_t st;
 s3_get_line_status(&st);         /* st.steering: -1000..+1000, + = right */
 
 s3_request(S3_REQ_BC_DISABLE);   /* e.g. while avoiding an obstacle */

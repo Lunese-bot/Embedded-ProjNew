@@ -34,9 +34,9 @@ a real Pico yet.
 ## How it talks to the robot
 
 ```
- Vehicle Controller ──S5_CMD──▶ mbf_s5_cmd ──▶ s5_avoid_task ◀─flg_s5─▶ s5_scan_task ─▶ ultrasonic + servo
- Vehicle Controller ◀─S5_EVT── mbf_s5_evt ◀──┘                              │
- telemetry (Buddy 1) ◀── s5_get_status() ◀── s5_status (mtx_s5) ◀───────────┘
+ Vehicle Controller ──s5_cmd_t──▶ g_mbf_s5_cmd ──▶ s5_avoid_task ◀─g_flg_s5─▶ s5_scan_task ─▶ ultrasonic + servo
+ Vehicle Controller ◀─s5_evt_t── g_mbf_s5_evt ◀──┘                              │
+ telemetry (Buddy 1) ◀── s5_get_status() ◀── s5_status (g_mtx_s5) ◀───────────┘
  line following (Buddy 3) ──▶ s5_port_line_detected()
 ```
 
@@ -62,7 +62,7 @@ a real Pico yet.
   Buddy 3 provides the real one, so on the bench every bypass ends in 3
   recoveries and AVOID_FAILED.
 - **The Vehicle Controller side is not written here.** It must read
-  `mbf_s5_evt`, forward motion requests to Motion Control and answer
+  `g_mbf_s5_evt`, forward motion requests to Motion Control and answer
   `MOTION_DONE`. The interface was sent to the Subsystem 6 (Vehicle
   Controller) thread.
 - **Tuning values are guesses** (A6, "needs validation"): detect distance,
@@ -95,9 +95,9 @@ a real Pico yet.
 
 | ID | From → To | Mechanism | Object ID name | Data / meaning |
 |---|---|---|---|---|
-| IF-S5a | VC → S5 | message buffer (owned by S5) | `mbf_s5_cmd` | `S5_CMD` |
-| IF-S5b | S5 → VC | message buffer (owned by S5) | `mbf_s5_evt` | `S5_EVT` (incl. `S5_MOTION_REQ`) |
-| IF-S5c | S5 → any | function + mutex | `s5_get_status()` | `S5_STATUS` |
+| IF-S5a | VC → S5 | message buffer (owned by S5) | `g_mbf_s5_cmd` | `s5_cmd_t` |
+| IF-S5b | S5 → VC | message buffer (owned by S5) | `g_mbf_s5_evt` | `s5_evt_t` (incl. `s5_motion_req_t`) |
+| IF-S5c | S5 → any | function + mutex | `s5_get_status()` | `s5_status_t` |
 | IF-S5d | S3 → S5 | weak function | `s5_port_line_detected()` | TRUE = an IR sensor sees the line |
 
 Kernel objects used by S5: 2 tasks, 2 message buffers, 1 event flag, 1 mutex.

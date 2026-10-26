@@ -14,6 +14,11 @@ It may contain several tasks and own several peripherals (see section 3).
 Rule: **only the owner edits a subsystem's folders.** To change another
 subsystem, ask its owner or open a pull request for them to review.
 
+Coding standard: all code in `app_program/` follows **BARR-C:2018**.
+Run `clang-format` with `app_program/.clang-format` before committing. The
+rules we follow, the naming conventions and the agreed deviations are in
+`docs/BARR_C.md`.
+
 ## 1. Members and subsystems
 
 | # | Subsystem (what it does) | Student ID | GitHub username | Code | Tests |
@@ -167,25 +172,25 @@ sends to it or waits on it. Agree on the data format before coding.
 
 | ID | From → To | Mechanism | Object ID name | Data / meaning | Agreed by |
 |---|---|---|---|---|---|
-| IF-T1 | any → S1 | message buffer (owned by S1) | `mbf_telemetry`, `s1_post()` | topic suffix + text; drained by `mqtt_utk.c` with `TMO_POL` | |
+| IF-T1 | any → S1 | message buffer (owned by S1) | `g_mbf_telemetry`, `s1_post()` | topic suffix + text; drained by `mqtt_utk.c` with `TMO_POL` | |
 | IF-T2 | S1 → S6 | S6's event buffer | `vc_post_event(VC_SRC_COMMS, ...)` | MQTT `robot/g10/cmd`: `start` / `stop` / `reset`; WiFi up/down | |
-| IF-M1 | S6 → S2 | message buffer (owned by S2) | `mbf_motion_cmd` | `MOTION_CMD`, or `s2_cmd_drive/drive_dist/turn/stop/reset()` | |
-| IF-M2 | S2 → anyone | shared data under mutex (owned by S2) | `mtx_motion`, `s2_get_status()` | `MOTION_STATUS` | |
-| IF-M3 | S2 → S6 | event flag (owned by S2) | `flg_motion` | `MFLG_CMD_DONE`, `_STOPPED`, `_SAFE_STOPPED`, `_FAULT`, `_CMD_TIMEOUT` | |
+| IF-M1 | S6 → S2 | message buffer (owned by S2) | `g_mbf_motion_cmd` | `motion_cmd_t`, or `s2_cmd_drive/drive_dist/turn/stop/reset()` | |
+| IF-M2 | S2 → anyone | shared data under mutex (owned by S2) | `g_mtx_motion`, `s2_get_status()` | `motion_status_t` | |
+| IF-M3 | S2 → S6 | event flag (owned by S2) | `g_flg_motion` | `MFLG_CMD_DONE`, `_STOPPED`, `_SAFE_STOPPED`, `_FAULT`, `_CMD_TIMEOUT` | |
 | — | any → S2 | function | `s2_emergency_stop()` | latched Safe Stop until `MOTION_RESET` | |
-| IF-31 | S3 → anyone | shared data under mutex (owned by S3) | `s3_get_line_status()`, `mtx_s3_status` | `S3_LINE_STATUS` | |
-| IF-32 | S3 → S6 | message buffer (owned by S3) | `mbf_s3_events` | `S3_EVENT`: line lost/found, junction, barcode start/decoded/failed | |
-| IF-33 | S6 → S3 | event flag (owned by S3) | `s3_request()`, `flg_s3_req` | `S3_REQ_CALIBRATE`, `_RESET_LINE`, `_BC_ENABLE/DISABLE/REARM` | |
-| IF-S4-1 | S4 → S6 | message buffer (owned by S4) | `mbf_imu_evt` | `IMU_EVENT_MSG`: hump, impact, tilt, faults (FR8 severity) | |
-| IF-S4-2 | S4 → anyone | shared data under mutex (owned by S4) | `s4_get_status()` | `IMU_STATUS` | |
+| IF-31 | S3 → anyone | shared data under mutex (owned by S3) | `s3_get_line_status()`, `g_mtx_s3_status` | `s3_line_status_t` | |
+| IF-32 | S3 → S6 | message buffer (owned by S3) | `g_mbf_s3_events` | `s3_event_t`: line lost/found, junction, barcode start/decoded/failed | |
+| IF-33 | S6 → S3 | event flag (owned by S3) | `s3_request()`, `g_flg_s3_req` | `S3_REQ_CALIBRATE`, `_RESET_LINE`, `_BC_ENABLE/DISABLE/REARM` | |
+| IF-S4-1 | S4 → S6 | message buffer (owned by S4) | `g_mbf_imu_evt` | `imu_event_msg_t`: hump, impact, tilt, faults (FR8 severity) | |
+| IF-S4-2 | S4 → anyone | shared data under mutex (owned by S4) | `s4_get_status()` | `imu_status_t` | |
 | IF-S4-3 | S2 → S4 | function (owned by S4) | `s4_set_speed_mm_s()` | measured speed every 10 ms, for hump height | |
 | IF-S4-4 | S6 → S4 | event flag (owned by S4) | `s4_request_calibration()`, `s4_request_peak_reset()` | requests | |
-| IF-S5a | S6 → S5 | message buffer (owned by S5) | `mbf_s5_cmd` | `S5_CMD` | |
-| IF-S5b | S5 → S6 | message buffer (owned by S5) | `mbf_s5_evt` | `S5_EVT` (incl. `S5_MOTION_REQ`) | |
-| IF-S5c | S5 → anyone | function + mutex | `s5_get_status()` | `S5_STATUS` | |
+| IF-S5a | S6 → S5 | message buffer (owned by S5) | `g_mbf_s5_cmd` | `s5_cmd_t` | |
+| IF-S5b | S5 → S6 | message buffer (owned by S5) | `g_mbf_s5_evt` | `s5_evt_t` (incl. `s5_motion_req_t`) | |
+| IF-S5c | S5 → anyone | function + mutex | `s5_get_status()` | `s5_status_t` | |
 | IF-S5d | S3 → S5 | function overriding S5's weak hook | `s5_port_line_detected()` | TRUE when an IR sensor sees black | |
-| IF-06 | any → S6 | message buffer (owned by S6) | `mbf_vc_events`, `vc_post_event()` | `VC_EVENT` in `vc_types.h` | |
-| IF-07 | S6 → anyone | shared data under mutex + event flag (owned by S6) | `mtx_vc_status`, `flg_vc_state` | `VC_STATUS`, via `vc_get_status()` | |
+| IF-06 | any → S6 | message buffer (owned by S6) | `g_mbf_vc_events`, `vc_post_event()` | `vc_event_t` in `vc_types.h` | |
+| IF-07 | S6 → anyone | shared data under mutex + event flag (owned by S6) | `g_mtx_vc_status`, `g_flg_vc_state` | `vc_status_t`, via `vc_get_status()` | |
 | IF-08 | S6 → S1 | S1's telemetry buffer | `s1_post("fault", ...)` in `vc_port_report()` | fault reports to MQTT `robot/g10/fault` | |
 
 Each interface is tested by at least one integration test

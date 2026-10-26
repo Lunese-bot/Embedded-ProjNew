@@ -27,8 +27,8 @@ Copy the folders over the repo with the same paths. They replace the example
 
 | ID | From → To | Mechanism | Object / call | Data |
 |---|---|---|---|---|
-| IF-S4-1 | S4 → Vehicle Controller | message buffer (owned by S4) | `mbf_imu_evt` | `IMU_EVENT_MSG`: hump start/peak/end with height, impact, tilt limit, motion change, fault / fatal fault / recovered, with FR8 severity |
-| IF-S4-2 | S4 → anyone (VC, telemetry) | shared data under mutex (owned by S4) | `s4_get_status()` | `IMU_STATUS`: pitch, roll, heading, turn rate, state, motion, current / last / max hump height, counts |
+| IF-S4-1 | S4 → Vehicle Controller | message buffer (owned by S4) | `g_mbf_imu_evt` | `imu_event_msg_t`: hump start/peak/end with height, impact, tilt limit, motion change, fault / fatal fault / recovered, with FR8 severity |
+| IF-S4-2 | S4 → anyone (VC, telemetry) | shared data under mutex (owned by S4) | `s4_get_status()` | `imu_status_t`: pitch, roll, heading, turn rate, state, motion, current / last / max hump height, counts |
 | IF-S4-3 | Motion control (S2) → S4 | function call | `s4_set_speed_mm_s()` | wheel speed in mm/s, used to turn pitch into height (-1 = unknown) |
 | IF-S4-4 | VC / MQTT → S4 | event flag (owned by S4) | `s4_request_calibration()`, `s4_request_peak_reset()` | requests |
 
