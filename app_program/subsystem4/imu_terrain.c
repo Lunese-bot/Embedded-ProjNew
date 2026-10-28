@@ -322,13 +322,29 @@ static uint32_t hump_descending(imu_terrain_t * p_terrain, bool b_rising,
     return events;
 }
 
-static uint32_t hump_step(imu_terrain_t * p_terrain, int32_t pitch)
+
+static uint32_t hump_step(imu_terrain_t * p_terrain, int32_t pitch,
+                          int32_t speed_mm_s)
 {
-    const imu_cfg_t * p_cfg    = &p_terrain->cfg;
-    uint32_t          events   = 0U;
-    bool              b_rising = (pitch > p_cfg->hump_enter_cdeg);
-    bool              b_down   = (pitch < -p_cfg->hump_enter_cdeg);
-    bool              b_level  = (iabs32(pitch) < p_cfg->hump_level_cdeg);
+    const imu_cfg_t * p_cfg = &p_terrain->cfg;
+    uint32_t          events = 0U;
+
+    /* One-wheel hump: smaller pitch accompanied by sideways roll */
+    bool b_one_wheel =
+        (speed_mm_s > 0) &&
+        (iabs32(p_terrain->st.roll_cdeg) > S4_ONE_WHEEL_ROLL_CDEG);
+
+    bool b_rising =
+        (pitch > p_cfg->hump_enter_cdeg) ||
+        (b_one_wheel && (pitch > S4_ONE_WHEEL_PITCH_CDEG));
+
+    bool b_down =
+        (pitch < -p_cfg->hump_enter_cdeg) ||
+        (b_one_wheel && (pitch < -S4_ONE_WHEEL_PITCH_CDEG));
+
+    bool b_level =
+        (iabs32(pitch) < p_cfg->hump_level_cdeg);
+
 
     if (p_terrain->st.hump_height_um > p_terrain->peak_um)
     {
@@ -391,6 +407,7 @@ static imu_motion_t classify(imu_terrain_t * p_terrain, int32_t dyn_mg,
         p_terrain->still_cnt = 0;
     }
 
+
     if (p_terrain->st.turn_rate_cdeg_s > p_cfg->turn_rate_cdeg_s)
     {
         motion = IMU_MOT_TURNING_LEFT;
@@ -398,6 +415,12 @@ static imu_motion_t classify(imu_terrain_t * p_terrain, int32_t dyn_mg,
     else if (p_terrain->st.turn_rate_cdeg_s < -p_cfg->turn_rate_cdeg_s)
     {
         motion = IMU_MOT_TURNING_RIGHT;
+    }
+    else if ((0 == speed_mm_s) ||
+             ((speed_mm_s < 0) &&
+              (p_terrain->still_cnt >= p_cfg->still_samples)))
+    {
+        motion = IMU_MOT_STATIONARY;
     }
     else if (p_terrain->st.ax_mg > p_cfg->accel_mg)
     {
@@ -407,17 +430,11 @@ static imu_motion_t classify(imu_terrain_t * p_terrain, int32_t dyn_mg,
     {
         motion = IMU_MOT_BRAKING;
     }
-    /* An accelerometer cannot tell "still" from "constant speed", so
-       trust the wheel speed when motion control provides it. */
-    else if ((0 == speed_mm_s) || ((speed_mm_s < 0) && (p_terrain->still_cnt >=
-                                                        p_cfg->still_samples)))
-    {
-        motion = IMU_MOT_STATIONARY;
-    }
     else
     {
         motion = IMU_MOT_CRUISING;
     }
+
     return motion;
 }
 
@@ -514,13 +531,20 @@ static void update_heading(imu_terrain_t *      p_terrain,
 }
 
 /* Step 5: height, dh = ds * sin(pitch) = ds * ax / |a| */
+
 static void update_height(imu_terrain_t * p_terrain, int32_t speed_mm_s)
 {
     int32_t ds_um;
     int32_t norm;
 
-    ds_um = speed_mm_s * p_terrain->cfg.period_ms; /* mm/s * ms = um */
-    /* Cast: the norm of a +-2 g vector fits int32_t. */
+    /* Ignore implausibly high encoder-speed readings. */
+    if (speed_mm_s > S4_HUMP_MAX_SPEED_MM_S)
+    {
+        return;
+    }
+
+    ds_um = speed_mm_s * p_terrain->cfg.period_ms;
+
     norm  = (int32_t)imu_norm3(p_terrain->st.ax_mg, p_terrain->st.ay_mg,
                                p_terrain->st.az_mg);
     if (norm > 0)
@@ -570,7 +594,7 @@ uint32_t imu_terrain_update(imu_terrain_t *      p_terrain,
         update_height(p_terrain, speed);
 
         /* 6. Hump state machine */
-        events |= hump_step(p_terrain, p_terrain->st.pitch_cdeg);
+        events |= hump_step(p_terrain, p_terrain->st.pitch_cdeg, speed_mm_s);
 
         /* 7. Motion class */
         if (IMU_ST_MONITORING == p_terrain->st.state)

@@ -1,0 +1,70 @@
+--- a/app_program/subsystem2/s2_config.h
++++ b/app_program/subsystem2/s2_config.h
+@@ -101,7 +101,7 @@
+    drives forward 300 mm, turns 90 deg right, and repeats.  Lift the
+    robot off the table for the first try. */
+ #ifndef S2_DEMO
+-#define S2_DEMO 0
++#define S2_DEMO 1
+ #endif
+ 
+ /* Print one status line every N periods (0 = never) */
+--- a/app_program/subsystem2/subsystem2.c
++++ b/app_program/subsystem2/subsystem2.c
+@@ -186,34 +186,37 @@
+  * --------------------------------------------------------------------- */
+ static void demo_task(int32_t stacd, void * p_exinf)
+ {
+-    UINT           ptn;
+-    const uint32_t wait_bits = MFLG_CMD_DONE | MFLG_FAULT | MFLG_SAFE_STOPPED;
++    int32_t idx;
++    motion_status_t status;
+ 
+     (void)stacd;
+     (void)p_exinf;
+-    tk_dly_tsk(2000); /* time to put the robot down */
+-
+-    for (;;)
+-    {
+-        tm_printf((uint8_t *)"s2 demo: forward 300 mm\n");
+-        s2_cmd_drive_dist(200, 300);
+-        tk_wai_flg(g_flg_motion, wait_bits, TWF_ORW | TWF_BITCLR, &ptn, 10000);
+-        if (0U != (ptn & (MFLG_FAULT | MFLG_SAFE_STOPPED)))
++
++    /* Bench-only, single short run. No automatic turns or repeats. */
++    tm_printf((uint8_t *)"s2 imu bench: motor test in 8 seconds\n");
++    tk_dly_tsk(8000);
++
++    tm_printf((uint8_t *)"s2 imu bench: drive 150 mm/s for 1 second\n");
++    for (idx = 0; idx < 10; idx++)
++    {
++        if ((E_OK != s2_get_status(&status)) ||
++            (MSTATE_FAULT == status.state) ||
++            (MSTATE_SAFE_STOP == status.state))
+         {
++            tm_printf((uint8_t *)"s2 imu bench: motion fault; abort\n");
+             break;
+         }
+-        tk_dly_tsk(500);
+-
+-        tm_printf((uint8_t *)"s2 demo: turn right 90 deg\n");
+-        s2_cmd_turn(S2_TURN_SPEED_MM_S, -90);
+-        tk_wai_flg(g_flg_motion, wait_bits, TWF_ORW | TWF_BITCLR, &ptn, 10000);
+-        if (0U != (ptn & (MFLG_FAULT | MFLG_SAFE_STOPPED)))
++        if (E_OK != s2_cmd_drive(150, 0))
+         {
++            tm_printf((uint8_t *)"s2 imu bench: command failed\n");
+             break;
+         }
+-        tk_dly_tsk(1000);
+-    }
+-    tm_printf((uint8_t *)"s2 demo: stopped by fault/safe stop\n");
++        tk_dly_tsk(100); /* Refresh before 500 ms command watchdog */
++    }
++
++    /* Latched safe stop, so this test cannot run again without restart. */
++    (void)s2_emergency_stop();
++    tm_printf((uint8_t *)"s2 imu bench: STOPPED (restart to repeat)\n");
+     tk_exd_tsk();
+ }
+ #endif

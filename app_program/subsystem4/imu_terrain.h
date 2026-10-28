@@ -103,10 +103,15 @@ typedef struct
 /* ---- outputs -------------------------------------------------------- */
 typedef struct
 {
-    imu_state_t  state;
-    imu_motion_t motion;
-    uint8_t      calibrated; /* 1 after IMU_EV_CAL_DONE */
-    uint8_t      fault;      /* 1 while in IMU_ST_ERROR */
+    // imu_state_t  state;
+    // imu_motion_t motion;
+    // uint8_t      calibrated; /* 1 after IMU_EV_CAL_DONE */
+    // uint8_t      fault;      /* 1 while in IMU_ST_ERROR */
+
+    uint8_t state      : 3;
+    uint8_t motion     : 3;
+    uint8_t calibrated : 1;
+    uint8_t fault      : 1;
 
     int16_t ax_mg; /* filtered, bias removed */
     int16_t ay_mg;
