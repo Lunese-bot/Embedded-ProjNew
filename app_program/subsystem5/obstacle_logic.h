@@ -19,6 +19,30 @@
 #define S5_HIT_RANGE_MM   500 /* during a scan: "part of it"      */
 #define S5_CLUSTER_GAP_MM 150 /* jump that separates two objects  */
 
+/* ---- Stopping distance (Tribunal 1, Version C) -------------------
+ *  Required detect range >= reaction distance + braking + safety margin
+ *  reaction distance = top speed x detection latency
+ *  The robot STOPS before it sweeps the servo, so sweep time is not part
+ *  of the reaction distance (the report's first formula included it).
+ *
+ *  latency = S5_DETECT_COUNT pings x 20 ms      (3 x 20 = 60 ms)
+ *          + one echo at the 2 m range limit     (~12 ms)
+ *          + one Motion Control period           (10 ms)        = 82 ms
+ *  reaction at 400 mm/s (S2_MAX_SPEED_MM_S) = 400 x 0.082 ~= 33 mm
+ *
+ *  S5_BRAKING_MM is an ESTIMATE: measure it (S5-U22) and update it.
+ *  The build fails if the detect distance stops covering the total. */
+#define S5_TOP_SPEED_MM_S      400 /* = S2_MAX_SPEED_MM_S (subsystem2.h) */
+#define S5_LATENCY_MS          ((S5_DETECT_COUNT * 20) + 12 + 10)
+#define S5_REACTION_MM         ((S5_TOP_SPEED_MM_S * S5_LATENCY_MS) / 1000)
+#define S5_BRAKING_MM          100 /* TODO measure at top speed (S5-U22) */
+#define S5_STOP_MARGIN_MM      50
+#define S5_STOP_NEEDED_MM \
+    (S5_REACTION_MM + S5_BRAKING_MM + S5_STOP_MARGIN_MM)
+
+_Static_assert(S5_DETECT_MM >= S5_STOP_NEEDED_MM,
+               "S5_DETECT_MM too short to stop: reaction + braking + margin");
+
 /* ---- Robot geometry (measure the real car) ---------------------- */
 #define S5_ROBOT_HALF_WIDTH_MM 80
 #define S5_ROBOT_LENGTH_MM     200

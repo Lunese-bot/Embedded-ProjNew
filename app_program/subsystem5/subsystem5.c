@@ -20,6 +20,8 @@
  */
 
 #include "s5_local.h"
+#include "drv_ultrasonic.h" /* US_NO_ECHO */
+#include "../subsystem2/subsystem2.h" /* s2_emergency_stop (stop path only) */
 
 ID       g_mbf_s5_cmd;
 ID       g_mbf_s5_evt;
@@ -31,7 +33,6 @@ uint32_t g_s5_evt_dropped;
 
 static s5_status_t g_s5_status;
 
-#define S5_MBF_MSG_OVERHEAD 4   /* kernel header bytes per message */
 #define S5_STATUS_TMO_MS    100 /* s5_get_status(): longest mutex wait */
 
 ER subsystem5_init(void)
@@ -116,6 +117,28 @@ ER s5_get_status(s5_status_t * p_out)
     }
     *p_out = g_s5_status;
     tk_unl_mtx(g_mtx_s5);
+    return E_OK;
+}
+
+ER s5_get_status_packed(uint16_t * p_word)
+{
+    s5_status_t st;
+    ER          ercd;
+    bool        detected;
+
+    if (NULL == p_word)
+    {
+        return E_PAR;
+    }
+    *p_word = 0U;
+    ercd = s5_get_status(&st);
+    if (ercd < E_OK)
+    {
+        return ercd;
+    }
+    detected = (US_NO_ECHO != st.last_distance_mm) &&
+               (st.last_distance_mm < S5_DETECT_MM);
+    *p_word = s5_pack_status(st.last_distance_mm, st.state, detected);
     return E_OK;
 }
 
@@ -216,6 +239,35 @@ ER s5_send_evt(s5_evt_t * p_evt)
     if (ercd < E_OK)
     {
         g_s5_evt_dropped++;
+    }
+    return ercd;
+}
+
+/* The stopping-distance check in obstacle_logic.h assumes S2's top speed */
+_Static_assert(S5_TOP_SPEED_MM_S == S2_MAX_SPEED_MM_S,
+               "update S5_TOP_SPEED_MM_S: S2_MAX_SPEED_MM_S changed");
+
+/* Latched stop path (Version C gap: "obstacle event may be dropped if
+   the VC event queue is full while the robot continues moving"). */
+s5_stop_fn_t g_s5_stop_fn = s2_emergency_stop;
+uint32_t     g_s5_estops;
+
+ER s5_send_critical_to(ID mbf, s5_evt_t * p_evt)
+{
+    SYSTIM now;
+    ER     ercd;
+
+    tk_get_tim(&now);
+    p_evt->time_ms = now.lo;
+
+    ercd = tk_snd_mbf(mbf, p_evt, sizeof(*p_evt), TMO_POL);
+    if (ercd < E_OK)
+    {
+        g_s5_evt_dropped++;
+        g_s5_estops++;
+        tm_printf((uint8_t *)"s5: event %d LOST (queue full) -> emergency stop\n",
+                  (int32_t)p_evt->type);
+        (void)g_s5_stop_fn(); /* motors off within one S2 period, latched */
     }
     return ercd;
 }

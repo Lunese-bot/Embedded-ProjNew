@@ -132,7 +132,9 @@ static void report_obstacle(uint16_t dist_mm)
 
     evt.type        = S5_EVT_OBSTACLE_DETECTED;
     evt.distance_mm = dist_mm;
-    s5_send_evt(&evt);
+    /* Safety event: if the VC queue is full, stop the car anyway, then
+       HOLD as normal (Tribunal 1 Version C, latched stop path). */
+    (void)s5_send_critical(&evt);
 #if S5_BENCH_MODE
     { /* play the controller: start avoiding at once */
         s5_cmd_t cmd = { S5_CMD_START_AVOID, 0, 0 };

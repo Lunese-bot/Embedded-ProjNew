@@ -39,6 +39,7 @@
 
 #define S5_EVT_BUF_MSGS 8
 #define S5_CMD_BUF_MSGS 8
+#define S5_MBF_MSG_OVERHEAD 4 /* kernel header bytes per message */
 
 extern ID g_flg_s5;
 extern ID g_mtx_s5;
@@ -57,6 +58,23 @@ extern void s5_load_profile(s5_profile_t * p_profile);
 /* Send an event to the Vehicle Controller without blocking */
 extern ER       s5_send_evt(s5_evt_t * p_evt);
 extern uint32_t g_s5_evt_dropped; /* events lost: buffer was full */
+
+/* Safety-critical send (Tribunal 1, Version C: "latched stop path").
+   Sends p_evt to mbf like s5_send_evt().  If the buffer is full the
+   event is lost, so the Vehicle Controller would never stop the car:
+   S5 then calls the emergency stop itself (s2_emergency_stop(), latched
+   until MOTION_RESET) so the robot cannot drive into the obstacle.
+   This is the ONLY place S5 touches motion, and it can only STOP.
+   Returns the send result (E_OK, or the error after the stop). */
+extern ER s5_send_critical_to(ID mbf, s5_evt_t * p_evt);
+#define s5_send_critical(p_evt) s5_send_critical_to(g_mbf_s5_evt, (p_evt))
+
+/* The stop function used by s5_send_critical_to().  Defaults to
+   s2_emergency_stop; the on-target test swaps in a counter so it can
+   check the path without latching the real motors. */
+typedef ER (*s5_stop_fn_t)(void);
+extern s5_stop_fn_t g_s5_stop_fn;
+extern uint32_t     g_s5_estops; /* emergency stops S5 has requested */
 
 extern const char * s5_state_name(s5_state_t state);
 

@@ -28,10 +28,20 @@
  *      answers with S5_CMD_MOTION_DONE carrying the same sequence number.
  */
 
+/*
+ *  Native vs packed (Tribunal 1 Version C):
+ *    S5 <-> Vehicle Controller  native s5_evt_t / s5_cmd_t structs
+ *    S5 -> telemetry / MQTT     packed 16-bit word, s5_get_status_packed()
+ *                               (layout in ../robot_types.h)
+ *  Safety: OBSTACLE_DETECTED goes through a latched stop path, so a
+ *  full VC queue cannot leave the robot driving (s5_local.h).
+ */
+
 #ifndef SUBSYSTEM5_H
 #define SUBSYSTEM5_H
 
 #include "../app.h"
+#include "s5_pack.h" /* 16-bit telemetry word */
 
 /* ---------------------------------------------------------------------
  *  Pins (design review section 2; claim them in TEAM.md section 2)
@@ -182,6 +192,11 @@ extern ID g_mbf_s5_evt; /* S5 -> Vehicle Controller, s5_evt_t */
 
 /* Copy the current status.  Safe from any task (locks a mutex). */
 extern ER s5_get_status(s5_status_t * p_out);
+
+/* Minimum-bit telemetry: distance, state and detected flag packed into
+   one 16-bit word (layout in s5_pack.h).  Safe from any task.
+   Returns E_OK, or the error from s5_get_status (then *p_word = 0). */
+extern ER s5_get_status_packed(uint16_t * p_word);
 
 /* Hooks to other subsystems.  Defined __attribute__((weak)) in
    s5_ports.c; the owning subsystem overrides them with a real one. */

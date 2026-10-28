@@ -34,6 +34,15 @@ static const s5_sample_t g_scan_blocked[] = {
    sizeof must see the array itself, a function would see a pointer. */
 #define S5_ARRAY_LEN(a) ((int32_t)(sizeof(a) / sizeof((a)[0])))
 
+/* Stand-in for s2_emergency_stop() during S5-U21 */
+static int32_t g_test_stops;
+
+static ER test_fake_stop(void)
+{
+    g_test_stops++;
+    return E_OK;
+}
+
 void subsystem5_test(void)
 {
     s5_profile_t profile;
@@ -108,6 +117,82 @@ void subsystem5_test(void)
                (US_NO_ECHO == dist_mm) ||
                    ((dist_mm > 20U) && (dist_mm < 2000U)),
                "last distance is 'no echo' or in sensor range");
+
+    /* ---- 16-bit telemetry word (min-bit, s5_pack.h) ---- */
+    {
+        uint16_t word;
+        uint16_t mm;
+        uint8_t  st;
+        bool     det;
+
+        word = s5_pack_status(230U, (uint8_t)S5_ST_DETECTED, true);
+        s5_unpack_status(word, &mm, &st, &det);
+        TEST_CHECK("S5-U17",
+                   (230U == mm) && ((uint8_t)S5_ST_DETECTED == st) && det,
+                   "pack/unpack round trip: 230 mm, DETECTED, det=1");
+
+        word = s5_pack_status(3000U, (uint8_t)S5_ST_ERROR, false);
+        s5_unpack_status(word, &mm, &st, NULL);
+        TEST_CHECK("S5-U18",
+                   (S5_PACK_DIST_MAX_MM == mm) && ((uint8_t)S5_ST_ERROR == st),
+                   "distance above 2047 mm saturates, state kept");
+
+        TEST_CHECK("S5-U19",
+                   ((uint8_t)S5_ST_ERROR < (1U << S5_PACK_STATE_BITS)) &&
+                       (2000U <= S5_PACK_DIST_MAX_MM) &&
+                       (sizeof(word) == 2U),
+                   "every state fits 4 bits, 2000 mm fits 11 bits, 2 bytes");
+
+        TEST_CHECK("S5-U20",
+                   (E_OK == s5_get_status_packed(&word)) &&
+                       (((word >> S5_PACK_STATE_SHIFT) & S5_PACK_STATE_MASK)
+                        <= (uint16_t)S5_ST_ERROR),
+                   "s5_get_status_packed() returns a valid live state");
+        tm_printf((uint8_t *)"[TEST] S5-U20 info: packed word 0x%04x\n",
+                  (uint32_t)word);
+    }
+
+    /* ---- latched stop path (Version C): full queue -> stop ---- */
+    {
+        T_CMBF       cm       = { 0 };
+        s5_evt_t     evt      = { 0 };
+        s5_stop_fn_t real_fn  = g_s5_stop_fn;
+        uint32_t     before   = g_s5_estops;
+        ID           mbf_test;
+        ER           first;
+        ER           second;
+
+        /* private buffer that holds exactly one event, so the second
+           send finds it full, like a VC queue that is not being read */
+        cm.mbfatr  = TA_TFIFO;
+        cm.maxmsz  = sizeof(s5_evt_t);
+        cm.bufsz   = sizeof(s5_evt_t) + S5_MBF_MSG_OVERHEAD;
+        mbf_test   = tk_cre_mbf(&cm);
+        g_s5_stop_fn = test_fake_stop; /* do not latch the real motors */
+        g_test_stops = 0;
+
+        evt.type        = S5_EVT_OBSTACLE_DETECTED;
+        evt.distance_mm = 200U;
+        first  = s5_send_critical_to(mbf_test, &evt);
+        second = s5_send_critical_to(mbf_test, &evt);
+
+        g_s5_stop_fn = real_fn;
+        TEST_CHECK("S5-U21",
+                   (mbf_test > 0) && (E_OK == first) && (E_OK != second) &&
+                       (1 == g_test_stops) && ((before + 1U) == g_s5_estops),
+                   "queue full: obstacle event lost -> emergency stop called once");
+        if (mbf_test > 0)
+        {
+            tk_del_mbf(mbf_test);
+        }
+    }
+
+    TEST_CHECK("S5-U23", S5_DETECT_MM >= S5_STOP_NEEDED_MM,
+               "detect distance covers reaction + braking + margin");
+    tm_printf((uint8_t *)"[TEST] S5-U23 info: latency %d ms, reaction %d mm, "
+              "needed %d mm, detect %d mm\n",
+              (int32_t)S5_LATENCY_MS, (int32_t)S5_REACTION_MM,
+              (int32_t)S5_STOP_NEEDED_MM, (int32_t)S5_DETECT_MM);
 
     TEST_SUMMARY("subsystem5");
 }

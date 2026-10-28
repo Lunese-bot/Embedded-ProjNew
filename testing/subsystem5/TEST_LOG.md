@@ -26,6 +26,15 @@ Define a test here before running it. Test IDs never change.
 | S5-U14 | detection latency | NFR2 | manual | 1. Push a box into view at 200 mm. 2. Scope GP17 (trig) and note time to `s5: obstacle` line. | ≤ 3 periods (60 ms) after the box is in range |
 | S5-U15 | bench avoidance sequence (`S5_BENCH_MODE 1`) | FR4, Statechart 6.3 | manual | 1. Box at 20 cm. 2. Watch console: coarse, fine, `[bench] move` lines, 3 recoveries, AVOID_FAILED (line stub is FALSE). | sequence in that order, then monitoring resumes |
 | S5-U16 | bypass on the course | FR4, A6 | manual | Obstacle on the track; integrated build with VC + motion control. | car passes and reacquires the line |
+| S5-U17 | 16-bit telemetry word: pack/unpack round trip | FR4, min-bit (Week 8) | auto | `subsystem5_test.c` | PASS |
+| S5-U18 | telemetry word: distance > 2047 mm saturates | min-bit, R1 | auto | `subsystem5_test.c` | PASS |
+| S5-U19 | field widths: 10 states fit 4 bits, 2000 mm fits 11 bits, word = 2 bytes | min-bit, R1 | auto | `subsystem5_test.c` | PASS |
+| S5-U20 | `s5_get_status_packed()` returns a valid live state | IF-S5c, min-bit | auto | `subsystem5_test.c` | PASS, prints the word |
+| S5-H01..H08 | packing on the PC, incl. all 65,536 combinations | min-bit, R1, R3 | auto (PC) | `cd testing/subsystem5/host_test && make` | 8 passed, 0 failed |
+| S5-U21 | latched stop path: full VC queue -> emergency stop called | NFR8, Version C gap "obstacle event dropped" | auto | private 1-message buffer, fake stop function (real motors not latched) | PASS |
+| S5-U22 | braking distance at top speed (400 mm/s) | Version C gap "stopping distance" | manual | 1. Drive straight at 400 mm/s. 2. Trigger stop. 3. Measure distance from stop command to rest, 5 runs. 4. Put the worst value in `S5_BRAKING_MM` (obstacle_logic.h) and rebuild: the build fails if 250 mm no longer covers it. | worst braking + 33 mm reaction + 50 mm margin <= 250 mm |
+| S5-U23 | stopping-distance budget | Version C gap "stopping distance" | auto (also checked at compile time) | `subsystem5_test.c`, prints latency/reaction/needed | PASS, needed 183 mm <= 250 mm |
+| S5-U24 | stop path on the robot | NFR8, R4 | manual | Integrated build: stop the VC reading `g_mbf_s5_evt` (or fill it), drive at an obstacle; check `s5: ... LOST -> emergency stop` and that the wheels stop; then MOTION_RESET | robot stops before the obstacle |
 
 *Method:* **auto** = `TEST_CHECK` in code, result printed on the console;
 **manual** = a person observes the result (LED, scope, meter, phone app…).
