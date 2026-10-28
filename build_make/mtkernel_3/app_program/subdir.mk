@@ -13,6 +13,6 @@ C_DEPS += $(subst ../, ./mtkernel_3/, $(TEMP_DEPS))
 mtkernel_3/app_program/%.o: ../app_program/%.c
 	@echo 'Building file: $<'
 	@mkdir -p $(dir $@)
-	$(GCC) $(CFLAGS) -D$(TARGET) $(INCPATH) -MF"$(@:%.o=%.d)" -MT"$(@)" -c -o "$@" "$<"
+	$(GCC) $(CFLAGS) -Wall -Wextra -D$(TARGET) $(INCPATH) -MF"$(@:%.o=%.d)" -MT"$(@)" -c -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '

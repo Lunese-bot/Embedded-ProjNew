@@ -59,9 +59,8 @@ LOCAL const UW module_tbl[] = {
 	RESETS_RESET_DMA,		/* CYW43439 PIO-SPI transfers */
 #endif
 
-#if USE_PTMR
+	// PWM is always released from reset
 	RESETS_RESET_PWM,		/* PWM */
-#endif	/* USE_PTMR */
 
 #if USE_SDEV_DRV	// Do not use sample device driver
 	RESETS_RESET_ADC,		/* A/DC */
