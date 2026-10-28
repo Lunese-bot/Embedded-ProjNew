@@ -15,7 +15,7 @@
    is printed and treated as done after S5_BENCH_MOVE_MS.  Set to 0
    before integrating with the Vehicle Controller. */
 #ifndef S5_BENCH_MODE
-#define S5_BENCH_MODE 0
+#define S5_BENCH_MODE 1
 #endif
 #define S5_BENCH_MOVE_MS 500
 
@@ -24,7 +24,20 @@
 
 /* Timing (NFR2) */
 #define S5_PERIOD_MS        20   /* monitoring period              */
-#define S5_SCAN_TMO_MS      4000 /* whole coarse+fine scan         */
+
+/* Servo motion limits.  A hobby servo told to jump 80 deg swings at full
+   speed (~600 deg/s) and can throw the sensor off its mount.  The scan
+   task ramps instead: S5_SERVO_STEP_DEG every S5_SERVO_STEP_MS, about
+   5 / 25 ms = 200 deg/s, then waits S5_SERVO_SETTLE_MS before measuring.
+   Lower the speed (bigger STEP_MS) if the mount still shakes. */
+#define S5_SERVO_STEP_DEG   5    /* degrees per small move         */
+#define S5_SERVO_STEP_MS    25   /* pause between small moves      */
+#define S5_SERVO_SETTLE_MS  60   /* after a long move: settle, then ping */
+#define S5_SERVO_SETTLE_SHORT_MS 30 /* after one small step (fine scan)  */
+#define S5_SCAN_TMO_MS      8000 /* whole coarse+fine scan.  Worst case
+                                    with gentle servo ramps ~5.2 s (wide
+                                    obstacle, 25 fine angles); was 4000,
+                                    which a wide scan could overrun */
 #define S5_TURN_TMO_MS      3000 /* a TURN must finish within      */
 #define S5_MOVE_SLACK_MS    2000 /* added to distance/speed        */
 /* Silent pings in a row -> fault (only counted while scanning, open

@@ -17,6 +17,7 @@
 #define S5_DETECT_MM      250 /* obstacle closer than this ...   */
 #define S5_DETECT_COUNT   3   /* ... this many pings in a row     */
 #define S5_HIT_RANGE_MM   500 /* during a scan: "part of it"      */
+#define S5_SCAN_MAX_DEG   60  /* scan no wider than this (= SERVO_MAX_DEG) */
 #define S5_CLUSTER_GAP_MM 150 /* jump that separates two objects  */
 
 /* ---- Stopping distance (Tribunal 1, Version C) -------------------

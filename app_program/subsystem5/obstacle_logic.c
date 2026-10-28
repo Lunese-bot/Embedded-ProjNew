@@ -310,13 +310,13 @@ int32_t s5_fine_angles(const s5_profile_t * p_profile, int8_t * p_deg,
     int32_t high  = (int32_t)p_profile->left_edge_deg + 20;
     int32_t count = 0;
 
-    if (angle < -80)
+    if (angle < -S5_SCAN_MAX_DEG)
     {
-        angle = -80;
+        angle = -S5_SCAN_MAX_DEG;
     }
-    if (high > 80)
+    if (high > S5_SCAN_MAX_DEG)
     {
-        high = 80;
+        high = S5_SCAN_MAX_DEG;
     }
     for (; (angle <= high) && (count < max); angle += 5)
     {

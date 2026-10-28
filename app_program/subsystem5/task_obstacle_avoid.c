@@ -64,7 +64,14 @@ static bool busy_command(const s5_cmd_t * p_cmd)
     switch (p_cmd->type)
     {
         case S5_CMD_ABORT:
+#if S5_BENCH_MODE
+            /* Bench mode: S5 started this avoidance itself, so the IDLE
+               Vehicle Controller's "not acting on it" ABORT is expected
+               and must not cut the bench sequence short. */
+            b_stop = false;
+#else
             b_stop = true;
+#endif
             break;
         case S5_CMD_DISABLE:
             /* Cast: clear every flag bit except ENABLED. */
@@ -90,7 +97,13 @@ static uint16_t send_motion(const s5_motion_req_t * p_req)
     evt.u.motion     = *p_req;
     evt.u.motion.seq = g_seq_next;
     g_seq_next++;
+#if S5_BENCH_MODE
+    /* Bench mode: moves are only printed (bench_fake_motion).  Sending
+       them would make the IDLE Vehicle Controller reject each one and
+       answer MOTION_DONE ok=0, racing the bench's own "done". */
+#else
     s5_send_evt(&evt);
+#endif
     return evt.u.motion.seq;
 }
 
@@ -170,14 +183,29 @@ static step_result_t run_step(const s5_step_t * p_step)
 
     while ((!b_finished) && (left > 0))
     {
+        SYSTIM t_before;
+        SYSTIM t_after;
+        TMO    waited;
+
         /* search steps poll the line sensors every period */
         slice = (0U != p_step->search_line) ? S5_PERIOD_MS : left;
         if (slice > left)
         {
             slice = left;
         }
+        tk_get_tim(&t_before);
         len = tk_rcv_mbf(g_mbf_s5_cmd, &cmd, slice);
-        left -= slice;
+        tk_get_tim(&t_after);
+
+        /* Count only the time actually waited.  tk_rcv_mbf returns early
+           when ANY command arrives (e.g. the controller's ABORT); taking
+           the whole slice off made the step "time out" at once (0x5002). */
+        waited = (TMO)(t_after.lo - t_before.lo);
+        if ((len < 0) || (waited > slice))
+        {
+            waited = slice; /* timed out: the full slice has passed */
+        }
+        left -= waited;
 
         if (len > 0)
         {
@@ -388,6 +416,7 @@ static void handle_command(const s5_cmd_t * p_cmd)
         case S5_CMD_ABORT:
             /* controller cancels a detection it will not act on:
                let the scan task monitor again */
+            s5_set_state(S5_ST_MONITORING); /* else "obs" stays DETECTED */
             tk_set_flg(g_flg_s5, S5_FLG_RESUME);
             break;
         default: /* stale MOTION_DONE: ignore */

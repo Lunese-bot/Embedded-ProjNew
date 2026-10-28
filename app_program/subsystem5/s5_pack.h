@@ -27,7 +27,16 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "../robot_types.h" /* bit layout (shared, Version C) */
+/* Bit layout.  Kept inside subsystem 5; a receiver (telemetry, dashboard)
+   includes this header to decode.  RTOS messages between tasks stay
+   native structs; only telemetry/MQTT data uses this packed word. */
+#define S5_PACK_DIST_BITS   11U
+#define S5_PACK_STATE_BITS  4U
+#define S5_PACK_DIST_MASK   0x07FFU /* bits 10..0 */
+#define S5_PACK_STATE_SHIFT 11U
+#define S5_PACK_STATE_MASK  0x0FU
+#define S5_PACK_DET_SHIFT   15U
+#define S5_PACK_DIST_MAX_MM S5_PACK_DIST_MASK
 
 /* Pack the three values.  Distance above 2047 mm saturates at 2047;
    a state above 15 is masked (cannot happen: s5_state_t has 10). */

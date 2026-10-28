@@ -30,12 +30,41 @@ typedef enum
 
 static uint32_t g_silent_in_scan; /* consecutive no-echo during scans */
 
+/* Turn the sensor to deg gently: small steps instead of one jump, so
+   the servo cannot fling the sensor off its mount, then let it settle. */
 static void point_and_wait(int32_t deg)
 {
-    int32_t from = servo_get_deg();
+    int32_t now   = servo_get_deg();
+    int32_t steps = 0;
 
-    servo_set_deg(deg);
-    tk_dly_tsk(servo_settle_ms(from, deg));
+    if (deg > SERVO_MAX_DEG)
+    {
+        deg = SERVO_MAX_DEG;
+    }
+    if (deg < -SERVO_MAX_DEG)
+    {
+        deg = -SERVO_MAX_DEG;
+    }
+    while (now != deg)
+    {
+        if ((deg - now) > S5_SERVO_STEP_DEG)
+        {
+            now += S5_SERVO_STEP_DEG;
+        }
+        else if ((now - deg) > S5_SERVO_STEP_DEG)
+        {
+            now -= S5_SERVO_STEP_DEG;
+        }
+        else
+        {
+            now = deg;
+        }
+        servo_set_deg(now);
+        tk_dly_tsk(S5_SERVO_STEP_MS);
+        steps++;
+    }
+    /* a single small step barely shakes the mount: settle less */
+    tk_dly_tsk((steps <= 1) ? S5_SERVO_SETTLE_SHORT_MS : S5_SERVO_SETTLE_MS);
 }
 
 /* Sweep the given angles, one median reading each. */
@@ -235,7 +264,7 @@ void s5_scan_task(int32_t stacd, void * p_exinf)
                 servo_off();
                 tk_wai_flg(g_flg_s5, S5_FLG_ENABLED | S5_FLG_SCAN_REQ, TWF_ORW,
                            &flg, TMO_FEVR);
-                servo_set_deg(0);
+                point_and_wait(0); /* ramp back to centre, no jump */
             }
             else
             {

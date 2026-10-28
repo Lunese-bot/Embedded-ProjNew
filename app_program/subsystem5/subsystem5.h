@@ -32,7 +32,7 @@
  *  Native vs packed (Tribunal 1 Version C):
  *    S5 <-> Vehicle Controller  native s5_evt_t / s5_cmd_t structs
  *    S5 -> telemetry / MQTT     packed 16-bit word, s5_get_status_packed()
- *                               (layout in ../robot_types.h)
+ *                               (layout in s5_pack.h)    
  *  Safety: OBSTACLE_DETECTED goes through a latched stop path, so a
  *  full VC queue cannot leave the robot driving (s5_local.h).
  */
