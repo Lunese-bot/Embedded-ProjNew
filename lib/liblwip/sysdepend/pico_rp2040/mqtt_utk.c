@@ -21,10 +21,15 @@
 #include "wifi_secrets.h"
 #include "mqtt_utk.h"
 #include <tm/tmonitor.h>
+/* Robot telemetry / command bridge (app_program/subsystem1, Buddy 1).
+ * Plain-C header: safe to include here. */
+#include "../../../../app_program/subsystem1/s1_bridge.h"
 
 #define MQTT_UTK_HEARTBEAT_MS   5000
 #define MQTT_UTK_KEEPALIVE_S    60
 #define MQTT_UTK_RETRY_MS       3000
+#define MQTT_UTK_TELEMETRY_MS   100	/* drain the S1 queue this often */
+#define MQTT_UTK_TELEMETRY_MAX  4	/* messages per drain */
 
 /* Inbound message staging. A publish arrives as one topic callback followed by
  * one or more data callbacks, so the topic has to be kept until the fragment
@@ -44,6 +49,16 @@ static u16_t		rx_len;
 static u8_t		rx_truncated;
 
 static void heartbeat_timeout(void *arg);
+static void telemetry_timeout(void *arg);
+
+static int topic_is(const char *a, const char *b)
+{
+	while(*a != '\0' && *a == *b) {
+		a++;
+		b++;
+	}
+	return *a == *b;
+}
 
 /* mqtt.c NUL-terminates the topic before handing it over, but it is only
  * valid for the duration of this call -- copy it out. */
@@ -84,6 +99,9 @@ static void incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
 		rx_data[rx_len] = '\0';
 		tm_printf((UB*)"mqtt: RX [%s] \"%s\"%s\n", rx_topic, rx_data,
 			  rx_truncated? " (truncated)": "");
+		if(topic_is(rx_topic, S1_TOPIC_CMD)) {
+			s1_bridge_on_command((const char *)rx_data, (int)rx_len);
+		}
 	}
 }
 
@@ -127,6 +145,28 @@ static void heartbeat_timeout(void *arg)
 	sys_timeout(MQTT_UTK_HEARTBEAT_MS, heartbeat_timeout, NULL);
 }
 
+/* Publish what the application queued (s1_post), a few per call so this
+ * task keeps servicing the radio. Re-arms itself like the heartbeat. */
+static void telemetry_timeout(void *arg)
+{
+	static char	topic[S1_BRIDGE_TOPIC_MAX];
+	static char	payload[S1_BRIDGE_LINE_MAX];
+	int		i, len;
+
+	(void)arg;
+
+	for(i = 0; i < MQTT_UTK_TELEMETRY_MAX && mqtt_client_is_connected(client); i++) {
+		len = s1_bridge_pop(topic, sizeof(topic), payload, sizeof(payload));
+		if(len <= 0) {
+			break;
+		}
+		(void)mqtt_publish(client, topic, payload, (u16_t)len,
+				   0 /* qos */, 0 /* retain */,
+				   publish_done_cb, NULL);
+	}
+	sys_timeout(MQTT_UTK_TELEMETRY_MS, telemetry_timeout, NULL);
+}
+
 static void retry_timeout(void *arg)
 {
 	(void)arg;
@@ -165,6 +205,16 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
 			tm_printf((UB*)"mqtt: mqtt_subscribe() failed, err=%d\n",
 				  (int)err);
 		}
+		/* robot remote commands (subsystem 1) */
+		err = mqtt_subscribe(client, S1_TOPIC_CMD, 0 /* qos */,
+				     subscribe_done_cb, NULL);
+		if(err != ERR_OK) {
+			tm_printf((UB*)"mqtt: subscribe " S1_TOPIC_CMD " failed, err=%d\n",
+				  (int)err);
+		}
+		s1_bridge_set_connected(1);
+		sys_untimeout(telemetry_timeout, NULL);
+		sys_timeout(MQTT_UTK_TELEMETRY_MS, telemetry_timeout, NULL);
 
 		/* Drop any chain left over from a previous connection before
 		 * arming a new one. Each reconnect would otherwise add another
@@ -173,6 +223,7 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
 		sys_untimeout(heartbeat_timeout, NULL);
 		sys_timeout(MQTT_UTK_HEARTBEAT_MS, heartbeat_timeout, NULL);
 	} else {
+		s1_bridge_set_connected(0);
 		/* mqtt_client_connect() reconnects on its own for a dropped
 		 * keepalive; a rejected/never-established connection does not
 		 * retry itself, so do that here -- on a delay, so a broker

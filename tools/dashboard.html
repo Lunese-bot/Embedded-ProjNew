@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robot Dashboard</title>
+<!--
+  Group 10 robot dashboard.  Open this file in Chrome or Edge (desktop).
+  - "Connect USB" reads the Pico's USB serial console (Web Serial, 115200).
+    Shows [TEST] results, the telemetry JSON (printed once a second by
+    subsystem 1 when MQTT is not connected) and the subsystem log lines.
+  - "Open log file" replays a saved console log.
+  - "Connect MQTT" subscribes to robot/g10/# over a WebSocket broker
+    (MQTT build), e.g. ws://<laptop-ip>:9001 for mosquitto with a
+    websockets listener.  Can also send start / stop / reset.
+-->
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085;
+  --line: #e3e6eb; --accent: #2f6fde; --ok: #1a8a4a; --bad: #c8322f;
+  --warn: #b7791f; --chip: #eef2f7; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151b; --panel: #1b2029; --text: #e7eaf0; --muted: #98a2b3;
+    --line: #2b313c; --accent: #6a9cff; --ok: #4cc583; --bad: #ff6b66;
+    --warn: #f0b44c; --chip: #252b36;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 2; }
+header h1 { font-size: 16px; margin: 0 12px 0 0; }
+button, input { font: inherit; }
+button { border: 1px solid var(--line); background: var(--chip); color: var(--text);
+  padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: .5; cursor: default; }
+input[type=text] { border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  padding: 6px 8px; border-radius: 6px; min-width: 0; }
+#status { margin-left: auto; color: var(--muted); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--muted); margin-right: 6px; vertical-align: middle; }
+.dot.on { background: var(--ok); }
+main { padding: 16px; display: grid; gap: 16px; max-width: 1400px; margin: 0 auto; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+.panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.tile .k { color: var(--muted); font-size: 12px; }
+.tile .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tile .u { font-size: 12px; color: var(--muted); font-weight: 400; }
+.state { font-size: 20px; font-weight: 700; }
+.state.fault { color: var(--bad); } .state.run { color: var(--ok); }
+.linebar { position: relative; height: 10px; background: var(--chip); border-radius: 5px; margin-top: 10px; }
+.linebar i { position: absolute; top: -3px; width: 4px; height: 16px; background: var(--accent);
+  border-radius: 2px; left: 50%; transform: translateX(-50%); }
+.linebar b { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--muted); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+.charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.chart .k { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
+canvas { width: 100%; height: 90px; display: block; }
+.subs { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.sub { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.sub .h { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 6px; }
+.badge { font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--chip); color: var(--muted); }
+.badge.ok { color: var(--ok); } .badge.bad { color: var(--bad); }
+.tl { font: 12px/1.5 var(--mono); max-height: 160px; overflow: auto; }
+.tl div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pass { color: var(--ok); } .fail { color: var(--bad); font-weight: 600; }
+#log { font: 12px/1.5 var(--mono); height: 320px; overflow: auto; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; }
+#log .vc { color: var(--accent); } #log .err { color: var(--bad); } #log .tst { color: var(--muted); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.muted { color: var(--muted); }
+.note { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Robot Dashboard</h1>
+  <button id="btnSerial" class="primary">Connect USB</button>
+  <button id="btnFile">Open log file</button>
+  <input id="fileIn" type="file" accept=".txt,.log,text/plain" hidden>
+  <input id="mqttUrl" type="text" placeholder="ws://192.168.1.10:9001" size="22">
+  <button id="btnMqtt">Connect MQTT</button>
+  <button class="cmd" data-cmd="start" disabled>Start</button>
+  <button class="cmd" data-cmd="stop" disabled>Stop</button>
+  <button class="cmd" data-cmd="reset" disabled>Reset</button>
+  <span id="status"><span class="dot" id="dot"></span><span id="statusText">Not connected</span></span>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Live</h2>
+    <div class="tiles">
+      <div class="tile"><div class="k">Mission state (S6)</div><div class="state" id="t_st">–</div></div>
+      <div class="tile"><div class="k">Wheel speed L / R (S2)</div><div class="v"><span id="t_vl">–</span> / <span id="t_vr">–</span> <span class="u">mm/s</span></div></div>
+      <div class="tile"><div class="k">Distance driven (S2)</div><div class="v"><span id="t_odo">–</span> <span class="u">mm</span></div></div>
+      <div class="tile"><div class="k">Line position (S3)</div><div class="v"><span id="t_line">–</span></div>
+        <div class="linebar"><b></b><i id="t_linebar"></i></div></div>
+      <div class="tile"><div class="k">Barcodes read / last nav</div><div class="v"><span id="t_bc">–</span> <span class="u" id="t_nav"></span></div></div>
+      <div class="tile"><div class="k">Pitch (S4)</div><div class="v"><span id="t_pitch">–</span> <span class="u">°</span></div></div>
+      <div class="tile"><div class="k">Hump now / max (S4)</div><div class="v"><span id="t_hump">–</span> / <span id="t_maxhump">–</span> <span class="u">mm</span></div></div>
+      <div class="tile"><div class="k">Ultrasonic (S5)</div><div class="v"><span id="t_us">–</span> <span class="u">mm</span></div><div class="k" id="t_obs"></div></div>
+      <div class="tile"><div class="k">Last update</div><div class="v"><span id="t_age">–</span></div></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Last 60 seconds</h2>
+    <div class="charts">
+      <div class="chart"><div class="k"><span>Speed (mm/s), left and right</span><span id="c_speed_v"></span></div><canvas id="c_speed"></canvas></div>
+      <div class="chart"><div class="k"><span>Line position (−1000 left … +1000 right)</span><span id="c_line_v"></span></div><canvas id="c_line"></canvas></div>
+      <div class="chart"><div class="k"><span>Ultrasonic distance (mm)</span><span id="c_us_v"></span></div><canvas id="c_us"></canvas></div>
+      <div class="chart"><div class="k"><span>Pitch (°)</span><span id="c_pitch_v"></span></div><canvas id="c_pitch"></canvas></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="row"><h2 style="margin:0">Self-tests (make TEST=1)</h2>
+      <span class="note" id="testTotal"></span>
+      <button id="btnClearTests" style="margin-left:auto">Clear</button></div>
+    <div class="subs" id="subs"></div>
+  </section>
+
+  <div class="cols">
+    <section class="panel">
+      <h2>Events</h2>
+      <div class="tl" id="events" style="max-height:320px"></div>
+    </section>
+    <section class="panel">
+      <div class="row"><h2 style="margin:0">Console</h2>
+        <input id="filter" type="text" placeholder="filter, e.g. vc: or imu:" style="flex:1">
+        <label class="muted"><input type="checkbox" id="hideTlm" checked> hide telemetry</label>
+        <button id="btnSave">Save log</button></div>
+      <div id="log"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const SUBS = { subsystem1: "S1 WiFi / MQTT", subsystem2: "S2 Motion", subsystem3: "S3 Line + barcode",
+                 subsystem4: "S4 IMU", subsystem5: "S5 Obstacle", subsystem6: "S6 Vehicle Controller" };
+  const NAV = ["none", "left", "right", "straight", "U-turn"];
+  const OBS = ["idle", "monitoring", "detected", "coarse scan", "fine scan", "planning",
+               "bypassing", "search line", "line recovery", "error"];
+  const WINDOW_MS = 60000;
+  const series = { vl: [], vr: [], line: [], us: [], pitch: [] };
+  const allLines = [];
+  let lastTlm = 0, mqttClient = null, port = null, reader = null;
+
+  /* ---------- status ---------- */
+  function setStatus(text, on) { $("statusText").textContent = text; $("dot").classList.toggle("on", !!on); }
+
+  /* ---------- tests ---------- */
+  const tests = {};          /* sub -> {checks: Map(id -> {ok, desc}), summary} */
+  function subFor(id) {
+    const m = /^S(\d)/.exec(id); return m ? "subsystem" + m[1] : "other";
+  }
+  function addTest(id, ok, desc) {
+    const s = subFor(id); (tests[s] ||= { checks: new Map(), summary: null }).checks.set(id, { ok, desc });
+    renderTests();
+  }
+  function addSummary(name, pass, fail) {
+    (tests[name] ||= { checks: new Map(), summary: null }).summary = { pass, fail }; renderTests();
+  }
+  function renderTests() {
+    const box = $("subs"); box.innerHTML = "";
+    let p = 0, f = 0;
+    const names = Object.keys(SUBS).concat(Object.keys(tests).filter(k => !SUBS[k]));
+    for (const name of names) {
+      const t = tests[name] || { checks: new Map(), summary: null };
+      const pass = [...t.checks.values()].filter(c => c.ok).length;
+      const fail = t.checks.size - pass;
+      p += pass; f += fail;
+      const el = document.createElement("div"); el.className = "sub";
+      const badge = t.checks.size === 0 ? '<span class="badge">not run</span>'
+        : fail ? `<span class="badge bad">${fail} failed</span>` : `<span class="badge ok">${pass} passed</span>`;
+      el.innerHTML = `<div class="h"><span>${SUBS[name] || name}</span>${badge}</div><div class="tl"></div>`;
+      const tl = el.querySelector(".tl");
+      for (const [id, c] of t.checks) {
+        const d = document.createElement("div");
+        d.className = c.ok ? "pass" : "fail"; d.title = c.desc;
+        d.textContent = `${c.ok ? "✓" : "✗"} ${id}  ${c.desc}`; tl.appendChild(d);
+      }
+      box.appendChild(el);
+    }
+    $("testTotal").textContent = (p + f) ? `${p} passed, ${f} failed` : "Flash the TEST=1 image, connect, then reset the Pico.";
+  }
+  $("btnClearTests").onclick = () => { for (const k in tests) delete tests[k]; renderTests(); };
+
+  /* ---------- telemetry ---------- */
+  function push(arr, t, v) { arr.push([t, v]); while (arr.length && arr[0][0] < t - WINDOW_MS) arr.shift(); }
+  function txt(id, v) { $(id).textContent = v; }
+  function onTelemetry(j) {
+    const t = Date.now(); lastTlm = t;
+    const st = String(j.st ?? "–");
+    txt("t_st", st);
+    $("t_st").className = "state" + (/FAULT/i.test(st) ? " fault" : /IDLE|COMPLETE/i.test(st) ? "" : " run");
+    if (Array.isArray(j.v)) { txt("t_vl", j.v[0]); txt("t_vr", j.v[1]); push(series.vl, t, j.v[0]); push(series.vr, t, j.v[1]); }
+    if (j.odo != null) txt("t_odo", j.odo);
+    if (j.line != null) {
+      txt("t_line", j.line); push(series.line, t, j.line);
+      $("t_linebar").style.left = (50 + Math.max(-1000, Math.min(1000, j.line)) / 20) + "%";
+    }
+    if (j.bc != null) txt("t_bc", j.bc);
+    if (j.nav != null) txt("t_nav", NAV[j.nav] || j.nav);
+    if (j.pitch != null) { const d = j.pitch / 100; txt("t_pitch", d.toFixed(1)); push(series.pitch, t, d); }
+    if (j.hump != null) txt("t_hump", j.hump);
+    if (j.maxhump != null) txt("t_maxhump", j.maxhump);
+    if (j.us != null) { txt("t_us", j.us === 0 ? "no echo" : j.us); if (j.us) push(series.us, t, j.us); }
+    if (j.obs != null) txt("t_obs", OBS[j.obs] || "state " + j.obs);
+  }
+  setInterval(() => {
+    txt("t_age", lastTlm ? Math.round((Date.now() - lastTlm) / 1000) + " s ago" : "–");
+    drawAll();
+  }, 500);
+
+  /* ---------- charts (plain canvas) ---------- */
+  function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+  function draw(id, lines, fixed) {
+    const c = $(id), dpr = window.devicePixelRatio || 1;
+    const w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+    const g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+    const now = Date.now(); let lo = Infinity, hi = -Infinity;
+    for (const l of lines) for (const [, v] of l.data) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    if (fixed) { lo = Math.min(lo, fixed[0]); hi = Math.max(hi, fixed[1]); }
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    if (hi - lo < 1e-6) { hi += 1; lo -= 1; }
+    const y = v => h - 4 - (v - lo) / (hi - lo) * (h - 8);
+    g.strokeStyle = css("--line"); g.lineWidth = 1;
+    if (lo < 0 && hi > 0) { g.beginPath(); g.moveTo(0, y(0)); g.lineTo(w, y(0)); g.stroke(); }
+    g.fillStyle = css("--muted"); g.font = "10px system-ui";
+    g.fillText(Math.round(hi), 2, 10); g.fillText(Math.round(lo), 2, h - 2);
+    for (const l of lines) {
+      g.strokeStyle = l.color; g.lineWidth = 1.6; g.beginPath();
+      l.data.forEach(([t, v], i) => { const x = w - (now - t) / WINDOW_MS * w; i ? g.lineTo(x, y(v)) : g.moveTo(x, y(v)); });
+      g.stroke();
+    }
+  }
+  function last(a) { return a.length ? a[a.length - 1][1] : ""; }
+  function drawAll() {
+    const acc = css("--accent"), warn = css("--warn");
+    draw("c_speed", [{ data: series.vl, color: acc }, { data: series.vr, color: warn }], [0, 100]);
+    draw("c_line", [{ data: series.line, color: acc }], [-1000, 1000]);
+    draw("c_us", [{ data: series.us, color: acc }], [0, 500]);
+    draw("c_pitch", [{ data: series.pitch, color: acc }], [-5, 5]);
+    txt("c_speed_v", series.vl.length ? `L ${last(series.vl)}  R ${last(series.vr)}` : "");
+    txt("c_line_v", last(series.line)); txt("c_us_v", last(series.us));
+    txt("c_pitch_v", series.pitch.length ? last(series.pitch).toFixed(1) : "");
+  }
+
+  /* ---------- events ---------- */
+  const EVENT_RE = /^(vc: .*->|vc: barcode|vc: fault|vc: s5 profile|imu: event|imu: LSM303|s5: obstacle|s5: line|s5: avoidance|motion: (?!st=)|.*ERROR)/;
+  function addEvent(line) {
+    const d = document.createElement("div");
+    d.textContent = new Date().toLocaleTimeString() + "  " + line;
+    if (/ERROR|fault|FAIL/i.test(line)) d.className = "fail";
+    const box = $("events"); box.appendChild(d);
+    while (box.childNodes.length > 300) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  /* ---------- console ---------- */
+  function lineClass(l) {
+    if (/^\[TEST\]/.test(l)) return /FAIL/.test(l) ? "err" : "tst";
+    if (/ERROR|FAIL|fault/i.test(l)) return "err";
+    if (/^vc:/.test(l)) return "vc";
+    return "";
+  }
+  function renderLog() {
+    const f = $("filter").value.trim().toLowerCase(), hide = $("hideTlm").checked;
+    const box = $("log"); const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
+    const frag = document.createDocumentFragment();
+    const shown = allLines.filter(l => (!hide || l[0] !== "{") && (!f || l.toLowerCase().includes(f))).slice(-800);
+    for (const l of shown) { const d = document.createElement("div"); d.className = lineClass(l); d.textContent = l; frag.appendChild(d); }
+    box.replaceChildren(frag); if (atEnd) box.scrollTop = box.scrollHeight;
+  }
+  let logTimer = 0;
+  function scheduleLog() { if (!logTimer) logTimer = setTimeout(() => { logTimer = 0; renderLog(); }, 200); }
+  $("filter").oninput = renderLog; $("hideTlm").onchange = renderLog;
+  $("btnSave").onclick = () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([allLines.join("\n") + "\n"], { type: "text/plain" }));
+    a.download = "robot-log-" + new Date().toISOString().replace(/[:.]/g, "-") + ".txt"; a.click();
+  };
+
+  /* ---------- one console line ---------- */
+  function handleLine(raw) {
+    const line = raw.replace(/\r$/, ""); if (!line) return;
+    allLines.push(line); if (allLines.length > 20000) allLines.splice(0, 5000);
+    let m;
+    if ((m = /^\[TEST\] (\S+) (PASS|FAIL)\s+(.*?)(\s+\(.*:\d+\))?$/.exec(line))) addTest(m[1], m[2] === "PASS", m[3]);
+    else if ((m = /^\[TEST\] (\S+) SUMMARY (\d+) passed, (\d+) failed/.exec(line))) addSummary(m[1], +m[2], +m[3]);
+    else if (line[0] === "{") { try { onTelemetry(JSON.parse(line)); } catch (e) { /* partial line */ } }
+    else if (EVENT_RE.test(line)) addEvent(line);
+    scheduleLog();
+  }
+
+  /* ---------- Web Serial ---------- */
+  $("btnSerial").onclick = async () => {
+    if (port) { await disconnectSerial(); return; }
+    if (!("serial" in navigator)) {
+      alert("This browser cannot open serial ports. Use Chrome or Edge on a computer, and open this file directly (not inside another page).");
+      return;
+    }
+    try {
+      port = await navigator.serial.requestPort();
+      await port.open({ baudRate: 115200 });
+    } catch (e) { port = null; setStatus("Serial: " + e.message, false); return; }
+    $("btnSerial").textContent = "Disconnect USB"; setStatus("USB connected (reset the Pico to see boot and tests)", true);
+    readLoop();
+  };
+  async function readLoop() {
+    const dec = new TextDecoder(); let buf = "";
+    try {
+      while (port && port.readable) {
+        reader = port.readable.getReader();
+        try {
+          for (;;) {
+            const { value, done } = await reader.read(); if (done) break;
+            buf += dec.decode(value, { stream: true });
+            let i; while ((i = buf.indexOf("\n")) >= 0) { handleLine(buf.slice(0, i)); buf = buf.slice(i + 1); }
+          }
+        } finally { reader.releaseLock(); reader = null; }
+      }
+    } catch (e) { setStatus("USB lost: " + e.message + " (Pico reset? press Connect USB again)", false); }
+    await disconnectSerial(true);
+  }
+  async function disconnectSerial(silent) {
+    const p = port; port = null;
+    try { if (reader) await reader.cancel(); } catch (e) {}
+    try { if (p) await p.close(); } catch (e) {}
+    $("btnSerial").textContent = "Connect USB"; if (!silent) setStatus("Not connected", false);
+  }
+
+  /* ---------- log file replay ---------- */
+  $("btnFile").onclick = () => $("fileIn").click();
+  $("fileIn").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    (await f.text()).split("\n").forEach(handleLine);
+    setStatus("Loaded " + f.name, false); e.target.value = "";
+  };
+
+  /* ---------- MQTT over WebSocket ---------- */
+  try { $("mqttUrl").value = localStorage.getItem("robot.mqttUrl") || ""; } catch (e) {}
+  function loadMqttLib() {
+    return new Promise((ok, bad) => {
+      if (window.mqtt) return ok();
+      const urls = ["https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js",
+                    "https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"];
+      const next = () => {
+        const u = urls.shift();
+        if (!u) return bad(new Error("could not load mqtt.js (no internet?)"));
+        const s = document.createElement("script");
+        s.src = u; s.onload = ok; s.onerror = next; document.head.appendChild(s);
+      };
+      next();
+    });
+  }
+  $("btnMqtt").onclick = async () => {
+    if (mqttClient) { mqttClient.end(true); mqttClient = null; mqttUi(false); setStatus("MQTT disconnected", false); return; }
+    const url = $("mqttUrl").value.trim();
+    if (!/^wss?:\/\//.test(url)) { alert("Enter the broker's WebSocket address, e.g. ws://192.168.1.10:9001"); return; }
+    try { localStorage.setItem("robot.mqttUrl", url); } catch (e) {}
+    try { await loadMqttLib(); } catch (e) { setStatus(e.message, false); return; }
+    setStatus("MQTT connecting…", false);
+    mqttClient = mqtt.connect(url, { reconnectPeriod: 3000, connectTimeout: 5000 });
+    mqttClient.on("connect", () => { mqttClient.subscribe("robot/g10/#"); mqttUi(true); setStatus("MQTT connected: " + url, true); });
+    mqttClient.on("error", e => setStatus("MQTT: " + e.message, false));
+    mqttClient.on("close", () => { if (mqttClient) setStatus("MQTT reconnecting…", false); });
+    mqttClient.on("message", (topic, payload) => {
+      const s = payload.toString();
+      if (topic.endsWith("/telemetry")) handleLine(s);
+      else if (topic.endsWith("/fault")) { addEvent("fault " + s); allLines.push("[mqtt " + topic + "] " + s); scheduleLog(); }
+      else { allLines.push("[mqtt " + topic + "] " + s); scheduleLog(); }
+    });
+  };
+  function mqttUi(on) {
+    $("btnMqtt").textContent = on ? "Disconnect MQTT" : "Connect MQTT";
+    document.querySelectorAll(".cmd").forEach(b => b.disabled = !on);
+  }
+  document.querySelectorAll(".cmd").forEach(b => b.onclick = () => {
+    if (b.dataset.cmd === "start" && !confirm("Start the mission? The wheels will turn.")) return;
+    mqttClient && mqttClient.publish("robot/g10/cmd", b.dataset.cmd);
+    addEvent("sent " + b.dataset.cmd);
+  });
+
+  renderTests(); drawAll();
+})();
+</script>
+</body>
+</html>
