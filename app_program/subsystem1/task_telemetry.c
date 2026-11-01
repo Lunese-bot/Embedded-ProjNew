@@ -16,7 +16,7 @@
 #include "../subsystem3/subsystem3.h"
 #include "../subsystem4/subsystem4.h"
 #include "../subsystem5/subsystem5.h"
-#include "../vehicle_controller/subsystem6.h"
+#include "../vehicle_controller/vehicle_controller.h"
 #include "../vehicle_controller/vc_sm.h"
 #if TM_WIFI_CYW43
 #include "cyw43_utk.h"

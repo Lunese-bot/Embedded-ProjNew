@@ -120,7 +120,7 @@ INT usermain(void)
     app_check(subsystem3_init(), "subsystem3_init");
     app_check(subsystem4_init(), "subsystem4_init");
     app_check(subsystem5_init(), "subsystem5_init");
-    app_check(subsystem6_init(), "subsystem6_init"); /* Vehicle Controller */
+    app_check(vehicle_controller_init(), "vehicle_controller_init"); /* Vehicle Controller */
 
     /* Phase 2: every subsystem starts its tasks */
     app_check(subsystem1_start(), "subsystem1_start");
@@ -128,7 +128,7 @@ INT usermain(void)
     app_check(subsystem3_start(), "subsystem3_start");
     app_check(subsystem4_start(), "subsystem4_start");
     app_check(subsystem5_start(), "subsystem5_start");
-    app_check(subsystem6_start(), "subsystem6_start");
+    app_check(vehicle_controller_start(), "vehicle_controller_start");
 
     tm_printf((uint8_t *)"all subsystems started\n\n");
 
@@ -158,7 +158,7 @@ INT usermain(void)
     subsystem3_test();
     subsystem4_test();
     subsystem5_test();
-    subsystem6_test();
+    vehicle_controller_test();
     tm_printf((uint8_t *)"[TEST] === test run end ===\n");
 #endif
 

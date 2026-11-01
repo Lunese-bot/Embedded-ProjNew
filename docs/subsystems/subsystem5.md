@@ -63,8 +63,8 @@ a real Pico yet.
   recoveries and AVOID_FAILED.
 - **The Vehicle Controller side is not written here.** It must read
   `g_mbf_s5_evt`, forward motion requests to Motion Control and answer
-  `MOTION_DONE`. The interface was sent to the Subsystem 6 (Vehicle
-  Controller) thread.
+  `MOTION_DONE`. The interface was sent to the Vehicle Controller
+  thread.
 - **Tuning values are guesses** (A6, "needs validation"): detect distance,
   clearance, margins, robot size, obstacle depth, speeds, servo calibration.
   They are all in `obstacle_logic.h` / `drv_servo.h`.

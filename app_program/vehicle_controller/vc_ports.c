@@ -1,10 +1,10 @@
 /*
  *      vc_ports.c
- *      Subsystem 6 -- outbound connections (STUBS, see vc_ports.h).
+ *      Vehicle Controller -- outbound connections (STUBS, see vc_ports.h).
  *
  *      Rule from TEAM.md section 5: the RECEIVER owns the kernel object.
  *      So S2 creates its motion-command buffer, S3/S4/S5 their request
- *      objects and S1 its telemetry buffer; S6 only sends to them, always
+ *      objects and S1 its telemetry buffer; VC only sends to them, always
  *      with TMO_POL or a short timeout so a slow subsystem can never block
  *      the controller.
  *

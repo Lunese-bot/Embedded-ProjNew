@@ -18,7 +18,7 @@ Copy the folders over the repo with the same paths. They replace the example
 | `imu_terrain.c/.h` | Pure-C calibration, filter, tilt, heading, motion class, Statechart 4 hump machine |
 | `imu_math.c/.h` | Integer `atan2`, `sqrt` (the build has no libm or FPU) |
 | `imu_selftest.c/.h` | Synthetic-data tests shared by the Pico test build and the PC tests |
-| `subsystem4_cfg.h` | Every threshold, axis mapping and retry limit in one place |
+| `s4_config.h` | Every threshold, axis mapping and retry limit in one place |
 | `subsystem4_test.c` | `make TEST=1` tests S4-U01..U11 |
 | `testing/subsystem4/TEST_LOG.md` | Test cases S4-U01..U11 and manual S4-M01..M05, calibration record |
 | `host_test/` | `make -C host_test` runs the algorithm tests on a PC (put it at `testing/subsystem4/host_test/`) |
@@ -55,7 +55,7 @@ subsystem 2.
 
 - **Speed input is a stub until subsystem 2 calls `s4_set_speed_mm_s()`.** Until then
   height uses `S4_NOMINAL_SPEED_MM_S` (150 mm/s), so heights are only right at that speed.
-- **All thresholds are first guesses** (`subsystem4_cfg.h`). Tune them with S4-M02/M03
+- **All thresholds are first guesses** (`s4_config.h`). Tune them with S4-M02/M03
   per assumption A5 and record the values in the TEST_LOG calibration table.
 - **Axis mapping assumes** the board's X points forward and Z up. Check with S4-M01.
 - **Heading is not tilt-compensated**, so turns are only classified on level ground.

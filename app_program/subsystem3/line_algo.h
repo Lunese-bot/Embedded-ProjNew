@@ -3,7 +3,7 @@
  *      Subsystem 3 -- line-position estimation, steering and line state.
  *
  *      Pure C, no kernel calls, so it is unit-tested on the PC
- *      (testing/subsystem3/host/) as well as on the robot.  task_line.c
+ *      (testing/subsystem3/host_test/) as well as on the robot.  task_line.c
  *      owns the sensors and calls these functions every period.
  */
 

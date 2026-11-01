@@ -1,6 +1,6 @@
 /*
  *      vc_sm.c
- *      Subsystem 6 -- Vehicle Controller mission state machine.
+ *      Vehicle Controller -- Vehicle Controller mission state machine.
  *
  *      Implements the "Vehicle controller" statechart of the design review
  *      (sections 5 and 6.1) and the fault rules of FR8 / NFR5 / NFR8:

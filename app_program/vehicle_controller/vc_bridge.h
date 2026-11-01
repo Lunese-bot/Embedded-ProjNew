@@ -1,6 +1,6 @@
 /*
  *      vc_bridge.h
- *      Subsystem 6 -- adapters for subsystems that publish their OWN
+ *      Vehicle Controller -- adapters for subsystems that publish their OWN
  *      event channel to the Vehicle Controller instead of calling
  *      vc_post_event().  Each bridge reads that channel (never blocking)
  *      and turns it into VC events, and turns controller requests into
@@ -15,13 +15,13 @@
  *      S1 (WiFi/MQTT) has no bridge yet: see vc_port_report/telemetry.
  *
  *      A bridge compiles to empty functions while that subsystem's folder
- *      still holds the original example/template, so S6 always builds.
+ *      still holds the original example/template, so VC always builds.
  */
 
 #ifndef VC_BRIDGE_H
 #define VC_BRIDGE_H
 
-#include "subsystem6.h"
+#include "vehicle_controller.h"
 
 /* ---- S2 motion control -------------------------------------------- */
 

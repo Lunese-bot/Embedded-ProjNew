@@ -1,6 +1,6 @@
 /*
  *      vc_bridge_s3.c
- *      Subsystem 6 -- adapter to subsystem 3 (IR line following + barcode).
+ *      Vehicle Controller -- adapter to subsystem 3 (IR line following + barcode).
  *      S3's interface: ../subsystem3/subsystem3.h (IF-31, IF-32, IF-33).
  *
  *      S3 -> controller

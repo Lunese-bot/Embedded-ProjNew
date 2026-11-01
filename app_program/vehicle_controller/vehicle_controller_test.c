@@ -1,14 +1,14 @@
 /*
- *      subsystem6_test.c
- *      On-target tests for subsystem 6.  Built only with: make TEST=1
- *      Record results in testing/subsystem6/TEST_LOG.md.  IDs: S6-U01, ...
+ *      vehicle_controller_test.c
+ *      On-target tests for the Vehicle Controller.  Built only with: make TEST=1
+ *      Record results in testing/vehicle_controller/TEST_LOG.md.  IDs: VC-U01, ...
  *
  *      The state-machine tests drive a PRIVATE vc_sm_t, so the live
  *      controller and the motors are not touched.  The same scenarios run
  *      on a PC with host_test/ (no Pico needed).
  */
 
-#include "subsystem6.h"
+#include "vehicle_controller.h"
 #include "vc_sm.h"
 #include "../test_report.h"
 
@@ -67,27 +67,27 @@ static void start_mission(void)
     feed(VC_SRC_OBST, VC_EV_READY, 0, 0);
 }
 
-void subsystem6_test(void)
+void vehicle_controller_test(void)
 {
     vc_status_t status;
     TEST_INIT();
 
     /* --- live objects --- */
-    TEST_CHECK("S6-U01",
+    TEST_CHECK("VC-U01",
                (g_tid_vc > 0) && (g_mbf_vc_events > 0) &&
                    (g_mtx_vc_status > 0) && (g_flg_vc_state > 0),
                "kernel objects and task created");
-    TEST_CHECK("S6-U02",
+    TEST_CHECK("VC-U02",
                (E_OK == vc_get_status(&status)) && (VC_ST_IDLE == status.state),
                "live controller waits in IDLE");
-    TEST_CHECK("S6-U03",
+    TEST_CHECK("VC-U03",
                E_OK ==
                    vc_post_event(VC_SRC_COMMS, VC_EV_WIFI_UP, 0, 0, TMO_POL),
                "vc_post_event accepted");
 
     /* --- state machine (private instance) --- */
     start_mission();
-    TEST_CHECK("S6-U04",
+    TEST_CHECK("VC-U04",
                (VC_ST_FOLLOW_LINE == g_t_sm.st.state) &&
                    has_move(VC_MOVE_FORWARD),
                "start + all READY -> FOLLOW_LINE, drive forward");
@@ -97,24 +97,24 @@ void subsystem6_test(void)
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
     feed(VC_SRC_IMU, VC_EV_READY, 0, 0);
     advance(VC_SELF_CHECK_MS + 40);
-    TEST_CHECK("S6-U05", VC_ST_FAULT == g_t_sm.st.state,
+    TEST_CHECK("VC-U05", VC_ST_FAULT == g_t_sm.st.state,
                "self check: motion/line missing -> FAULT");
 
     start_mission();
     feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
     feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, NAV_LEFT, 0);
-    TEST_CHECK("S6-U06",
+    TEST_CHECK("VC-U06",
                (VC_ST_EXECUTE_ACTION == g_t_sm.st.state) &&
                    has_move(VC_MOVE_TURN_LEFT),
                "barcode LEFT -> EXECUTE_ACTION, turn left");
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 0, 0);
-    TEST_CHECK("S6-U07", VC_ST_FOLLOW_LINE == g_t_sm.st.state,
+    TEST_CHECK("VC-U07", VC_ST_FOLLOW_LINE == g_t_sm.st.state,
                "manoeuvre done -> FOLLOW_LINE");
 
     start_mission();
     feed(VC_SRC_LINE, VC_EV_LINE_LOST, 0, 0);
     advance(VC_LINE_ATTEMPT_MS * (VC_LINE_MAX_ATTEMPTS + 1));
-    TEST_CHECK("S6-U08",
+    TEST_CHECK("VC-U08",
                (VC_ST_FAULT == g_t_sm.st.state) &&
                    (VC_FC_LINE_RECOVERY == g_t_sm.st.last_fault_code),
                "line not found within limits -> FAULT");
@@ -122,37 +122,37 @@ void subsystem6_test(void)
     start_mission();
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
     feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_STEER, 300);
-    TEST_CHECK("S6-U09",
+    TEST_CHECK("VC-U09",
                (VC_ST_AVOID_OBSTACLE == g_t_sm.st.state) && (0 == g_t_out.n) &&
                    (1 == g_t_sm.st.moves_rejected),
                "AVOID: move request from S3 rejected");
     feed(VC_SRC_OBST, VC_EV_MOVE_REQUEST, VC_MOVE_TURN_RIGHT, 45);
-    TEST_CHECK("S6-U10", has_move(VC_MOVE_TURN_RIGHT),
+    TEST_CHECK("VC-U10", has_move(VC_MOVE_TURN_RIGHT),
                "AVOID: move request from S5 forwarded");
 
     start_mission();
     feed(VC_SRC_COMMS, VC_EV_WIFI_DOWN, 0, 0);
-    TEST_CHECK("S6-U11", VC_ST_FOLLOW_LINE == g_t_sm.st.state,
+    TEST_CHECK("VC-U11", VC_ST_FOLLOW_LINE == g_t_sm.st.state,
                "WiFi down is non-critical: keep following");
 
     feed(VC_SRC_IMU, VC_EV_FAULT, VC_FAULT_CRITICAL, 0x4001);
-    TEST_CHECK("S6-U12",
+    TEST_CHECK("VC-U12",
                (VC_ST_FAULT == g_t_sm.st.state) && has_move(VC_MOVE_SAFE_STOP),
                "critical fault -> FAULT, motors stopped");
     feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
-    TEST_CHECK("S6-U13", VC_ST_IDLE == g_t_sm.st.state,
+    TEST_CHECK("VC-U13", VC_ST_IDLE == g_t_sm.st.state,
                "reset from FAULT -> IDLE");
 
     start_mission();
     feed(VC_SRC_IMU, VC_EV_HUMP_START, 0, 0);
     feed(VC_SRC_LINE, VC_EV_LINE_LOST, 0, 0);
     feed(VC_SRC_IMU, VC_EV_HUMP_CLEARED, 42, 0);
-    TEST_CHECK("S6-U14",
+    TEST_CHECK("VC-U14",
                (VC_ST_FOLLOW_LINE == g_t_sm.st.state) &&
                    (42 == g_t_sm.st.max_hump_um),
                "hump: line loss ignored, peak recorded");
 
-    TEST_SUMMARY("subsystem6");
+    TEST_SUMMARY("vehicle_controller");
 }
 
 #endif /* APP_TEST */

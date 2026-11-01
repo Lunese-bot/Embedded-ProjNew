@@ -1,9 +1,9 @@
 /*
  *      vc_ports.h
- *      Subsystem 6 -- outbound connections from the Vehicle Controller to
+ *      Vehicle Controller -- outbound connections from the Vehicle Controller to
  *      the other subsystems.  Called ONLY from vehicle_ctrl_task.
  *
- *      Each function is the single place where S6 talks to the other
+ *      Each function is the single place where VC talks to the other
  *      subsystems.  They log what they do, record it in g_vc_port_log (for
  *      the tests) and pass it to that subsystem's adapter in vc_bridge_*.c.
  *      S1 (fault reports, telemetry) is still a STUB: see the TODOs.
@@ -12,7 +12,7 @@
 #ifndef VC_PORTS_H
 #define VC_PORTS_H
 
-#include "subsystem6.h"
+#include "vehicle_controller.h"
 
 /* S2 Motion Control: one authorised movement command */
 extern ER vc_port_move(vc_move_t move, int32_t value);

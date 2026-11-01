@@ -99,7 +99,7 @@ canvas { width: 100%; height: 90px; display: block; }
   <section class="panel">
     <h2>Live</h2>
     <div class="tiles">
-      <div class="tile"><div class="k">Mission state (S6)</div><div class="state" id="t_st">–</div></div>
+      <div class="tile"><div class="k">Mission state (VC)</div><div class="state" id="t_st">–</div></div>
       <div class="tile"><div class="k">Wheel speed L / R (S2)</div><div class="v"><span id="t_vl">–</span> / <span id="t_vr">–</span> <span class="u">mm/s</span></div></div>
       <div class="tile"><div class="k">Distance driven (S2)</div><div class="v"><span id="t_odo">–</span> <span class="u">mm</span></div></div>
       <div class="tile"><div class="k">Line position (S3)</div><div class="v"><span id="t_line">–</span></div>
@@ -148,7 +148,7 @@ canvas { width: 100%; height: 90px; display: block; }
 (() => {
   const $ = id => document.getElementById(id);
   const SUBS = { subsystem1: "S1 WiFi / MQTT", subsystem2: "S2 Motion", subsystem3: "S3 Line + barcode",
-                 subsystem4: "S4 IMU", subsystem5: "S5 Obstacle", subsystem6: "S6 Vehicle Controller" };
+                 subsystem4: "S4 IMU", subsystem5: "S5 Obstacle", vehicle_controller: "Vehicle Controller" };
   const NAV = ["none", "left", "right", "straight", "U-turn"];
   const OBS = ["idle", "monitoring", "detected", "coarse scan", "fine scan", "planning",
                "bypassing", "search line", "line recovery", "error"];

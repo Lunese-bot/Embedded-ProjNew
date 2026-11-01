@@ -1,17 +1,17 @@
 /*
- *      subsystem6.h
- *      Subsystem 6 -- Vehicle Controller / Mission Control.
- *      Student ID: <student ID>.
+ *      vehicle_controller.h
+ *      Vehicle Controller -- mission control.
+ *      Owner: whole team (shared).
  *
- *      Public interface of subsystem 6.  Other subsystems include it as
- *      "../vehicle_controller/subsystem6.h".
+ *      Public interface of the Vehicle Controller.  Other subsystems include it as
+ *      "../vehicle_controller/vehicle_controller.h".
  *
  *      The Vehicle Controller owns the mission state (design review 5, 6.1)
  *      and is the ONLY source of movement commands.  It drives no hardware.
  *
  *      How other subsystems use it
  *      ---------------------------
- *        IF-06  any -> S6  report an event:
+ *        IF-06  any -> VC  report an event:
  *                 vc_post_event(VC_SRC_LINE, VC_EV_LINE_LOST, 0, 0, TMO_POL);
  *               ask to move (forwarded only if you own motion right now):
  *                 vc_post_event(VC_SRC_LINE, VC_EV_MOVE_REQUEST,
@@ -19,7 +19,7 @@
  *               report a fault (FR8):
  *                 vc_post_event(VC_SRC_IMU, VC_EV_FAULT,
  *                               VC_FAULT_CRITICAL, 0x4001, TMO_POL);
- *        IF-07  S6 -> any  read the mission state:
+ *        IF-07  VC -> any  read the mission state:
  *                 vc_status_t s; vc_get_status(&s);
  *               or wait for a state:
  *                 tk_wai_flg(g_flg_vc_state, VC_FLG_RUNNING, TWF_ORW, &p,
@@ -28,8 +28,8 @@
  *      Event and command formats are in vc_types.h.
  */
 
-#ifndef SUBSYSTEM6_H
-#define SUBSYSTEM6_H
+#ifndef VEHICLE_CONTROLLER_H
+#define VEHICLE_CONTROLLER_H
 
 #include "../app.h"
 #include "vc_types.h"
@@ -37,16 +37,16 @@
 /* Priority band 10-11: ABOVE the five sensing/actuating subsystems
    (design review section 3: Vehicle Controller = High, event-driven).
    PROPOSED -- agree it in TEAM.md section 4. */
-#define S6_PRI_VC 10
+#define VC_PRI_VC 10
 
-#define S6_TICK_MS         10 /* loop period when idle: S3 steering rate (NFR2) */
-#define S6_TELEMETRY_MS    200 /* status to S1 (NFR2 MQTT period) */
-#define S6_EVENT_QUEUE_LEN 16  /* events buffered in g_mbf_vc_events */
+#define VC_TICK_MS         10 /* loop period when idle: S3 steering rate (NFR2) */
+#define VC_TELEMETRY_MS    200 /* status to S1 (NFR2 MQTT period) */
+#define VC_EVENT_QUEUE_LEN 16  /* events buffered in g_mbf_vc_events */
 
-/* IF-06: events in (owned by S6).  Use vc_post_event(). */
+/* IF-06: events in (owned by VC).  Use vc_post_event(). */
 extern ID g_mbf_vc_events;
 
-/* IF-07: status out (owned by S6).  Use vc_get_status(). */
+/* IF-07: status out (owned by VC).  Use vc_get_status(). */
 extern ID g_mtx_vc_status;
 
 /* IF-07: one bit per mission state, exactly one set at a time, plus
@@ -66,11 +66,11 @@ extern ER vc_post_event(vc_source_t src, vc_event_type_t type, int32_t param1,
 /* Copy the current controller status.  Never blocks for long. */
 extern ER vc_get_status(vc_status_t * p_out);
 
-/* Private to subsystem 6 */
+/* Private to the Vehicle Controller */
 extern ID          g_tid_vc;
 extern vc_status_t g_vc_status_shared; /* guarded by g_mtx_vc_status */
 extern void        vehicle_ctrl_task(int32_t stacd, void * p_exinf);
 
-#endif /* SUBSYSTEM6_H */
+#endif /* VEHICLE_CONTROLLER_H */
 
 /*** end of file ***/

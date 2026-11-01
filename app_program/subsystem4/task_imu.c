@@ -46,7 +46,7 @@ void imu_cyclic_isr(void * p_exinf)
     tk_wup_tsk(g_tid_imu);
 }
 
-/* Sensor axes -> robot axes (subsystem4_cfg.h) */
+/* Sensor axes -> robot axes (s4_config.h) */
 static void remap(const lsm303_raw_t * p_raw, imu_sample_t * p_sample)
 {
     const int16_t acc[3] = { p_raw->ax_mg, p_raw->ay_mg, p_raw->az_mg };

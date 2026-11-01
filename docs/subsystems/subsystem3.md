@@ -24,7 +24,7 @@ in `subsystem2/` and `subsystem4/`.
   subsystem 3 uses no SDK code.
 - The build also links with subsystem 5's base code, and S3's
   `s5_port_line_detected()` replaces S5's weak stub.
-- PC unit tests (`testing/subsystem3/host`, `make`): 16/16 pass.
+- PC unit tests (`testing/subsystem3/host_test`, `make`): 16/16 pass.
 - **Not run on a Pico yet.** The on-target tests S3-U01..U05 have only been
   built.
 

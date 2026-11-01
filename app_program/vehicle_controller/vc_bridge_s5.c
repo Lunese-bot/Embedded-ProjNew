@@ -1,6 +1,6 @@
 /*
  *      vc_bridge_s5.c
- *      Subsystem 6 -- adapter to subsystem 5's g_mbf_s5_cmd / g_mbf_s5_evt.
+ *      Vehicle Controller -- adapter to subsystem 5's g_mbf_s5_cmd / g_mbf_s5_evt.
  *
  *      S5 -> controller
  *        OBSTACLE_DETECTED  -> VC_EV_OBSTACLE (p1 = distance mm)

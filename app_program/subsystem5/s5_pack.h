@@ -48,3 +48,5 @@ extern void s5_unpack_status(uint16_t word, uint16_t * p_distance_mm,
                              uint8_t * p_state, bool * p_detected);
 
 #endif /* S5_PACK_H */
+
+/*** end of file ***/

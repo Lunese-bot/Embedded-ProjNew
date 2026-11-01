@@ -5,7 +5,7 @@
  */
 
 #include "subsystem1.h"
-#include "../vehicle_controller/subsystem6.h"
+#include "../vehicle_controller/vehicle_controller.h"
 
 int32_t s1_bridge_pop(char * p_topic, int32_t topic_max, char * p_payload,
                       int32_t payload_max)
@@ -69,7 +69,7 @@ static bool starts_with(const char * p_text, int32_t len, const char * p_word)
 void s1_bridge_on_command(const char * p_payload, int32_t len)
 {
     g_s1_stat.commands++;
-    /* Remote commands go to the Vehicle Controller (subsystem 6), never
+    /* Remote commands go to the Vehicle Controller, never
        to the motors (design review 8.1, Buddy 1 decision). */
     if (starts_with(p_payload, len, "start"))
     {
@@ -88,7 +88,7 @@ void s1_bridge_on_command(const char * p_payload, int32_t len)
         /* Unknown command: counted above, otherwise ignored */
     }
     /* TODO(Buddy 1): JSON commands, acknowledgements on robot/g10/ack,
-       a speed command (needs a VC event in subsystem 6 first) */
+       a speed command (needs a new VC event first) */
 }
 
 void s1_bridge_set_connected(int32_t connected)

@@ -15,13 +15,13 @@
  *        s1_bridge.c (this folder, called FROM the WiFi service task)
  *          s1_bridge_pop()  takes queued lines without blocking, and
  *          s1_bridge_on_command() turns an MQTT command into a Vehicle
- *          Controller event (subsystem 6).
+ *          Controller event.
  *          lib/liblwip/sysdepend/pico_rp2040/mqtt_utk.c calls them
  *          (build with NET=lwip MQTT=1).
  *
  *      Public interface (TEAM.md section 5):
  *        IF-T1  s1_post(topic, text)   any task -> S1 (g_mbf_telemetry)
- *        S1 -> S6  vc_post_event(VC_SRC_COMMS, VC_EV_CMD_START / CMD_STOP /
+ *        S1 -> VC  vc_post_event(VC_SRC_COMMS, VC_EV_CMD_START / CMD_STOP /
  *                  CMD_RESET / WIFI_UP / WIFI_DOWN)                 (IF-06)
  */
 

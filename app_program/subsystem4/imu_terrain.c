@@ -17,7 +17,7 @@
 
 #include "imu_terrain.h"
 #include "imu_math.h"
-#include "subsystem4_cfg.h"
+#include "s4_config.h"
 
 #define ONE_G_MG          1000
 #define S4_MS_PER_S       1000

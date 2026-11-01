@@ -50,14 +50,14 @@ extern ER subsystem2_init(void);
 extern ER subsystem3_init(void);
 extern ER subsystem4_init(void);
 extern ER subsystem5_init(void);
-extern ER subsystem6_init(void); /* Vehicle Controller */
+extern ER vehicle_controller_init(void); /* Vehicle Controller */
 
 extern ER subsystem1_start(void);
 extern ER subsystem2_start(void);
 extern ER subsystem3_start(void);
 extern ER subsystem4_start(void);
 extern ER subsystem5_start(void);
-extern ER subsystem6_start(void);
+extern ER vehicle_controller_start(void);
 
 #if APP_TEST
 extern void subsystem1_test(void);
@@ -65,7 +65,7 @@ extern void subsystem2_test(void);
 extern void subsystem3_test(void);
 extern void subsystem4_test(void);
 extern void subsystem5_test(void);
-extern void subsystem6_test(void);
+extern void vehicle_controller_test(void);
 #endif
 
 /* Print a readable message if a kernel call failed (negative error code).

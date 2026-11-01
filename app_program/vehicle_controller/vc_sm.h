@@ -1,6 +1,6 @@
 /*
  *      vc_sm.h
- *      Subsystem 6 -- Vehicle Controller mission state machine.
+ *      Vehicle Controller -- Vehicle Controller mission state machine.
  *
  *      Pure logic: vc_sm_handle() takes one event and returns a list of
  *      ACTIONS (move, request, report).  It never calls the kernel or a

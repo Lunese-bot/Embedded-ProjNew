@@ -3,7 +3,7 @@
  *	PC unit tests for subsystem 3's pure algorithms (code39.c,
  *	line_algo.c).  No robot needed:
  *
- *	    cd testing/subsystem3/host && make
+ *	    cd testing/subsystem3/host_test && make
  *
  *	Output uses the same "[TEST] ID PASS/FAIL" lines as the on-target
  *	tests, so results go into testing/subsystem3/TEST_LOG.md the same way.

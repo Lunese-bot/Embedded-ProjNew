@@ -10,7 +10,7 @@ Define a test here before running it. Test IDs never change.
 
 | ID | What is tested | Requirement / interface | Method | Steps / how | Expected result |
 |---|---|---|---|---|---|
-| H-C01..H-C08 | Code 39 decoder: all characters both directions, 2:1 ratio, ±20 % jitter, 2× speed ramp, bad length / contrast / framing / overflow rejected | FR2 | auto (PC) | `cd testing/subsystem3/host && make` | `[TEST] H-Cxx PASS` ×8 |
+| H-C01..H-C08 | Code 39 decoder: all characters both directions, 2:1 ratio, ±20 % jitter, 2× speed ramp, bad length / contrast / framing / overflow rejected | FR2 | auto (PC) | `cd testing/subsystem3/host_test && make` | `[TEST] H-Cxx PASS` ×8 |
 | H-L01..H-L05c | Line tracker: FOLLOW, steer sign, LOST after 5 samples with last side, junction + inhibit, calibration accept/reject | FR1, NFR9 | auto (PC) | same | `[TEST] H-Lxx PASS` ×8 |
 | S3-U01 / U01b | Code 39 `*L*` decodes forwards and backwards on the Pico | FR2 | auto | `make TEST=1`, `subsystem3_test.c` | PASS |
 | S3-U02 | corrupted barcode rejected on the Pico | FR2 | auto | same | PASS |

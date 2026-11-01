@@ -3,7 +3,7 @@
  *      Subsystem 3 -- Code 39 barcode decoder.
  *
  *      Pure C, no kernel calls: it is unit-tested on the PC
- *      (testing/subsystem3/host/) as well as on the robot.
+ *      (testing/subsystem3/host_test/) as well as on the robot.
  *
  *      Input is the list of element widths in the order the sensor saw
  *      them, starting with the first BAR:  bar, space, bar, space, ... bar.

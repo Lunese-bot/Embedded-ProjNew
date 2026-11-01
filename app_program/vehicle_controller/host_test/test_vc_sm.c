@@ -5,7 +5,7 @@
  *
  *          make            # builds and runs, prints PASS/FAIL per check
  *
- *      IDs S6-H01 ... are recorded in testing/subsystem6/TEST_LOG.md.
+ *      IDs VC-H01 ... are recorded in testing/vehicle_controller/TEST_LOG.md.
  */
 
 #include <stdio.h>
@@ -106,16 +106,16 @@ static void test_startup(void)
     g_now_ms = 0;
     vc_sm_init(&g_sm, g_now_ms);
     feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_FORWARD, 200);
-    CHECK("S6-H01", (VC_ST_IDLE == g_sm.st.state) && (0 == g_actions.n),
+    CHECK("VC-H01", (VC_ST_IDLE == g_sm.st.state) && (0 == g_actions.n),
           "IDLE ignores move requests");
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
-    CHECK("S6-H02",
+    CHECK("VC-H02",
           (VC_ST_MISSION_START == g_sm.st.state) &&
               has_request(VC_SRC_NONE, VC_REQ_SELF_CHECK),
           "start -> MISSION_START, self check requested");
 
     start_mission();
-    CHECK("S6-H03",
+    CHECK("VC-H03",
           (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
               has_move(VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS, 1) &&
               has_request(VC_SRC_LINE, VC_REQ_LINE_FOLLOW),
@@ -127,7 +127,7 @@ static void test_startup(void)
     feed(VC_SRC_MOTION, VC_EV_READY, 0, 0);
     feed(VC_SRC_LINE, VC_EV_READY, 0, 0);
     advance(VC_SELF_CHECK_MS + 20);
-    CHECK("S6-H04",
+    CHECK("VC-H04",
           (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
               (VC_FC_SELF_CHECK == g_sm.st.last_fault_code),
           "optional IMU/obstacle missing -> run degraded, reported");
@@ -137,7 +137,7 @@ static void test_startup(void)
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
     feed(VC_SRC_IMU, VC_EV_READY, 0, 0);
     advance(VC_SELF_CHECK_MS + 20);
-    CHECK("S6-H05", VC_ST_FAULT == g_sm.st.state,
+    CHECK("VC-H05", VC_ST_FAULT == g_sm.st.state,
           "motion/line missing -> FAULT");
 }
 
@@ -146,13 +146,13 @@ static void test_arbitration(void)
 {
     start_mission();
     feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_STEER, -300);
-    CHECK("S6-H06", has_move(VC_MOVE_STEER, -300, 1),
+    CHECK("VC-H06", has_move(VC_MOVE_STEER, -300, 1),
           "FOLLOW_LINE: S3 steering forwarded");
     feed(VC_SRC_OBST, VC_EV_MOVE_REQUEST, VC_MOVE_REVERSE, 100);
-    CHECK("S6-H07", (0 == g_actions.n) && (1 == g_sm.st.moves_rejected),
+    CHECK("VC-H07", (0 == g_actions.n) && (1 == g_sm.st.moves_rejected),
           "FOLLOW_LINE: S5 move rejected");
     feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, 99, 0);
-    CHECK("S6-H08", 0 == g_actions.n, "invalid move code rejected");
+    CHECK("VC-H08", 0 == g_actions.n, "invalid move code rejected");
 }
 
 /* barcode */
@@ -160,39 +160,39 @@ static void test_barcode(void)
 {
     start_mission();
     feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
-    CHECK("S6-H09",
+    CHECK("VC-H09",
           (VC_ST_DECODE_BARCODE == g_sm.st.state) &&
               has_move(VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS, 1),
           "barcode start -> DECODE_BARCODE, slow");
     feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_FORWARD, 300);
-    CHECK("S6-H10", has_move(VC_MOVE_FORWARD, VC_SPEED_SLOW_MMS, 1),
+    CHECK("VC-H10", has_move(VC_MOVE_FORWARD, VC_SPEED_SLOW_MMS, 1),
           "DECODE: S3 speed capped to slow");
     feed(VC_SRC_LINE, VC_EV_LINE_LOST, 0, 0);
-    CHECK("S6-H11", VC_ST_DECODE_BARCODE == g_sm.st.state,
+    CHECK("VC-H11", VC_ST_DECODE_BARCODE == g_sm.st.state,
           "DECODE: line loss ignored");
     feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, NAV_RIGHT, 0x2A);
-    CHECK("S6-H12",
+    CHECK("VC-H12",
           (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
               has_move(VC_MOVE_TURN_RIGHT, VC_TURN_DEG, 1) &&
               (1 == g_sm.st.barcodes_read) && (NAV_RIGHT == g_sm.st.last_nav),
           "RIGHT -> turn right 90");
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 0, 0);
-    CHECK("S6-H13", VC_ST_FOLLOW_LINE == g_sm.st.state,
+    CHECK("VC-H13", VC_ST_FOLLOW_LINE == g_sm.st.state,
           "manoeuvre done -> FOLLOW_LINE");
 
     feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, NAV_STRAIGHT, 0);
-    CHECK("S6-H14", (VC_ST_FOLLOW_LINE == g_sm.st.state) && !g_actions.overflow,
+    CHECK("VC-H14", (VC_ST_FOLLOW_LINE == g_sm.st.state) && !g_actions.overflow,
           "STRAIGHT: straight back to FOLLOW_LINE");
 
     feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
     feed(VC_SRC_LINE, VC_EV_BARCODE_FAILED, 0, 0);
     feed(VC_SRC_LINE, VC_EV_BARCODE_FAILED, 0, 0);
-    CHECK("S6-H15",
+    CHECK("VC-H15",
           (VC_ST_DECODE_BARCODE == g_sm.st.state) &&
               has_request(VC_SRC_LINE, VC_REQ_BARCODE_READ),
           "barcode retry within limit");
     feed(VC_SRC_LINE, VC_EV_BARCODE_FAILED, 0, 0);
-    CHECK("S6-H16",
+    CHECK("VC-H16",
           (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
               (VC_FC_BARCODE == g_sm.st.last_fault_code) &&
               (VC_FAULT_NON_CRITICAL == g_sm.st.last_fault_sev),
@@ -200,12 +200,12 @@ static void test_barcode(void)
 
     feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
     advance(VC_DECODE_MS * (VC_BARCODE_MAX_RETRY + 1) + 40);
-    CHECK("S6-H17", VC_ST_FOLLOW_LINE == g_sm.st.state,
+    CHECK("VC-H17", VC_ST_FOLLOW_LINE == g_sm.st.state,
           "barcode read timeouts count as failures");
 
     feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, NAV_U_TURN, 0);
     advance(VC_EXECUTE_MS + 20);
-    CHECK("S6-H18", VC_ST_LOST_LINE == g_sm.st.state,
+    CHECK("VC-H18", VC_ST_LOST_LINE == g_sm.st.state,
           "manoeuvre timeout -> LOST_LINE recovery");
 }
 
@@ -214,17 +214,17 @@ static void test_line_loss(void)
 {
     start_mission();
     feed(VC_SRC_LINE, VC_EV_LINE_LOST, 0, 0);
-    CHECK("S6-H19",
+    CHECK("VC-H19",
           (VC_ST_LOST_LINE == g_sm.st.state) && has_move(VC_MOVE_STOP, 0, 0) &&
               has_request(VC_SRC_LINE, VC_REQ_LINE_SEARCH),
           "line lost -> stop, search");
     advance(VC_LINE_ATTEMPT_MS);
     feed(VC_SRC_LINE, VC_EV_LINE_FOUND, 0, 0);
-    CHECK("S6-H20", VC_ST_FOLLOW_LINE == g_sm.st.state,
+    CHECK("VC-H20", VC_ST_FOLLOW_LINE == g_sm.st.state,
           "line found -> FOLLOW_LINE");
     feed(VC_SRC_LINE, VC_EV_LINE_LOST, 0, 0);
     advance(VC_LINE_ATTEMPT_MS * VC_LINE_MAX_ATTEMPTS + 40);
-    CHECK("S6-H21",
+    CHECK("VC-H21",
           (VC_ST_FAULT == g_sm.st.state) &&
               (VC_FC_LINE_RECOVERY == g_sm.st.last_fault_code),
           "line recovery bounded -> FAULT");
@@ -235,22 +235,22 @@ static void test_obstacle(void)
 {
     start_mission();
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
-    CHECK("S6-H22",
+    CHECK("VC-H22",
           (VC_ST_AVOID_OBSTACLE == g_sm.st.state) &&
               has_request(VC_SRC_OBST, VC_REQ_OBST_AVOID),
           "obstacle -> AVOID");
     feed(VC_SRC_LINE, VC_EV_LINE_LOST, 0, 0);
     feed(VC_SRC_OBST, VC_EV_MOVE_REQUEST, VC_MOVE_TURN_LEFT, 30);
-    CHECK("S6-H23",
+    CHECK("VC-H23",
           (VC_ST_AVOID_OBSTACLE == g_sm.st.state) &&
               has_move(VC_MOVE_TURN_LEFT, 30, 1),
           "AVOID: line loss ignored, S5 moves forwarded");
     feed(VC_SRC_OBST, VC_EV_AVOID_DONE, 0, 0);
-    CHECK("S6-H24", VC_ST_FOLLOW_LINE == g_sm.st.state,
+    CHECK("VC-H24", VC_ST_FOLLOW_LINE == g_sm.st.state,
           "avoid done -> FOLLOW_LINE");
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
     feed(VC_SRC_OBST, VC_EV_AVOID_FAILED, 0, 0);
-    CHECK("S6-H35",
+    CHECK("VC-H35",
           (VC_ST_LOST_LINE == g_sm.st.state) &&
               (VC_FC_AVOID_FAILED == g_sm.st.last_fault_code) &&
               (VC_FAULT_RECOVERABLE == g_sm.st.last_fault_sev),
@@ -258,7 +258,7 @@ static void test_obstacle(void)
     feed(VC_SRC_LINE, VC_EV_LINE_FOUND, 0, 0);
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
     advance(VC_AVOID_MS + 20);
-    CHECK("S6-H25", VC_ST_FAULT == g_sm.st.state, "avoid timeout -> FAULT");
+    CHECK("VC-H25", VC_ST_FAULT == g_sm.st.state, "avoid timeout -> FAULT");
 }
 
 /* terrain */
@@ -269,12 +269,12 @@ static void test_terrain(void)
     feed(VC_SRC_IMU, VC_EV_HUMP_CLEARED, 35, 80);
     feed(VC_SRC_IMU, VC_EV_HUMP_START, 0, 0);
     feed(VC_SRC_IMU, VC_EV_HUMP_CLEARED, 20, 50);
-    CHECK("S6-H26",
+    CHECK("VC-H26",
           (VC_ST_FOLLOW_LINE == g_sm.st.state) && (35 == g_sm.st.max_hump_um),
           "highest hump kept");
     feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
     feed(VC_SRC_IMU, VC_EV_HUMP_CLEARED, 51, 0);
-    CHECK("S6-H36",
+    CHECK("VC-H36",
           (VC_ST_DECODE_BARCODE == g_sm.st.state) &&
               (51 == g_sm.st.max_hump_um),
           "hump crossed while reading a barcode is still recorded");
@@ -285,36 +285,36 @@ static void test_faults(void)
 {
     start_mission();
     feed(VC_SRC_COMMS, VC_EV_WIFI_DOWN, 0, 0);
-    CHECK("S6-H27", (VC_ST_FOLLOW_LINE == g_sm.st.state) && !g_sm.st.wifi_up,
+    CHECK("VC-H27", (VC_ST_FOLLOW_LINE == g_sm.st.state) && !g_sm.st.wifi_up,
           "WiFi down: keep navigating");
     feed(VC_SRC_LINE, VC_EV_FAULT, VC_FAULT_RECOVERABLE, 0x3001);
-    CHECK("S6-H28", VC_ST_LOST_LINE == g_sm.st.state,
+    CHECK("VC-H28", VC_ST_LOST_LINE == g_sm.st.state,
           "recoverable line fault -> LOST_LINE");
     feed(VC_SRC_IMU, VC_EV_IMPACT, 0, 0);
-    CHECK("S6-H29",
+    CHECK("VC-H29",
           (VC_ST_FAULT == g_sm.st.state) && has_move(VC_MOVE_SAFE_STOP, 0, 0) &&
               has_request(VC_SRC_NONE, VC_REQ_STOP_ALL),
           "impact -> FAULT, stop all");
     feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_FORWARD, 100);
-    CHECK("S6-H30", 0 == g_actions.n, "FAULT: no motion accepted");
+    CHECK("VC-H30", 0 == g_actions.n, "FAULT: no motion accepted");
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
-    CHECK("S6-H31", VC_ST_FAULT == g_sm.st.state,
+    CHECK("VC-H31", VC_ST_FAULT == g_sm.st.state,
           "FAULT: start ignored until reset");
     feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
-    CHECK("S6-H32",
+    CHECK("VC-H32",
           (VC_ST_IDLE == g_sm.st.state) && has_move(VC_MOVE_RESET, 0, 0),
           "reset -> IDLE, motion latch cleared");
 
     start_mission();
     feed(VC_SRC_COMMS, VC_EV_CMD_STOP, 0, 0);
-    CHECK("S6-H33",
+    CHECK("VC-H33",
           (VC_ST_FAULT == g_sm.st.state) &&
               (VC_FC_OPERATOR_STOP == g_sm.st.last_fault_code),
           "remote stop -> FAULT");
 
     start_mission();
     feed(VC_SRC_LINE, VC_EV_END_OF_COURSE, 0, 0);
-    CHECK("S6-H34",
+    CHECK("VC-H34",
           (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
               has_move(VC_MOVE_STOP, 0, 0),
           "end of course -> MISSION_COMPLETE");
@@ -325,19 +325,19 @@ static void test_line_search(void)
 {
     start_mission();
     feed(VC_SRC_LINE, VC_EV_LINE_LOST, +1, 0); /* last seen on the right */
-    CHECK("S6-H37", has_move(VC_MOVE_TURN_RIGHT, VC_SEARCH_TURN_DEG, 1),
+    CHECK("VC-H37", has_move(VC_MOVE_TURN_RIGHT, VC_SEARCH_TURN_DEG, 1),
           "search turns towards the side the line was last seen");
     feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_STEER, 500);
-    CHECK("S6-H38", 0 == g_actions.n,
+    CHECK("VC-H38", 0 == g_actions.n,
           "LOST_LINE: S3 steering rejected while searching");
     advance(VC_LINE_ATTEMPT_MS);
-    CHECK("S6-H39", has_move(VC_MOVE_TURN_LEFT, 2 * VC_SEARCH_TURN_DEG, 1),
+    CHECK("VC-H39", has_move(VC_MOVE_TURN_LEFT, 2 * VC_SEARCH_TURN_DEG, 1),
           "second attempt turns twice as far the other way");
     feed(VC_SRC_LINE, VC_EV_LINE_FOUND, 0, 0);
     feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_RESET, 0);
-    CHECK("S6-H40", 0 == g_actions.n, "subsystems may not request RESET");
+    CHECK("VC-H40", 0 == g_actions.n, "subsystems may not request RESET");
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
-    CHECK("S6-H41", has_request(VC_SRC_LINE, VC_REQ_BARCODE_OFF),
+    CHECK("VC-H41", has_request(VC_SRC_LINE, VC_REQ_BARCODE_OFF),
           "AVOID: barcode reading switched off");
 }
 
@@ -352,7 +352,7 @@ int main(void)
     test_faults();
     test_line_search();
 
-    printf("[TEST] subsystem6 host SUMMARY %d passed, %d failed\n", g_passed,
+    printf("[TEST] vehicle_controller host SUMMARY %d passed, %d failed\n", g_passed,
            g_failed);
     return (0 != g_failed) ? 1 : 0;
 }

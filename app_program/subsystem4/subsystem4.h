@@ -25,7 +25,7 @@
 #define SUBSYSTEM4_H
 
 #include "../app.h"
-#include "subsystem4_cfg.h"
+#include "s4_config.h"
 #include "imu_terrain.h"
 
 #define S4_PRI_IMU 18 /* priority band 18-19 (TEAM.md) */

@@ -7,7 +7,7 @@
  *      measurement in testing/subsystem3/TEST_LOG.md.
  *
  *      This header holds plain numbers only, so that the host unit tests
- *      (testing/subsystem3/host/) can include it without the kernel.
+ *      (testing/subsystem3/host_test/) can include it without the kernel.
  */
 
 #ifndef S3_CONFIG_H

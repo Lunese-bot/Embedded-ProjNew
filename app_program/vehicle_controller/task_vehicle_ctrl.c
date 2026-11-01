@@ -1,9 +1,9 @@
 /*
  *      task_vehicle_ctrl.c
- *      Subsystem 6 -- the Vehicle Controller task.
+ *      Vehicle Controller -- the Vehicle Controller task.
  *
  *      Loop:
- *        1. wait for an event on g_mbf_vc_events, at most S6_TICK_MS, then
+ *        1. wait for an event on g_mbf_vc_events, at most VC_TICK_MS, then
  *           read the channels S2..S5 own (vc_bridge_s2..s5.c), so their
  *           events wait at most one tick, and S3's steering is forwarded
  *           every tick (10 ms, NFR2)
@@ -12,13 +12,13 @@
  *        3. vc_sm_handle() decides; this task carries out its actions
  *           through vc_ports.c
  *        4. publish the new status (mutex snapshot + state flag)
- *        5. every S6_TELEMETRY_MS, send the status to S1
+ *        5. every VC_TELEMETRY_MS, send the status to S1
  *
  *      APIs used: tk_rcv_mbf, tk_get_tim, tk_loc_mtx/tk_unl_mtx,
  *                 tk_clr_flg/tk_set_flg
  */
 
-#include "subsystem6.h"
+#include "vehicle_controller.h"
 #include "vc_sm.h"
 #include "vc_ports.h"
 #include "vc_bridge.h"
@@ -145,7 +145,7 @@ void vehicle_ctrl_task(int32_t stacd, void * p_exinf)
     for (;;)
     {
         /* 1. next event, or time out after one tick */
-        len = tk_rcv_mbf(g_mbf_vc_events, &event, S6_TICK_MS);
+        len = tk_rcv_mbf(g_mbf_vc_events, &event, VC_TICK_MS);
         now = now_ms();
 
         /* Cast: sizeof of a small struct vs the signed receive size. */
@@ -183,8 +183,8 @@ void vehicle_ctrl_task(int32_t stacd, void * p_exinf)
             handle(&event, now, true);
         }
 
-        /* 2. tick: also when events keep arriving faster than S6_TICK_MS */
-        if ((now - last_tick) >= S6_TICK_MS)
+        /* 2. tick: also when events keep arriving faster than VC_TICK_MS */
+        if ((now - last_tick) >= VC_TICK_MS)
         {
             last_tick    = now;
             tick.time_ms = now;
@@ -192,7 +192,7 @@ void vehicle_ctrl_task(int32_t stacd, void * p_exinf)
         }
 
         /* 5. telemetry (low rate, S1 decides what goes over MQTT) */
-        if ((now - last_telem) >= S6_TELEMETRY_MS)
+        if ((now - last_telem) >= VC_TELEMETRY_MS)
         {
             last_telem = now;
             vc_port_telemetry(&g_vc_sm.st);

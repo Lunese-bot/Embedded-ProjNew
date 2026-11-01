@@ -1,7 +1,7 @@
 /*
- *      subsystem6.c
- *      Subsystem 6 -- Vehicle Controller: creates its objects, starts its
- *      task, and provides the public calls of subsystem6.h.
+ *      vehicle_controller.c
+ *      Vehicle Controller -- Vehicle Controller: creates its objects, starts its
+ *      task, and provides the public calls of vehicle_controller.h.
  *
  *      Kernel objects (TEAM.md section 6):
  *        1 task            vehicle_ctrl_task
@@ -10,7 +10,7 @@
  *        1 event flag      g_flg_vc_state    IF-07 current state bits
  */
 
-#include "subsystem6.h"
+#include "vehicle_controller.h"
 
 ID g_mbf_vc_events;
 ID g_mtx_vc_status;
@@ -20,7 +20,7 @@ ID g_tid_vc;
 /* Written only by vehicle_ctrl_task, under g_mtx_vc_status */
 vc_status_t g_vc_status_shared;
 
-ER subsystem6_init(void)
+ER vehicle_controller_init(void)
 {
     T_CMBF cmbf = { 0 };
     T_CMTX cmtx = { 0 };
@@ -29,7 +29,7 @@ ER subsystem6_init(void)
     /* Message buffer: events are COPIED in, so senders need no memory
        pool and can send from any task on either core. */
     cmbf.mbfatr = TA_TFIFO;
-    cmbf.bufsz  = S6_EVENT_QUEUE_LEN * (sizeof(vc_event_t) + sizeof(int32_t));
+    cmbf.bufsz  = VC_EVENT_QUEUE_LEN * (sizeof(vc_event_t) + sizeof(int32_t));
     cmbf.maxmsz = sizeof(vc_event_t);
     g_mbf_vc_events = tk_cre_mbf(&cmbf);
     if (g_mbf_vc_events < E_OK)
@@ -59,10 +59,10 @@ ER subsystem6_init(void)
     return E_OK;
 }
 
-ER subsystem6_start(void)
+ER vehicle_controller_start(void)
 {
     /* No affinity: event-driven, short, either core is fine */
-    g_tid_vc = app_start_task(vehicle_ctrl_task, S6_PRI_VC, 0, "vehicle_ctrl");
+    g_tid_vc = app_start_task(vehicle_ctrl_task, VC_PRI_VC, 0, "vehicle_ctrl");
     return (g_tid_vc < E_OK) ? g_tid_vc : E_OK;
 }
 

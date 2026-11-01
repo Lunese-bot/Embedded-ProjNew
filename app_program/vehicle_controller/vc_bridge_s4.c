@@ -1,6 +1,6 @@
 /*
  *      vc_bridge_s4.c
- *      Subsystem 6 -- adapter to subsystem 4 (IMU terrain monitoring).
+ *      Vehicle Controller -- adapter to subsystem 4 (IMU terrain monitoring).
  *      S4's interface: ../subsystem4/subsystem4.h (IF-S4-1, IF-S4-4).
  *
  *      S4 -> controller (g_mbf_imu_evt, imu_event_msg_t)

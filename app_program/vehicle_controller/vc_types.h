@@ -1,6 +1,6 @@
 /*
  *      vc_types.h
- *      Subsystem 6 -- Vehicle Controller.  Data formats shared with the
+ *      Vehicle Controller -- Vehicle Controller.  Data formats shared with the
  *      other subsystems: mission states, events and movement commands.
  *
  *      No kernel calls in here, so the state machine (vc_sm.c) can also be
@@ -50,7 +50,7 @@ typedef enum
     VC_SRC_LINE   = 3, /* S3 IR line following + barcode */
     VC_SRC_IMU    = 4, /* S4 IMU terrain monitoring */
     VC_SRC_OBST   = 5, /* S5 ultrasonic scan + avoidance */
-    VC_SRC_VC     = 6  /* S6 itself (timeouts) */
+    VC_SRC_VC     = 6  /* VC itself (timeouts) */
 } vc_source_t;
 
 /* Ready mask bits used during MISSION_START (1 << source) */
@@ -100,9 +100,9 @@ typedef enum
     /* S5 obstacle */
     VC_EV_OBSTACLE,     /* p1 = distance (mm) */
     VC_EV_AVOID_DONE,   /* bypassed and line reacquired */
-    VC_EV_AVOID_FAILED, /* bypass done but line not found: S6 searches */
+    VC_EV_AVOID_FAILED, /* bypass done but line not found: VC searches */
 
-    /* S6 internal */
+    /* VC internal */
     VC_EV_TICK, /* periodic, drives state timeouts */
 
     VC_EV_COUNT

@@ -1,11 +1,11 @@
 /*
- *	test_main.c
- *	Host (PC) tests for subsystem 4's pure-C algorithm.
+ *  test_main.c
+ *  Host (PC) tests for subsystem 4's pure-C algorithm.
  *
- *	    make -C host_test        (needs gcc; no Pico, no SDK)
+ *      make -C host_test        (needs gcc; no Pico, no SDK)
  *
- *	Uses the SAME imu_selftest.c as the on-target test build, plus a
- *	height sweep that prints measured vs. true hump height.
+ *  Uses the SAME imu_selftest.c as the on-target test build, plus a
+ *  height sweep that prints measured vs. true hump height.
  */
 
 #include <stdio.h>
@@ -16,10 +16,10 @@ static int fails;
 
 static void check(const char *id, int ok, const char *what)
 {
-	printf("[HOST] %s %s  %s\n", id, ok ? "PASS" : "FAIL", what);
-	if (!ok) {
-		fails++;
-	}
+    printf("[HOST] %s %s  %s\n", id, ok ? "PASS" : "FAIL", what);
+    if (!ok) {
+        fails++;
+    }
 }
 
 
@@ -60,20 +60,20 @@ static int test_one_wheel_hump(void)
             events |= imu_terrain_update(&terrain, &sample, 150);
         }
 
-		printf("[DEBUG] stage=%d pitch=%d roll=%d state=%s\n",
+        printf("[DEBUG] stage=%d pitch=%d roll=%d state=%s\n",
            stage,
            terrain.st.pitch_cdeg,
            terrain.st.roll_cdeg,
            imu_state_name(terrain.st.state));
     }
 
-	printf("[DEBUG] S4-U11 state=%s start=%d end=%d humps=%u\n",
+    printf("[DEBUG] S4-U11 state=%s start=%d end=%d humps=%u\n",
        imu_state_name(terrain.st.state),
        (events & IMU_EV_HUMP_START) != 0U,
        (events & IMU_EV_HUMP_END) != 0U,
        (unsigned int)terrain.st.hump_count);
 
-	printf("[DEBUG] S4-U11 estimated height = %.2f mm\n",
+    printf("[DEBUG] S4-U11 estimated height = %.2f mm\n",
        (double)terrain.st.max_peak_um / 1000.0);
     return ((events & IMU_EV_HUMP_END) != 0U) &&
            (terrain.st.hump_count == 1U) &&
@@ -232,37 +232,37 @@ static int test_encoder_speed_spike(void)
 int main(void)
 {
 
-	printf("[SIZE] imu_status_t = %zu bytes\n",
+    printf("[SIZE] imu_status_t = %zu bytes\n",
        sizeof(imu_status_t));
 
-	printf("[SIZE] imu_terrain_t = %zu bytes\n",
+    printf("[SIZE] imu_terrain_t = %zu bytes\n",
        sizeof(imu_terrain_t));
 
-	int32_t	peak;
-	int32_t	humps;
-	int32_t	h;
+    int32_t peak;
+    int32_t humps;
+    int32_t h;
 
-	check("S4-U06", imu_selftest_math(), "integer atan2 / sqrt");
-	check("S4-U07", imu_selftest_hump(30, &peak, &humps), "30 mm hump");
-	check("S4-U08", imu_selftest_impact(), "impact detection");
-	check("S4-U09", imu_selftest_turn(), "turn detection");
-	check("S4-U10", imu_selftest_cal_reject(), "calibration rejects motion");
-	check("S4-U11", test_one_wheel_hump(),
+    check("S4-U06", imu_selftest_math(), "integer atan2 / sqrt");
+    check("S4-U07", imu_selftest_hump(30, &peak, &humps), "30 mm hump");
+    check("S4-U08", imu_selftest_impact(), "impact detection");
+    check("S4-U09", imu_selftest_turn(), "turn detection");
+    check("S4-U10", imu_selftest_cal_reject(), "calibration rejects motion");
+    check("S4-U11", test_one_wheel_hump(),
       "one-wheel hump with pitch and roll");
-	check("S4-U12", test_flat_ground_no_hump(),
+    check("S4-U12", test_flat_ground_no_hump(),
       "no false hump during normal movement");
-	check("S4-U13", test_stationary_tilt_not_braking(),
+    check("S4-U13", test_stationary_tilt_not_braking(),
       "stationary downhill tilt is not braking");
-	check("S4-U14", test_encoder_speed_spike(),
+    check("S4-U14", test_encoder_speed_spike(),
       "hump height rejects abnormal encoder speed");
 
-	printf("\nheight sweep (15 deg ramps, 150 mm/s):\n");
-	for (h = 10; h <= 80; h += 10) {
-		int ok = imu_selftest_hump(h, &peak, &humps);
-		printf("  true %3d mm  measured %6.1f mm  humps %d  %s\n",
-		       (int)h, peak / 1000.0, (int)humps, ok ? "ok" : "OUT OF 20%");
-	}
+    printf("\nheight sweep (15 deg ramps, 150 mm/s):\n");
+    for (h = 10; h <= 80; h += 10) {
+        int ok = imu_selftest_hump(h, &peak, &humps);
+        printf("  true %3d mm  measured %6.1f mm  humps %d  %s\n",
+               (int)h, peak / 1000.0, (int)humps, ok ? "ok" : "OUT OF 20%");
+    }
 
-	printf("\n%s: %d failed\n", fails ? "FAIL" : "PASS", fails);
-	return fails ? 1 : 0;
+    printf("\n%s: %d failed\n", fails ? "FAIL" : "PASS", fails);
+    return fails ? 1 : 0;
 }

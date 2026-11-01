@@ -17,7 +17,7 @@
  *      period and publishes the result.  This keeps the algorithm testable
  *      on a PC (see host_test/).
  *
- *      Axes after mounting remap (subsystem4_cfg.h):
+ *      Axes after mounting remap (s4_config.h):
  *        X = forward, Y = left, Z = up.  Accelerometer reads +1000 mg on Z
  *        when level and still.  Pitch > 0 = nose up.  Roll > 0 = left side up.
  */
@@ -103,11 +103,6 @@ typedef struct
 /* ---- outputs -------------------------------------------------------- */
 typedef struct
 {
-    // imu_state_t  state;
-    // imu_motion_t motion;
-    // uint8_t      calibrated; /* 1 after IMU_EV_CAL_DONE */
-    // uint8_t      fault;      /* 1 while in IMU_ST_ERROR */
-
     uint8_t state      : 3;
     uint8_t motion     : 3;
     uint8_t calibrated : 1;
@@ -160,7 +155,7 @@ typedef struct
     int32_t level_ax_mg; /* forward accel on level ground */
 } imu_terrain_t;
 
-/* Fill cfg with the defaults from subsystem4_cfg.h values */
+/* Fill cfg with the defaults from s4_config.h values */
 void imu_terrain_default_cfg(imu_cfg_t * p_cfg);
 
 /* Reset everything and start calibrating (robot must be still) */

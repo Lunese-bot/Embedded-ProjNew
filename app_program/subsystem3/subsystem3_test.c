@@ -6,7 +6,7 @@
  *      S3-U01..U05 need no IR hardware: they feed synthetic data to the
  *      algorithms and to barcode_task.  S3-U06 needs the robot on the
  *      track (manual).  The same algorithm checks also run on a PC:
- *      testing/subsystem3/host/.
+ *      testing/subsystem3/host_test/.
  *
  *      NOTE: S3-U05 reads g_mbf_s3_events itself.  If the Vehicle Controller
  *      is also reading it in the test build, it may take the event first;
@@ -14,7 +14,7 @@
  */
 
 #include "subsystem3.h"
-#include "../vehicle_controller/subsystem6.h" /* g_tid_vc: paused during S3-U05 */
+#include "../vehicle_controller/vehicle_controller.h" /* g_tid_vc: paused during S3-U05 */
 #include "code39.h"
 #include "line_algo.h"
 #include "../test_report.h"

@@ -21,7 +21,7 @@ Define a test here before running it. Test IDs never change.
 | S4-U09 | synthetic heading change = TURNING_LEFT | FR5 | auto + host | synthetic data | PASS |
 | S4-U10 | calibration rejected while shaking | NFR9 | auto + host | synthetic data | PASS |
 | S4-U11 | peak reset request served | IF-S4-4 | auto | `subsystem4_test.c` | PASS |
-| S4-M01 | axis mapping | FR5 | manual | tilt nose up 20°, then left side up | pitch > 0, then roll > 0 (fix `S4_ACC_*` in `subsystem4_cfg.h` if not) |
+| S4-M01 | axis mapping | FR5 | manual | tilt nose up 20°, then left side up | pitch > 0, then roll > 0 (fix `S4_ACC_*` in `s4_config.h` if not) |
 | S4-M02 | real hump height | FR5, A5 | manual | push robot over each course hump 5× at constant speed; measure true height with a ruler | `max=` in console within 20 % of ruler; record error and tune |
 | S4-M03 | collision detection | FR5, FR8 | manual | drive slowly into a soft obstacle; tap chassis lightly | impact event on collision, none on light tap; tune `S4_IMPACT_MG` |
 | S4-M04 | I2C fault recovery | FR8, NFR5 | manual | unplug the IMU while running, replug after 3 s | FAULT event, then RECOVERED; with IMU left unplugged, FAULT_FATAL after 5 tries |

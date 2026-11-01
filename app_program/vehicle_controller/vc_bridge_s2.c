@@ -1,6 +1,6 @@
 /*
  *      vc_bridge_s2.c
- *      Subsystem 6 -- adapter to subsystem 2 (motion control).
+ *      Vehicle Controller -- adapter to subsystem 2 (motion control).
  *      S2's interface: ../subsystem2/subsystem2.h (IF-M1, IF-M2, IF-M3).
  *
  *      controller -> S2 (g_mbf_motion_cmd through S2's s2_cmd_xxx helpers)

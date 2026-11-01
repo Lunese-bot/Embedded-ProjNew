@@ -1,4 +1,4 @@
-# Subsystem 6 — Vehicle Controller (base code)
+# Vehicle Controller — Vehicle Controller (base code)
 
 The briefing and design review describe five buddy subsystems plus a central
 **Vehicle Controller** (briefing p.3, design review FR7, sections 3, 5 and 6.1).
@@ -11,8 +11,8 @@ Target: micro T-Kernel 3.0 on the Pico W, using the project zip's layout
 
 ## Drop it in
 
-1. Copy `app_program/vehicle_controller/` and `testing/subsystem6/` into the repo.
-2. Apply `shared_changes/shared.patch` (adds the three `subsystem6_*` calls to
+1. Copy `app_program/vehicle_controller/` and `testing/vehicle_controller/` into the repo.
+2. Apply `shared_changes/shared.patch` (adds the three `vehicle_controller_*` calls to
    `app.h` and `app_main.c`), or copy the two files from `shared_changes/`.
    These are team-shared files, so agree it first (TEAM.md rule).
 3. Add the TEAM.md rows below.
@@ -26,14 +26,14 @@ the firmware.
 
 | File | What it does |
 |---|---|
-| `subsystem6.h` | Public interface: `vc_post_event()`, `vc_get_status()`, `g_flg_vc_state`, priority, 10 ms tick |
+| `vehicle_controller.h` | Public interface: `vc_post_event()`, `vc_get_status()`, `g_flg_vc_state`, priority, 10 ms tick |
 | `vc_types.h` | Shared formats: mission states, events, fault severities/codes, movement commands, status |
 | `vc_sm.c/.h` | The mission statechart as pure logic (no kernel calls). Returns a list of actions. Tuning values at the top of `vc_sm.h` |
 | `task_vehicle_ctrl.c` | The controller task: waits for events (10 ms tick), reads the other subsystems' channels, runs the state machine, carries out actions |
-| `vc_ports.c/.h` | The one place actions leave S6 (move, request, fault report, telemetry) |
+| `vc_ports.c/.h` | The one place actions leave VC (move, request, fault report, telemetry) |
 | `vc_bridge.h`, `vc_bridge_s2.c` … `vc_bridge_s5.c` | Adapters to the interfaces the S2–S5 threads published |
-| `subsystem6.c` | Creates the kernel objects, starts the task, implements the public calls |
-| `subsystem6_test.c` | On-target tests S6-U01..U14 (`make TEST=1`) |
+| `vehicle_controller.c` | Creates the kernel objects, starts the task, implements the public calls |
+| `vehicle_controller_test.c` | On-target tests VC-U01..U14 (`make TEST=1`) |
 | `host_test/` | Same state machine tested on a PC: `cd host_test && make` (41 checks) |
 
 ## Mission states (design review section 5)
@@ -64,9 +64,9 @@ the firmware.
 
 ## How each subsystem connects
 
-S2–S5 had already published their interfaces, so S6 adapts to them rather
+S2–S5 had already published their interfaces, so VC adapts to them rather
 than asking them to change. Each adapter compiles to empty functions while
-that folder still holds the zip's example, so S6 builds either way.
+that folder still holds the zip's example, so VC builds either way.
 
 | Subsystem | Into the controller | Out of the controller | State |
 |---|---|---|---|
@@ -92,7 +92,7 @@ on `g_flg_vc_state` (one bit per state, plus `VC_FLG_RUNNING`).
 ## Integration notes
 
 - S5's code has `S5_BENCH_MODE 1` in `s5_local.h`, where S5 plays the
-  controller itself. Set it to 0 when subsystem 6 is in the build.
+  controller itself. Set it to 0 when the Vehicle Controller is in the build.
 - S4 needs `DEVCNF_USE_IIC 1` in `config/config_device.h` (S4's own note).
 - S2 keeps the example's `sem_slots`/`mpf_samples` while `S2_KEEP_EXAMPLE_IF`
   is 1. Once S3/S4 are the real ones it can be set to 0.
@@ -105,9 +105,9 @@ on `g_flg_vc_state` (one bit per state, plus `VC_FLG_RUNNING`).
 
 ## TEAM.md rows to add
 
-Section 1: `| 6 | Vehicle Controller: mission state, sole movement authority | | | app_program/vehicle_controller/ | testing/subsystem6/ |`
+Section 1: `| VC | Vehicle Controller: mission state, sole movement authority | | | app_program/vehicle_controller/ | testing/vehicle_controller/ |`
 
-Section 4 (**proposed**, needs agreement): `| 6 | 10–11 | vehicle_ctrl – 10 – any |`.
+Section 4 (**proposed**, needs agreement): `| VC | 10–11 | vehicle_ctrl – 10 – any |`.
 It sits above the sensing subsystems because the review rates it High, and it
 only runs briefly on each event or 10 ms tick.
 
@@ -115,21 +115,21 @@ Section 5:
 
 | ID | From → To | Mechanism | Object ID name | Data / meaning |
 |---|---|---|---|---|
-| IF-06 | any → S6 | message buffer (owned by S6) | `g_mbf_vc_events` | `vc_event_t` in `vc_types.h`, via `vc_post_event()` |
-| IF-07 | S6 → any | shared data under mutex + event flag (owned by S6) | `g_mtx_vc_status`, `g_flg_vc_state` | `vc_status_t`, via `vc_get_status()` |
-| (S2's IF-M1/M3) | S6 ↔ S2 | S2's message buffer + event flag | `g_mbf_motion_cmd`, `g_flg_motion` | `vc_bridge_s2.c` |
-| (S3's IF-31..33) | S3 ↔ S6 | S3's message buffer, status, requests | `g_mbf_s3_events` | `vc_bridge_s3.c` |
-| (S4's IF-S4-1/4) | S4 ↔ S6 | S4's message buffer, requests | `g_mbf_imu_evt` | `vc_bridge_s4.c` |
-| (S5's channels) | S5 ↔ S6 | S5's message buffers | `g_mbf_s5_evt`, `g_mbf_s5_cmd` | `vc_bridge_s5.c` |
+| IF-06 | any → VC | message buffer (owned by VC) | `g_mbf_vc_events` | `vc_event_t` in `vc_types.h`, via `vc_post_event()` |
+| IF-07 | VC → any | shared data under mutex + event flag (owned by VC) | `g_mtx_vc_status`, `g_flg_vc_state` | `vc_status_t`, via `vc_get_status()` |
+| (S2's IF-M1/M3) | VC ↔ S2 | S2's message buffer + event flag | `g_mbf_motion_cmd`, `g_flg_motion` | `vc_bridge_s2.c` |
+| (S3's IF-31..33) | S3 ↔ VC | S3's message buffer, status, requests | `g_mbf_s3_events` | `vc_bridge_s3.c` |
+| (S4's IF-S4-1/4) | S4 ↔ VC | S4's message buffer, requests | `g_mbf_imu_evt` | `vc_bridge_s4.c` |
+| (S5's channels) | S5 ↔ VC | S5's message buffers | `g_mbf_s5_evt`, `g_mbf_s5_cmd` | `vc_bridge_s5.c` |
 
-Section 6 (kernel objects): S6 uses 1 task, 1 message buffer, 1 mutex,
+Section 6 (kernel objects): VC uses 1 task, 1 message buffer, 1 mutex,
 1 event flag.
 
 ## What was checked
 
 - With the zip's example subsystems: firmware builds with
   `arm-none-eabi-gcc` 13.2 (`make CONSOLE=uart WIFI=none`, normal and
-  `TEST=1`), no warnings from subsystem 6 with `-Wall -Wextra`.
+  `TEST=1`), no warnings from the Vehicle Controller with `-Wall -Wextra`.
 - With the S2, S3, S4 and S5 threads' current code in place of the examples
   (and I2C switched on for S4): the `TEST=1` image builds and links with all
   four adapters active.

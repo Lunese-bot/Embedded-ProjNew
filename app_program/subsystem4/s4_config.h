@@ -1,5 +1,5 @@
 /*
- *      subsystem4_cfg.h
+ *      s4_config.h
  *      Subsystem 4 -- every tunable number in one place.
  *
  *      All thresholds are FIRST GUESSES.  Assumption A5 in the design
@@ -10,8 +10,8 @@
  *      Pure macros (no kernel types): also used by the host tests.
  */
 
-#ifndef SUBSYSTEM4_CFG_H
-#define SUBSYSTEM4_CFG_H
+#ifndef S4_CONFIG_H
+#define S4_CONFIG_H
 
 /* ---- timing (NFR2: IMU every 20 ms) -------------------------------- */
 #define S4_PERIOD_MS 20
@@ -62,6 +62,6 @@
 #define S4_REINIT_EVERY   50 /* in ERROR, re-init every 1 s */
 #define S4_REINIT_MAX     5  /* then report a fatal IMU fault */
 
-#endif /* SUBSYSTEM4_CFG_H */
+#endif /* S4_CONFIG_H */
 
 /*** end of file ***/
