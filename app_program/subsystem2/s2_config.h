@@ -75,6 +75,17 @@
 #define S2_SPEED_WINDOW 10
 #define S2_ACCEL_MM_S2  800 /* set-point ramp, mm/s per second */
 
+/* Per-motor trim (permille, 1000 = no change).  The two motors are never
+   identical: with the same command the faster one pulls the robot off a
+   straight line.  The trim scales that wheel's speed set-point in DRIVE
+   and DRIVE_DIST (not in pivot turns).  Bench 2026-10-28: the LEFT motor
+   runs slightly faster, so it is trimmed down.             MEASURE
+   Tune: drive on a straight line.  Still drifts to the RIGHT (left too
+   fast)  -> lower S2_TRIM_L_PERMILLE (e.g. 960 -> 950).  Drifts LEFT
+   -> raise it towards 1000, then lower S2_TRIM_R_PERMILLE instead. */
+#define S2_TRIM_L_PERMILLE 960
+#define S2_TRIM_R_PERMILLE 1000
+
 /* Straight-line correction: steer = K * (left_mm - right_mm) since the
    DRIVE_DIST command started, in mm/s per mm of difference */
 #define S2_STRAIGHT_K 3.0f
