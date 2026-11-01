@@ -24,3 +24,4 @@ config/wifi_secrets.h
 
 # macOS
 .DS_Store
+testing/subsystem5/host_test/test_s5_pack
