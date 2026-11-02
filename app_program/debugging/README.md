@@ -38,6 +38,31 @@ Wheel wrong way -> flip `S2_MOTOR_x_INVERT` in `s2_config.h`. Wheel moves but
 ticks stay 0 -> encoder pin/wiring (`S2_PIN_ENC_x`). Drifts when going
 straight -> tune `S2_TRIM_L/R_PERMILLE`.
 
+## Tabs
+**Drive** (mode row, buttons, trims), **Tune** (motor and line gains, mission
+speed), **Servo** (point the ultrasonic sensor left/centre/right; the first
+press switches obstacle monitoring off, press again to move, "Monitoring on"
+restores it), **Data** (live cards and the settings-to-copy box). The status
+line stays visible on every tab.
+
+## Modes (switch on the page, no reflash)
+- **Manual** (default): the buttons drive the wheels.
+- **Line follow**: starts the real mission (same event as the MQTT "start"):
+  line sensors -> vehicle controller -> motion. The manual buttons are locked
+  (greyed out). **STOP** ends the mission (controller goes to FAULT, then back
+  to IDLE) and returns to Manual.
+- **Monitor only**: nothing can move; just watch the cards (for example while
+  you push the robot by hand along the line).
+After a mission or a fault press **Reset** if the wheels will not move. The
+mission needs the Vehicle Controller to be running and calibrated sensors;
+check the Line sensors and Vehicle controller cards first.
+
+## Tune row (live, lost on reboot)
+Motor Kp/Ki (speed PID, `S2_PID_KP/KI`), Line Kp/Kd (steering, `S3_KP_NUM`,
+`S3_KD_NUM`) and Mission speed % (scales the vehicle controller's 200/100 mm/s).
+The box "Settings to copy into the config files" lists the current values
+with the names to edit, so the final numbers can be flashed once.
+
 ## Dashboard
 Below the buttons the page shows live cards, refreshed about twice a second:
 Motion (state, wheel speed/target/duty, ticks, distance, heading), Line
@@ -67,3 +92,22 @@ DRIVE_DIST). Values reset on reboot: when the robot drives straight, copy
 4. 4 x 90 degree turns: does it face the start direction again?
 5. Only then enable line sensors and the Vehicle Controller.
 Change one thing at a time and write down the value and the result.
+
+## Several people on one hotspot
+
+Everyone opens `http://<robot ip>/` on the same WiFi. Each browser gets its own
+id; each tab (Motor, Obstacle/Servo, IMU, Line, Mission) is locked to whoever
+used it last for 5 s ("LOCKED (another user is using this)"). STOP is always
+allowed and reading is never locked.
+
+## Manual first, autonomous later
+
+The robot starts in Manual mode. Line follow stays locked until someone presses
+**Unlock autonomous** on the Mission tab, after the manual values are good.
+The lock resets on every reboot.
+
+## Guide tab
+
+The dashboard has a Guide tab (served from `/g`, text in `k_guide` in web_debug.c)
+that explains Kp/Ki/Kd, damping, stability, line steering (digital vs analogue),
+IMU states and the open items. Edit that string to keep it up to date.

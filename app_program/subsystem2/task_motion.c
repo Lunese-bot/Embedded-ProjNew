@@ -22,6 +22,7 @@
 #include "drv_motor.h"
 #include "drv_encoder.h"
 #include "motion_pid.h"
+#include "../debugging/live_tune.h"
 
 /* Private control state.  Only motion_task reads or writes it. */
 typedef struct
@@ -516,6 +517,13 @@ static void calculate_pwm(float32_t dt_s)
     g_motion_ctx.tgt_r =
         motion_ramp(g_motion_ctx.tgt_r, g_motion_ctx.want_r, step);
 
+#if S2_WEBDEBUG
+    /* live tuning of the speed PID from the dashboard */
+    g_motion_ctx.pid_l.kp = (float32_t)g_lt_pid_kp100 / 100.0f;
+    g_motion_ctx.pid_r.kp = (float32_t)g_lt_pid_kp100 / 100.0f;
+    g_motion_ctx.pid_l.ki = (float32_t)g_lt_pid_ki100 / 100.0f;
+    g_motion_ctx.pid_r.ki = (float32_t)g_lt_pid_ki100 / 100.0f;
+#endif
     g_motion_ctx.duty_l = wheel_duty(&g_motion_ctx.pid_l, g_motion_ctx.tgt_l,
                                      g_motion_ctx.spd_l, dt_s);
     g_motion_ctx.duty_r = wheel_duty(&g_motion_ctx.pid_r, g_motion_ctx.tgt_r,

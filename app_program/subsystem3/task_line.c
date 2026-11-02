@@ -22,6 +22,7 @@
 #include "subsystem3.h"
 #include "drv_ir.h"
 #include "line_algo.h"
+#include "../debugging/live_tune.h"
 
 /* Line task state, private to this file */
 static line_params_t  g_params;
@@ -160,6 +161,11 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us)
 
     /* A barcode bar can look like a junction: no junctions
        while barcode_task is reading one */
+#if S2_WEBDEBUG
+    /* live tuning of the steering PD from the dashboard */
+    g_params.kp_num = (int16_t)g_lt_line_kp;
+    g_params.kd_num = (int16_t)g_lt_line_kd;
+#endif
     evt = line_tracker_step(&g_tracker, &g_params, norm, g_b_s3_bc_scanning);
 
     switch (evt)

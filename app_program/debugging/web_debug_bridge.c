@@ -15,7 +15,9 @@
 #include "../subsystem3/subsystem3.h"
 #include "../subsystem4/subsystem4.h"
 #include "../subsystem5/subsystem5.h"
+#include "../subsystem5/drv_servo.h"
 #include "../vehicle_controller/vehicle_controller.h"
+#include "live_tune.h"
 #include "web_debug_bridge.h"
 
 #define WD_SPEED_DEFAULT 200 /* forward/back test speed (limit is 400) */
@@ -27,14 +29,108 @@
 
 static volatile int32_t g_wd_speed = WD_SPEED_DEFAULT;
 
+/* Dashboard mode: 0 = manual (buttons drive the wheels), 1 = line follow
+   (the real mission runs, buttons are locked), 2 = monitor only (no motion). */
+static volatile int32_t g_wd_mode = 0;
+
+/* Autonomous runs (Line follow) stay locked until the person presses
+   'Unlock autonomous' on the Mission tab, i.e. after the manual values are
+   confirmed good.  Reset to locked on every reboot. */
+static volatile int32_t g_wd_armed = 0;
+
+static bool is_motion_cmd(char cmd)
+{
+    return ('f' == cmd) || ('b' == cmd) || ('l' == cmd) || ('r' == cmd) ||
+           ('L' == cmd) || ('R' == cmd) || ('Q' == cmd) || ('W' == cmd) ||
+           ('E' == cmd) || ('y' == cmd) || ('Y' == cmd) || ('j' == cmd) ||
+           ('J' == cmd);
+}
+
+/* End a running mission the same way the MQTT "stop" + "reset" do:
+   the vehicle controller goes to FAULT (motors off), then back to IDLE. */
+static void mission_stop(void)
+{
+    (void)vc_post_event(VC_SRC_COMMS, VC_EV_CMD_STOP, 0, 0, TMO_POL);
+    (void)vc_post_event(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0, TMO_POL);
+}
+
 /* Live-tuning values, defined in subsystem2/task_motion.c */
 extern volatile int32_t g_s2_dbg_trim_l;
 extern volatile int32_t g_s2_dbg_trim_r;
 extern volatile int32_t g_s2_dbg_straight;
 
+static int32_t clamp_to(int32_t v, int32_t lo, int32_t hi)
+{
+    return (v < lo) ? lo : ((v > hi) ? hi : v);
+}
+
 static int32_t clamp_trim(int32_t v)
 {
     return (v < 700) ? 700 : ((v > 1100) ? 1100 : v);
+}
+
+/* ---------------------------------------------------------------------
+ *  Who is controlling what.  Several people can open the dashboard at once
+ *  (everyone on the same hotspot).  Each browser tab has a random id.  The
+ *  controls are split in areas; the first browser to use an area owns it
+ *  until it has been quiet for WD_LOCK_MS, and others get "LOCKED".  Reading
+ *  is never locked, and STOP ('s') always works for everybody.
+ * --------------------------------------------------------------------- */
+#define WD_LOCK_MS 5000U
+#define WD_AREAS   5 /* m = motor, l = line, i = imu, o = obstacle/servo, v = mission */
+
+static uint32_t g_lock_id[WD_AREAS];
+static uint32_t g_lock_ms[WD_AREAS];
+
+static uint32_t now_ms(void)
+{
+    SYSTIM tim;
+
+    (void)tk_get_tim(&tim);
+    return (uint32_t)tim.lo;
+}
+
+static int32_t area_of(char c)
+{
+    switch (c)
+    {
+        case 'f': case 'b': case 'l': case 'r': case 'L': case 'R': case 'x':
+        case 't': case 'T': case 'u': case 'U': case 'h': case 'v': case 'V':
+        case 'p': case 'P': case 'i': case 'I':
+            return 0; /* motor */
+        case 'k': case 'K': case 'd': case 'D': case 'y': case 'Y': case 'z':
+        case 'Z':
+            return 1; /* line */
+        case 'j': case 'J':
+            return 2; /* imu */
+        case 'Q': case 'W': case 'E': case 'e':
+            return 3; /* obstacle + servo */
+        case 'M': case 'N': case 'F': case 'A': case 'c': case 'C':
+            return 4; /* mission */
+        default:
+            return -1; /* 's', '?' : no lock */
+    }
+}
+
+/* 0 = free, 1 = mine, 2 = held by someone else */
+static int32_t lock_state(int32_t area, uint32_t client)
+{
+    if ((0U == g_lock_id[area]) || ((now_ms() - g_lock_ms[area]) > WD_LOCK_MS))
+    {
+        return 0;
+    }
+    return (g_lock_id[area] == client) ? 1 : 2;
+}
+
+static bool lock_try(int32_t area, uint32_t client)
+{
+    if (2 == lock_state(area, client))
+    {
+        return false;
+    }
+    g_lock_id[area] = client;
+    g_lock_ms[area] = now_ms();
+    return true;
 }
 
 /* Append text, always leaving room for the final NUL */
@@ -73,20 +169,111 @@ static int32_t put_int(char * p_out, int32_t pos, int32_t max, int32_t value)
     return put_str(p_out, pos, max, tmp);
 }
 
-int32_t web_debug_motion(char cmd, char * p_out, int32_t out_max)
+/* Servo test (turns the ultrasonic sensor).  The obstacle subsystem owns the
+   servo and sweeps it while monitoring, so the first press only switches
+   monitoring off; press again once it has parked. */
+static ER servo_test(int32_t deg)
+{
+    s5_status_t o;
+    s5_cmd_t    cmd = { 0 };
+
+    if ((E_OK == s5_get_status(&o)) && (S5_ST_IDLE != o.state))
+    {
+        cmd.type = S5_CMD_DISABLE;
+        (void)tk_snd_mbf(g_mbf_s5_cmd, &cmd, sizeof(cmd), TMO_POL);
+        return E_BUSY; /* "monitoring stopping, press again" */
+    }
+    servo_set_deg(deg);
+    return E_OK;
+}
+
+static ER monitoring_on(void)
+{
+    s5_cmd_t cmd = { 0 };
+
+    cmd.type = S5_CMD_ENABLE;
+    return tk_snd_mbf(g_mbf_s5_cmd, &cmd, sizeof(cmd), TMO_POL);
+}
+
+int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
+                         int32_t out_max)
 {
     motion_status_t st;
     ER              er;
-    int32_t         pos = 0;
+    int32_t         pos    = 0;
+    int32_t         area   = area_of(cmd);
+    bool            b_lock = false;
+
+    if (0U == client)
+    {
+        client = 1U; /* old page without an id: treated as one shared user */
+    }
+    if ((0 != g_wd_mode) && is_motion_cmd(cmd))
+    {
+        cmd = '!'; /* locked: only manual mode may drive */
+    }
+    else if ((area >= 0) && !lock_try(area, client))
+    {
+        cmd    = '!';
+        b_lock = true; /* someone else is using this area */
+    }
 
     switch (cmd)
     {
+        case '!': er = E_OBJ; break;
+        /* mode switch */
+        case 'M':
+        case 'N':
+            mission_stop();
+            g_wd_mode = ('M' == cmd) ? 0 : 2;
+            er        = s2_cmd_stop();
+            break;
+        case 'A':
+            g_wd_armed = g_wd_armed ? 0 : 1; /* toggle the autonomous unlock */
+            if (!g_wd_armed && (1 == g_wd_mode))
+            {
+                mission_stop();
+                g_wd_mode = 0;
+            }
+            er = E_OK;
+            break;
+        case 'F':
+            if (!g_wd_armed)
+            {
+                er = E_OBJ; /* still locked: tune manually first */
+                break;
+            }
+            (void)s2_cmd_reset();
+            (void)vc_post_event(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0, TMO_POL);
+            er        = vc_post_event(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0, TMO_POL);
+            g_wd_mode = (E_OK == er) ? 1 : g_wd_mode;
+            break;
+        case 'Q': er = servo_test(45); break;   /* + = left */
+        case 'W': er = servo_test(0); break;
+        case 'E': er = servo_test(-45); break;
+        case 'e': er = monitoring_on(); break;
+        case 'y': er = s3_request(S3_REQ_CALIBRATE); break;
+        case 'Y': er = s3_request(S3_REQ_RESET_LINE); break;
+        case 'z': er = s3_request(S3_REQ_BC_ENABLE); break;
+        case 'Z': er = s3_request(S3_REQ_BC_DISABLE); break;
+        case 'j': er = s4_request_calibration(); break;
+        case 'J': er = s4_request_peak_reset(); break;
         case 'f': er = s2_cmd_drive(g_wd_speed, 0); break;
         case 'b': er = s2_cmd_drive(-g_wd_speed, 0); break;
         case 'l': er = s2_cmd_drive(0, WD_SPIN_MM_S); break;  /* + = left */
         case 'r': er = s2_cmd_drive(0, -WD_SPIN_MM_S); break;
-        case 's': er = s2_cmd_stop(); break;
-        case 'x': er = s2_cmd_reset(); break;
+        case 's':
+            if (1 == g_wd_mode)
+            {
+                mission_stop(); /* STOP also ends a running mission */
+                g_wd_mode = 0;
+            }
+            er = s2_cmd_stop();
+            break;
+        case 'x':
+            (void)vc_post_event(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0, TMO_POL);
+            er = s2_cmd_reset();
+            break;
         case 'L': er = s2_cmd_turn(S2_TURN_SPEED_MM_S, WD_TURN_DEG); break;
         case 'R': er = s2_cmd_turn(S2_TURN_SPEED_MM_S, -WD_TURN_DEG); break;
         /* live tuning: no motion command, just change the trims */
@@ -97,12 +284,26 @@ int32_t web_debug_motion(char cmd, char * p_out, int32_t out_max)
         case 'h': g_s2_dbg_straight = (0 != g_s2_dbg_straight) ? 0 : 1; er = E_OK; break;
         case 'v': g_wd_speed = (g_wd_speed - WD_SPEED_STEP < WD_SPEED_MIN) ? WD_SPEED_MIN : (g_wd_speed - WD_SPEED_STEP); er = E_OK; break;
         case 'V': g_wd_speed = (g_wd_speed + WD_SPEED_STEP > S2_MAX_SPEED_MM_S) ? S2_MAX_SPEED_MM_S : (g_wd_speed + WD_SPEED_STEP); er = E_OK; break;
+        /* live tuning of the controllers (see live_tune.h) */
+        case 'p': g_lt_pid_kp100 = clamp_to(g_lt_pid_kp100 - 10, 0, 1000); er = E_OK; break;
+        case 'P': g_lt_pid_kp100 = clamp_to(g_lt_pid_kp100 + 10, 0, 1000); er = E_OK; break;
+        case 'i': g_lt_pid_ki100 = clamp_to(g_lt_pid_ki100 - 50, 0, 3000); er = E_OK; break;
+        case 'I': g_lt_pid_ki100 = clamp_to(g_lt_pid_ki100 + 50, 0, 3000); er = E_OK; break;
+        case 'k': g_lt_line_kp = clamp_to(g_lt_line_kp - 1, 0, 60); er = E_OK; break;
+        case 'K': g_lt_line_kp = clamp_to(g_lt_line_kp + 1, 0, 60); er = E_OK; break;
+        case 'd': g_lt_line_kd = clamp_to(g_lt_line_kd - 2, 0, 100); er = E_OK; break;
+        case 'D': g_lt_line_kd = clamp_to(g_lt_line_kd + 2, 0, 100); er = E_OK; break;
+        case 'c': g_lt_speed_pct = clamp_to(g_lt_speed_pct - 10, 20, 150); er = E_OK; break;
+        case 'C': g_lt_speed_pct = clamp_to(g_lt_speed_pct + 10, 20, 150); er = E_OK; break;
         case '?': er = E_OK; break; /* status only */
         default: er = E_PAR; break;
     }
 
     p_out[0] = '\0';
-    pos = put_str(p_out, pos, out_max, (E_OK == er) ? "ok" : "ERR");
+    pos = put_str(p_out, pos, out_max,
+                  (E_OK == er) ? "ok" : (b_lock ? "LOCKED (another user is using this)" : "ERR"));
+    pos = put_str(p_out, pos, out_max, " mode=");
+    pos = put_int(p_out, pos, out_max, g_wd_mode);
     pos = put_str(p_out, pos, out_max, " speed=");
     pos = put_int(p_out, pos, out_max, g_wd_speed);
     pos = put_str(p_out, pos, out_max, " trimL=");
@@ -147,7 +348,20 @@ static int32_t kv(char * p_out, int32_t pos, int32_t max, const char * p_key,
     return put_str(p_out, pos, max, ",");
 }
 
-int32_t web_debug_snapshot(char * p_out, int32_t out_max)
+static bool has(const char * p_x, char c)
+{
+    while ('\0' != *p_x)
+    {
+        if (*p_x++ == c)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
+                           const char * p_x)
 {
     motion_status_t    m;
     s3_line_status_t   l;
@@ -162,9 +376,29 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max)
     n = kv(p_out, n, out_max, "trimL", g_s2_dbg_trim_l);
     n = kv(p_out, n, out_max, "trimR", g_s2_dbg_trim_r);
     n = kv(p_out, n, out_max, "straight", g_s2_dbg_straight);
+    if (0U == client)
+    {
+        client = 1U;
+    }
+    n = kv(p_out, n, out_max, "mode", g_wd_mode);
+    n = kv(p_out, n, out_max, "arm", g_wd_armed);
+    n = kv(p_out, n, out_max, "lkm", lock_state(0, client));
+    n = kv(p_out, n, out_max, "lkl", lock_state(1, client));
+    n = kv(p_out, n, out_max, "lki", lock_state(2, client));
+    n = kv(p_out, n, out_max, "lko", lock_state(3, client));
+    n = kv(p_out, n, out_max, "lkv", lock_state(4, client));
+    n = kv(p_out, n, out_max, "pidKp100", g_lt_pid_kp100);
+    n = kv(p_out, n, out_max, "pidKi100", g_lt_pid_ki100);
+    n = kv(p_out, n, out_max, "lineKp", g_lt_line_kp);
+    n = kv(p_out, n, out_max, "lineKd", g_lt_line_kd);
+    n = kv(p_out, n, out_max, "pct", g_lt_speed_pct);
     n = put_str(p_out, n, out_max, "\"_\":0},\"s2\":");
 
-    if (E_OK == s2_get_status(&m))
+    if (!has(p_x, 'm'))
+    {
+        n = put_str(p_out, n, out_max, "null");
+    }
+    else if (E_OK == s2_get_status(&m))
     {
         n = put_str(p_out, n, out_max, "{");
         n = kv(p_out, n, out_max, "state", m.state);
@@ -188,7 +422,11 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max)
     }
 
     n = put_str(p_out, n, out_max, ",\"s3\":");
-    if (E_OK == s3_get_line_status(&l))
+    if (!has(p_x, 'l'))
+    {
+        n = put_str(p_out, n, out_max, "null");
+    }
+    else if (E_OK == s3_get_line_status(&l))
     {
         n = put_str(p_out, n, out_max, "{");
         n = kv(p_out, n, out_max, "state", (int32_t)l.line_state);
@@ -211,7 +449,11 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max)
     }
 
     n = put_str(p_out, n, out_max, ",\"s4\":");
-    if (E_OK == s4_get_status(&imu))
+    if (!has(p_x, 'i'))
+    {
+        n = put_str(p_out, n, out_max, "null");
+    }
+    else if (E_OK == s4_get_status(&imu))
     {
         n = put_str(p_out, n, out_max, "{");
         n = kv(p_out, n, out_max, "state", (int32_t)imu.state);
@@ -233,12 +475,17 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max)
     }
 
     n = put_str(p_out, n, out_max, ",\"s5\":");
-    if (E_OK == s5_get_status(&o))
+    if (!has(p_x, 'o'))
+    {
+        n = put_str(p_out, n, out_max, "null");
+    }
+    else if (E_OK == s5_get_status(&o))
     {
         n = put_str(p_out, n, out_max, "{");
         n = kv(p_out, n, out_max, "state", (int32_t)o.state);
         n = kv(p_out, n, out_max, "fault", (int32_t)o.last_fault);
         n = kv(p_out, n, out_max, "dist", (int32_t)o.last_distance_mm);
+        n = kv(p_out, n, out_max, "servo", servo_get_deg());
         n = kv(p_out, n, out_max, "pings", (int32_t)o.pings);
         n = kv(p_out, n, out_max, "timeouts", (int32_t)o.echo_timeouts);
         n = kv(p_out, n, out_max, "obst", (int32_t)o.obstacles);
@@ -250,7 +497,11 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max)
     }
 
     n = put_str(p_out, n, out_max, ",\"vc\":");
-    if (E_OK == vc_get_status(&vc))
+    if (!has(p_x, 'v'))
+    {
+        n = put_str(p_out, n, out_max, "null");
+    }
+    else if (E_OK == vc_get_status(&vc))
     {
         n = put_str(p_out, n, out_max, "{");
         n = kv(p_out, n, out_max, "state", (int32_t)vc.state);
