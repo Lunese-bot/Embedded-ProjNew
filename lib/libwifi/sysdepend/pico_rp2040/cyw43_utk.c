@@ -19,6 +19,8 @@
 #if TM_MQTT
 #include "mqtt_utk.h"
 #endif
+/* Bench-only browser remote control (S2_WEBDEBUG in s2_config.h) */
+#include "../../../../app_program/debugging/web_debug.h"
 #endif
 
 #include <string.h>
@@ -340,6 +342,12 @@ void cyw43_utk_task(int32_t stacd, void *exinf)
          * again after connection_cb() schedules a retry. */
         if(radio_status.link_status == CYW43_LINK_UP) {
             mqtt_utk_start();
+        }
+#endif
+#if S2_WEBDEBUG
+        /* idempotent; starts the HTTP listener the first time the link is up */
+        if(radio_status.link_status == CYW43_LINK_UP) {
+            web_debug_start();
         }
 #endif
 #endif
