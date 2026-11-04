@@ -69,13 +69,22 @@ static const char k_page[] =
     ".bar u{position:absolute;top:-2px;width:6px;height:16px;background:#06c;border-radius:3px}\n"
     "@media(prefers-color-scheme:dark){body{background:#111;color:#eee}button{background:#333;color:#eee}#s{background:#c00}.c{border-color:#555}.bar{background:#444}}\n"
     "</style></head><body><h2>Robot dashboard <small id=me class=n></small></h2>\n"
-    "<div class=pad id=nav><button class=s data-t=m>Motor</button><button class=s data-t=o>Obstacle</button><button class=s data-t=i>IMU</button><button class=s data-t=l>Line</button><button class=s data-t=v>Mission</button><button class=s data-t=a>All data</button><button class=s data-t=g>Guide</button></div>\n"
+    "<div class=pad id=nav><button class=s data-t=m>Motor</button><button class=s data-t=o>Obstacle</button><button class=s data-t=i>IMU</button><button class=s data-t=l>Line</button><button class=s data-t=t>Line test</button><button class=s data-t=v>Mission</button><button class=s data-t=a>All data</button><button class=s data-t=g>Guide</button></div>\n"
     "<div class=pad><button id=s data-c=s>STOP (works for everyone)</button></div>\n"
     "<div id=st>ready</div>\n"
+    "<div class=tab id=t-t><div class=pad>\n"
+    "<div><b>Line follow test: everything on one screen</b></div>\n"
+    "<div>Mode: <button class=s data-k=M>Manual</button><button class=s data-k=A>Unlock autonomous</button><button class=s data-k=F>Line follow</button></div>\n"
+    "<div>Switches: Obstacle <button class=s data-k=g>Off</button><button class=s data-k=G>On</button> IMU <button class=s data-k=q>Off</button><button class=s data-k=H>On</button> Barcodes <button class=s data-k=a>Off</button><button class=s data-k=B>On</button></div>\n"
+    "<div>Junction <button class=s data-k=5>Off</button><button class=s data-k=6>C+R</button> Lost-line handling <button class=s data-k='~'>Off</button><button class=s data-k='='>On</button></div>\n"
+    "<div>Steering Kp <button class=s data-k=k>-</button><button class=s data-k=K>+</button> Kd <button class=s data-k=d>-</button><button class=s data-k=D>+</button> Mission speed <button class=s data-k=c>-</button><button class=s data-k=C>+</button></div>\n"
+    "<p class=n>The RPM meters, Debug modes and Log below keep updating on this tab.</p></div><div class=gr id=card-t></div></div>\n"
     "<div class=tab id=t-g><div id=card-g class=n>loading...</div></div>\n"
     "<div class=tab id=t-m><div class=pad id=ctl-m>\n"
     "<div><button data-c=f>FORWARD</button></div>\n"
     "<div><button data-c=l>SPIN LEFT</button><button data-c=b>BACK</button><button data-c=r>SPIN RIGHT</button></div>\n"
+    "<div><button data-c='('>LEFT wheel only</button><button data-c=')'>RIGHT wheel only</button></div>\n"
+    "<p class=n>Hold: drives one wheel at the test speed, the other stays still. Check that the right wheel turns and that only its ticks and meter move.</p>\n"
     "<div><button data-k=L>Turn 90 L</button><button data-k=x>Reset</button><button data-k=R>Turn 90 R</button></div>\n"
     "<div>Trim L <button class=s data-k=t>-</button><button class=s data-k=T>+</button> R <button class=s data-k=u>-</button><button class=s data-k=U>+</button> <button class=s data-k=h>Straight on/off</button> Trim step <button class=s data-k=S>change</button></div>\n"
     "<div>Power boost (feed-forward) L <button class=s data-k=8>-</button><button class=s data-k=9>+</button> R <button class=s data-k='-'>-</button><button class=s data-k='.'>+</button> Correction limit <button class=s data-k=0>-</button><button class=s data-k='_'>+</button></div>\n"
@@ -109,7 +118,7 @@ static const char k_page[] =
     "<div>Mission speed % <button class=s data-k=c>-</button><button class=s data-k=C>+</button></div></div><div class=gr id=card-v></div>\n"
     "<div class=c style='margin-top:8px'><b>Settings to copy into the config files</b><pre id=cp style='margin:0;font-size:12px;white-space:pre-wrap'></pre></div></div>\n"
     "<div class=tab id=t-a><div class=gr id=card-a></div></div>\n"
-    "<div class=c style='margin-top:8px'><div style='display:flex;gap:8px;justify-content:center;flex-wrap:wrap'><div style='text-align:center'><canvas id=gL width=200 height=125></canvas><div id=nL style='font-size:24px;font-weight:bold;color:#4a9eff'>-</div></div><div style='text-align:center'><canvas id=gR width=200 height=125></canvas><div id=nR style='font-size:24px;font-weight:bold;color:#ff9a3c'>-</div></div></div><div id=rp>Wheel RPM monitor: waiting for data (open the Motor tab)</div></div>\n"
+    "<div class=c style='margin-top:8px'><div style='display:flex;gap:8px;justify-content:center;flex-wrap:wrap'><div style='text-align:center'><canvas id=gL width=200 height=125></canvas><div id=nL style='font-size:24px;font-weight:bold;color:#4a9eff'>-</div></div><div style='text-align:center'><canvas id=gR width=200 height=125></canvas><div id=nR style='font-size:24px;font-weight:bold;color:#ff9a3c'>-</div></div></div><div id=rp>Wheel RPM monitor: waiting for data (open the Motor tab)</div><div style='margin-top:6px'><b>Recorder</b> <button class=s id=rs>Start recording</button><button class=s id=rx>Stop</button><button class=s id=rd>Download CSV</button> <span id=rn class=n>0 rows</span></div><p class=n>Records every update (about every 0.6 s) while the Motor, Line test or All data tab is open: time, wheel targets, actual rpm, duty, ticks, trim, boost, and the line and mission state. Download gives a file you can open in Excel.</p></div>\n"
     "<div class=c style='margin-top:8px'><b>Speed graph</b> (Motor tab open: target = grey, left = blue, right = orange; about 1 point per 0.6 s, last 2 min)<br><canvas id=gr width=600 height=140 style='width:100%;max-width:600px'></canvas></div>\n"
     "<div class=c style='margin-top:8px'><b>Debug modes</b><pre id=md style='margin:4px 0 0;font-size:12px;white-space:pre-wrap'></pre></div>\n"
     "<div class=c style='margin-top:8px'><b>Log (like a serial monitor)</b> <button id=lc>Clear</button><pre id=lg style='margin:4px 0 0;font-size:12px;height:150px;overflow:auto;white-space:pre-wrap'></pre></div>\n"
@@ -154,17 +163,18 @@ static const char k_js[] =
     "v:['IDLE','MISSION_START','FOLLOW_LINE','JUNCTION_STOP','LOST_LINE','AVOID_OBSTACLE','DECODE_BARCODE','EXECUTE_ACTION','TERRAIN_CHECK','FAULT','MISSION_COMPLETE'],\n"
     "b:['IDLE','DETECT','READ','DECODE','RETRY','COMPLETE']};\n"
     "function nm(a,i){return a[i]!==undefined?a[i]:i}\n"
+    "function dots(m){return ['L','C','R'].map(function(n,i){return n+(m&(1<<i)?'\\u25cf':'\\u25cb')}).join(' ')}\n"
     "function card(t,rows){var h='<div class=c><b>'+t+'</b>';\n"
     "if(!rows)return h+'<div class=n>not running</div></div>';\n"
     "rows.forEach(function(r){h+='<div><span>'+r[0]+'</span><i>'+r[1]+'</i></div>'});return h+'</div>'}\n"
     "function f1(x,d){return (x/d).toFixed(1)}\n"
     "var B={\n"
     "m:function(a,c){return card('Motor (S2)',a&&[['state',nm(N.m,a.state)+(a.fault?' fault '+a.fault:'')],['speed L / R rpm',rpm(a.vL)+' / '+rpm(a.vR)],['target L / R rpm',rpm(a.tgtL)+' / '+rpm(a.tgtR)],['duty L / R',a.dutyL+' / '+a.dutyR],['ticks L / R',a.ticksL+' / '+a.ticksR],['distance mm',a.dist],['heading deg',f1(a.head,10)],['loop overruns',a.over],['trim L / R (step)',c.trimL+' / '+c.trimR+' ('+c.tstep+')'],['power boost L / R (permille of 1000)',c.ffL+' / '+c.ffR],['correction limit',c.ilim],['test speed mm/s (rpm) / straight',c.speed+' ('+rpm(c.speed)+') / '+(c.straight?'ON':'OFF')],['Kp reaction strength / Ki drift fix',(c.pidKp100/100).toFixed(2)+' / '+(c.pidKi100/100).toFixed(2)]])},\n"
-    "l:function(l,c){return card('Line sensors (S3)',l&&[['state',nm(N.l,l.state)],['position',l.pos+'<br><div class=bar><u style=left:'+((l.pos+1000)/20)+'%></u></div>'],['error / steer',l.err+' / '+l.steer],['raw L C R',l.r0+' '+l.r1+' '+l.r2],['black mask',l.mask],['calibrated',l.cal?'yes':'no'],['barcode',nm(N.b,l.bc)+' ok '+l.bcOk+' fail '+l.bcFail],['Kp steering strength / Kd wobble damping',c.lineKp+' / '+c.lineKd],['target position / sensors steering',c.lsp+' / '+(c.lall?'L C R':'C R')],['steering direction',c.sinv?'SWAPPED':'normal'],['wait before LOST (ms)',c.lost*10],['junction threshold',c.jthr],['junction uses',c.jmode<0?'config default':(c.jmode==0?'OFF':(c.jmode==1?'C R':'L C R'))]])},\n"
+    "l:function(l,c){return card('Line sensors (S3)',l&&[['state',nm(N.l,l.state)],['position',l.pos+'<br><div class=bar><u style=left:'+((l.pos+1000)/20)+'%></u></div>'],['error / steer',l.err+' / '+l.steer],['raw L C R',l.r0+' '+l.r1+' '+l.r2],['sensors L C R (black = filled)',dots(l.mask)],['black mask',l.mask],['calibrated',l.cal?'yes':'no'],['barcode',nm(N.b,l.bc)+' ok '+l.bcOk+' fail '+l.bcFail],['Kp steering strength / Kd wobble damping',c.lineKp+' / '+c.lineKd],['target position / sensors steering',c.lsp+' / '+(c.lall?'L C R':'C R')],['steering direction',c.sinv?'SWAPPED':'normal'],['wait before LOST (ms)',c.lost*10],['junction threshold',c.jthr],['junction uses',c.jmode<0?'config default':(c.jmode==0?'OFF':(c.jmode==1?'C R':'L C R'))]])},\n"
     "i:function(i){return card('IMU (S4)',i&&[['state',nm(N.i,i.state)+(i.fault?' FAULT':'')],['motion',nm(N.mo,i.motion)],['pitch / roll deg',f1(i.pitch,100)+' / '+f1(i.roll,100)],['heading deg',f1(i.head,100)],['turn rate deg/s',f1(i.turn,100)],['humps / impacts',i.humps+' / '+i.impacts],['max hump mm',f1(i.maxPeak,1000)],['calibrated',i.cal?'yes':'no']])},\n"
     "o:function(o){return card('Obstacle + servo (S5)',o&&[['state',nm(N.o,o.state)],['distance mm',o.dist?o.dist:'no echo'],['servo deg (+left)',o.servo],['pings / timeouts',o.pings+' / '+o.timeouts],['obstacles',o.obst],['last fault',o.fault]])},\n"
     "v:function(v,c){return card('Mission (VC)',v&&[['state',nm(N.v,v.state)],['previous',nm(N.v,v.prev)],['in state (s)',f1(v.sinceMs,1000)],['barcodes read',v.barcodes],['events handled',v.events],['wifi',v.wifi?'up':'down'],['last fault',v.fault],['dashboard mode',['MANUAL','LINE FOLLOW','MONITOR'][c.mode]],['autonomous',c.arm?'UNLOCKED':'LOCKED (manual only)'],['obstacle checking',c.obst?'ON':'OFF (ignored)'],['IMU checking',c.imu?'ON':'OFF (ignored)'],['barcode reading',c.bc?'ON':'OFF (ignored)'],['mission speed',c.pct+' %']])}};\n"
-    "var W={m:'m',o:'o',i:'i',l:'l',v:'v',a:'miolv'};\n"
+    "var W={m:'m',o:'o',i:'i',l:'l',v:'v',a:'miolv',t:'mlv'};\n"
     "var G={t:[],l:[],r:[]};\n"
     "function rpm(v){return Math.round(v*60/204.2)}\n"
     "var GM=60;function meter(id,nm,col,v,t){var c=document.getElementById(id),x=c.getContext('2d'),w=c.width,h=c.height,cx=w/2,cy=h-18,R=80,P=Math.PI,m=Math.max(Math.abs(v),Math.abs(t));if(m>GM*0.9)GM=Math.ceil(m*1.25/10)*10;var an=function(q){q=Math.max(-GM,Math.min(GM,q));return P+(q+GM)/(2*GM)*P};x.clearRect(0,0,w,h);x.lineWidth=10;x.strokeStyle='#8884';x.beginPath();x.arc(cx,cy,R,P,2*P);x.stroke();x.strokeStyle=col;x.beginPath();x.arc(cx,cy,R,an(0),an(v),v<0);x.stroke();x.lineWidth=2;x.strokeStyle='#888';x.beginPath();x.moveTo(cx+(R-14)*Math.cos(an(t)),cy+(R-14)*Math.sin(an(t)));x.lineTo(cx+(R+8)*Math.cos(an(t)),cy+(R+8)*Math.sin(an(t)));x.stroke();x.strokeStyle=col;x.lineWidth=3;x.beginPath();x.moveTo(cx,cy);x.lineTo(cx+(R-18)*Math.cos(an(v)),cy+(R-18)*Math.sin(an(v)));x.stroke();x.fillStyle='#888';x.font='11px sans-serif';x.fillText('-'+GM,cx-R-8,cy+14);x.fillText('+'+GM,cx+R-14,cy+14);x.fillText('0',cx-3,cy-R-12);x.font='bold 14px sans-serif';x.fillStyle=col;x.textAlign='center';x.fillText(nm==='L'?'LEFT':'RIGHT',cx,cy+14);x.textAlign='left';document.getElementById('n'+nm).textContent=v+' rpm (target '+t+')'}\n"
@@ -172,19 +182,24 @@ static const char k_js[] =
     "function plot(a){rpmbox(a);G.t.push(rpm((a.tgtL+a.tgtR)/2));G.l.push(rpm(a.vL));G.r.push(rpm(a.vR));for(var k in G)if(G[k].length>200)G[k].shift();\n"
     "var cv=document.getElementById('gr'),x=cv.getContext('2d'),W2=cv.width,H=cv.height,m=30;G.t.concat(G.l,G.r).forEach(function(v){if(Math.abs(v)>m)m=Math.abs(v)});m*=1.1;x.clearRect(0,0,W2,H);x.strokeStyle='#888';x.beginPath();x.moveTo(0,H/2);x.lineTo(W2,H/2);x.stroke();x.fillStyle='#888';x.fillText('+'+Math.round(m)+' rpm',2,10);\n"
     "[['t','#999'],['l','#4a9eff'],['r','#ff9a3c']].forEach(function(s){x.strokeStyle=s[1];x.beginPath();G[s[0]].forEach(function(v,i){var px=i*W2/200,py=H/2-v/m*H/2;i?x.lineTo(px,py):x.moveTo(px,py)});x.stroke()})}\n"
+    "var REC=[],recOn=0;function rq(i){return document.getElementById(i)}\n"
+    "rq('rs').onclick=function(){REC=[];recOn=1;rq('rn').textContent='recording...';log('recorder started')};rq('rx').onclick=function(){recOn=0;rq('rn').textContent=REC.length+' rows (stopped)';log('recorder stopped, '+REC.length+' rows')};\n"
+    "rq('rd').onclick=function(){var h='time,motor_state,target_L_rpm,target_R_rpm,actual_L_rpm,actual_R_rpm,target_L_mm_s,target_R_mm_s,actual_L_mm_s,actual_R_mm_s,duty_L,duty_R,ticks_L,ticks_R,trim_L,trim_R,boost_L,boost_R,corr_limit,Kp100,Ki100,line_state,line_mask,line_steer,mission_state';var b=new Blob([h+String.fromCharCode(10)+REC.join(String.fromCharCode(10))],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='motor_log_'+new Date().toISOString().replace(/[:.]/g,'-')+'.csv';document.body.appendChild(a);a.click();a.remove()};\n"
+    "function recrow(d){var a=d.s2,c=d.cfg,l=d.s3||{},v=d.vc||{};if(!recOn||!a)return;REC.push([new Date().toISOString(),nm(N.m,a.state),rpm(a.tgtL),rpm(a.tgtR),rpm(a.vL),rpm(a.vR),a.tgtL,a.tgtR,a.vL,a.vR,a.dutyL,a.dutyR,a.ticksL,a.ticksR,c.trimL,c.trimR,c.ffL,c.ffR,c.ilim,c.pidKp100,c.pidKi100,l.state===undefined?'':nm(N.l,l.state),l.mask===undefined?'':l.mask,l.steer===undefined?'':l.steer,v.state===undefined?'':nm(N.v,v.state)].join(','));if(REC.length>20000)REC.shift();rq('rn').textContent=REC.length+' rows'}\n"
     "var ps={};\n"
-    "function chg(k,v,t){if(v===undefined)return;if(ps[k]!==undefined&&ps[k]!==v)log(t+': '+ps[k]+' -> '+v);ps[k]=v}\n"
+    "function chg(k,v,t,a){if(v===undefined)return;if(ps[k]!==undefined&&ps[k]!==v)log(t+': '+(a?nm(a,ps[k]):ps[k])+' -> '+(a?nm(a,v):v));ps[k]=v}\n"
     "function render(d){var c=d.cfg,h;\n"
     "var M=['Manual: buttons drive the robot (default)','Line follow: the real mission runs, buttons locked (needs Unlock autonomous)','Monitor only: no motion, just watch the sensors'],nl=String.fromCharCode(10),t2='';M.forEach(function(m,i){t2+=(i==c.mode?'>> ':'   ')+m+nl});t2+='Autonomous: '+(c.arm?'UNLOCKED':'LOCKED')+'   Obstacle checking: '+(c.obst?'ON':'OFF')+'   IMU checking: '+(c.imu?'ON':'OFF')+'   Barcodes: '+(c.bc?'ON':'OFF')+nl+'Junction: '+(c.jmode===0?'OFF':(c.jmode===1?'C+R':(c.jmode===2?'L+C+R':'config default')))+'   Lost-line handling: '+(c.lostEn?'ON':'OFF');document.getElementById('md').textContent=t2;\n"
-    "if(d.s2)plot(d.s2);if(d.s2)chg('m',d.s2.state,'motor state');if(d.s2)chg('mf',d.s2.fault,'motor fault');if(d.s3)chg('l',d.s3.state,'line state');if(d.s4)chg('i',d.s4.humps,'humps');if(d.s5)chg('o',d.s5.state,'obstacle state');if(d.vc)chg('v',d.vc.state,'mission state');chg('md',c.mode,'mode');\n"
+    "recrow(d);if(d.s2)plot(d.s2);if(d.s2)chg('m',d.s2.state,'motor state',N.m);if(d.s2)chg('mf',d.s2.fault,'motor fault');if(d.s3)chg('l',d.s3.state,'line state',N.l);if(d.s4)chg('i',d.s4.humps,'humps');if(d.s5)chg('o',d.s5.state,'obstacle state',N.o);if(d.vc)chg('v',d.vc.state,'mission state',N.v);chg('md',c.mode,'mode',['MANUAL','LINE FOLLOW','MONITOR']);\n"
     "mode=c.mode;\n"
     "['m','l','i','o','v'].forEach(function(a){var s=c['lk'+a],e=document.getElementById('ctl-'+a);e.style.opacity=s==2?0.35:1;\n"
     "document.querySelector('button[data-t='+a+']').textContent=document.querySelector('button[data-t='+a+']').dataset.n+(s==1?' *':s==2?' (in use)':'')});\n"
-    "if(cur=='a'){h='';['m','o','i','l','v'].forEach(function(a){h+=B[a](d[{m:'s2',l:'s3',i:'s4',o:'s5',v:'vc'}[a]],c)});document.getElementById('card-a').innerHTML=h}\n"
+    "if(cur=='t'){document.getElementById('card-t').innerHTML=B.l(d.s3,c)+B.v(d.vc,c)}\n"
+    "else if(cur=='a'){h='';['m','o','i','l','v'].forEach(function(a){h+=B[a](d[{m:'s2',l:'s3',i:'s4',o:'s5',v:'vc'}[a]],c)});document.getElementById('card-a').innerHTML=h}\n"
     "else{document.getElementById('card-'+cur).innerHTML=B[cur](d[{m:'s2',l:'s3',i:'s4',o:'s5',v:'vc'}[cur]],c)}\n"
     "var cp=['s2_config.h:  S2_TRIM_L_PERMILLE '+c.trimL+'   S2_TRIM_R_PERMILLE '+c.trimR,'s2_config.h:  S2_PID_KFF 2.0 x '+(c.ffL/1000)+' (L), x '+(c.ffR/1000)+' (R)   S2_PID_I_LIMIT '+c.ilim,'s2_config.h:  S2_PID_KP '+(c.pidKp100/100).toFixed(2)+'f   S2_PID_KI '+(c.pidKi100/100).toFixed(2)+'f','s3_config.h:  S3_KP_NUM '+c.lineKp+'   S3_KD_NUM '+c.lineKd+'   S3_LINE_SETPOINT '+c.lsp+'   S3_JUNCTION_THRESHOLD '+c.jthr+(c.lall?'   S3_LINE_MASK L|C|R':''),'vc_sm.h:      speeds x '+c.pct+'%  (cruise '+Math.round(200*c.pct/100)+', slow '+Math.round(100*c.pct/100)+' mm/s)'].join(String.fromCharCode(10));\n"
     "var e=document.getElementById('cp');if(e.textContent!=cp)e.textContent=cp}\n"
-    "function show(x){cur=x;['m','o','i','l','v','a','g'].forEach(function(k){document.getElementById('t-'+k).className='tab'+(k==x?' on':'')});\n"
+    "function show(x){cur=x;['m','o','i','l','v','a','g','t'].forEach(function(k){document.getElementById('t-'+k).className='tab'+(k==x?' on':'')});\n"
     "document.querySelectorAll('button[data-t]').forEach(function(b){b.className='s'+(b.dataset.t==x?' on':'')})}\n"
     "document.querySelectorAll('button[data-t]').forEach(function(b){b.dataset.n=b.textContent;b.onclick=function(){show(b.dataset.t)}});\n"
     "show('m');\n"
@@ -237,12 +252,90 @@ static struct tcp_pcb * g_listen_pcb;
 static char             g_snap[WD_SNAP_MAX]; /* static: keeps the task stack small */
 
 /* Send the reply and close.  Data already queued is still delivered. */
+/* Large pages (guide, script) are bigger than the TCP send buffer
+   (TCP_SND_BUF), so a single tcp_write() of them fails and the browser gets
+   nothing.  They are sent in pieces instead: as much as fits now, the rest
+   from the tcp_sent() callback as the robot's buffer empties. */
+#define WD_TX_SLOTS 4
+typedef struct
+{
+    struct tcp_pcb * p_pcb;
+    const char *     p_next;
+    uint32_t         left;
+} wd_tx_t;
+static wd_tx_t g_tx[WD_TX_SLOTS];
+
+static void tx_free(wd_tx_t * p_tx)
+{
+    p_tx->p_pcb = NULL;
+    p_tx->left  = 0;
+}
+
+static void tx_more(wd_tx_t * p_tx)
+{
+    struct tcp_pcb * p_pcb = p_tx->p_pcb;
+    uint32_t         n;
+
+    while ((p_tx->left > 0U) && (tcp_sndbuf(p_pcb) > 0U) &&
+           (tcp_sndqueuelen(p_pcb) < TCP_SND_QUEUELEN))
+    {
+        n = tcp_sndbuf(p_pcb);
+        n = (n > TCP_MSS) ? TCP_MSS : n;
+        n = (n > p_tx->left) ? p_tx->left : n;
+        if (ERR_OK != tcp_write(p_pcb, p_tx->p_next, (uint16_t)n, 0))
+        {
+            break; /* no room yet: the next tcp_sent() continues */
+        }
+        p_tx->p_next += n;
+        p_tx->left   -= n;
+    }
+    (void)tcp_output(p_pcb);
+    if (0U == p_tx->left)
+    {
+        tcp_sent(p_pcb, NULL);
+        tcp_arg(p_pcb, NULL);
+        tx_free(p_tx);
+        (void)tcp_close(p_pcb); /* lwIP still sends what is queued */
+    }
+}
+
+static err_t on_sent(void * p_arg, struct tcp_pcb * p_pcb, u16_t len)
+{
+    (void)p_pcb;
+    (void)len;
+    if (NULL != p_arg)
+    {
+        tx_more((wd_tx_t *)p_arg);
+    }
+    return ERR_OK;
+}
+
 static void reply_and_close(struct tcp_pcb * p_pcb, const char * p_hdr,
                             const char * p_body, uint16_t body_len,
                             uint8_t body_copy)
 {
+    int32_t idx;
+
     (void)tcp_write(p_pcb, p_hdr, (uint16_t)strlen(p_hdr), TCP_WRITE_FLAG_COPY);
-    if (body_len > 0)
+    if ((body_len > 0U) && (0U == body_copy))
+    {
+        /* constant page in flash: send it in pieces */
+        for (idx = 0; idx < WD_TX_SLOTS; idx++)
+        {
+            if (NULL == g_tx[idx].p_pcb)
+            {
+                g_tx[idx].p_pcb  = p_pcb;
+                g_tx[idx].p_next = p_body;
+                g_tx[idx].left   = body_len;
+                tcp_arg(p_pcb, &g_tx[idx]);
+                tcp_sent(p_pcb, on_sent);
+                tx_more(&g_tx[idx]);
+                return;
+            }
+        }
+        /* all slots busy (several browsers loading at once): try in one go */
+    }
+    if (body_len > 0U)
     {
         (void)tcp_write(p_pcb, p_body, body_len,
                         body_copy ? TCP_WRITE_FLAG_COPY : 0);
@@ -259,7 +352,6 @@ static err_t on_recv(void * p_arg, struct tcp_pcb * p_pcb, struct pbuf * p_buf,
     char     xs[8];
     uint16_t n;
 
-    (void)p_arg;
     if ((NULL == p_buf) || (ERR_OK != err))
     {
         /* peer closed (or error): finish our side */
@@ -267,7 +359,20 @@ static err_t on_recv(void * p_arg, struct tcp_pcb * p_pcb, struct pbuf * p_buf,
         {
             pbuf_free(p_buf);
         }
+        if (NULL != p_arg)
+        {
+            tcp_sent(p_pcb, NULL);
+            tcp_arg(p_pcb, NULL);
+            tx_free((wd_tx_t *)p_arg); /* page no longer wanted */
+        }
         (void)tcp_close(p_pcb);
+        return ERR_OK;
+    }
+    if (NULL != p_arg)
+    {
+        /* a second request on a connection that is still sending */
+        tcp_recved(p_pcb, p_buf->tot_len);
+        pbuf_free(p_buf);
         return ERR_OK;
     }
 
@@ -312,8 +417,11 @@ static err_t on_recv(void * p_arg, struct tcp_pcb * p_pcb, struct pbuf * p_buf,
 
 static void on_err(void * p_arg, err_t err)
 {
-    (void)p_arg;
     (void)err; /* pcb is already freed by lwIP */
+    if (NULL != p_arg)
+    {
+        tx_free((wd_tx_t *)p_arg);
+    }
 }
 
 static err_t on_accept(void * p_arg, struct tcp_pcb * p_pcb, err_t err)
