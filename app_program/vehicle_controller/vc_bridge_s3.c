@@ -45,8 +45,10 @@ static bool     g_b_ready_pending;
    follower can be tested on its own. */
 #if S2_WEBDEBUG
 #define BC_OFF (0 == g_lt_bc_en)
+#define LOST_OFF (0 == g_lt_lost_en)
 #else
 #define BC_OFF 0
+#define LOST_OFF 0
 #endif
 
 static void make(vc_event_t * p_event, vc_event_type_t type, int32_t param1,
@@ -72,6 +74,10 @@ static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
                    (S3_EVT_BARCODE_FAILED == p_s3->type)))
     {
         return false; /* barcodes switched off from the dashboard */
+    }
+    if (LOST_OFF && (S3_EVT_LINE_LOST == p_s3->type))
+    {
+        return false; /* lost-line handling switched off from the dashboard */
     }
     switch (p_s3->type)
     {
