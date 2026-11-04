@@ -172,8 +172,8 @@ sends to it or waits on it. Agree on the data format before coding.
 
 | ID | From → To | Mechanism | Object ID name | Data / meaning | Agreed by |
 |---|---|---|---|---|---|
-| IF-T1 | any → S1 | message buffer (owned by S1) | `g_mbf_telemetry`, `s1_post()` | topic suffix + text; drained by `mqtt_utk.c` with `TMO_POL` | |
-| IF-T2 | S1 → VC | VC's event buffer | `vc_post_event(VC_SRC_COMMS, ...)` | MQTT `robot/g10/cmd`: `start` / `stop` / `reset`; WiFi up/down | |
+| IF-T1 | any → S1 | message buffer (owned by S1) | `g_mbf_telemetry`, `s1_post()` | topic suffix + exact payload length (binary-safe); drained by `mqtt_utk.c` with `TMO_POL` | |
+| IF-T2 | S1 → VC | VC's event buffer | `vc_post_event(VC_SRC_COMMS, ...)` | MQTT `robot/g10/cmd`: one byte, bits 7-6 `00` start / `01` stop / `10` reset, bits 5-0 sequence; one-byte result/sequence ack on `robot/g10/ack`; WiFi up/down | |
 | IF-M1 | VC → S2 | message buffer (owned by S2) | `g_mbf_motion_cmd` | `motion_cmd_t`, or `s2_cmd_drive/drive_dist/turn/stop/reset()` | |
 | IF-M2 | S2 → anyone | shared data under mutex (owned by S2) | `g_mtx_motion`, `s2_get_status()` | `motion_status_t` | |
 | IF-M3 | S2 → VC | event flag (owned by S2) | `g_flg_motion` | `MFLG_CMD_DONE`, `_STOPPED`, `_SAFE_STOPPED`, `_FAULT`, `_CMD_TIMEOUT` | |
@@ -191,7 +191,7 @@ sends to it or waits on it. Agree on the data format before coding.
 | IF-S5d | S3 → S5 | function overriding S5's weak hook | `s5_port_line_detected()` | TRUE when an IR sensor sees black | |
 | IF-06 | any → VC | message buffer (owned by VC) | `g_mbf_vc_events`, `vc_post_event()` | `vc_event_t` in `vc_types.h` | |
 | IF-07 | VC → anyone | shared data under mutex + event flag (owned by VC) | `g_mtx_vc_status`, `g_flg_vc_state` | `vc_status_t`, via `vc_get_status()` | |
-| IF-08 | VC → S1 | S1's telemetry buffer | `s1_post("fault", ...)` in `vc_port_report()` | fault reports to MQTT `robot/g10/fault` | |
+| IF-08 | VC → S1 | S1's telemetry buffer | `s1_post("fault", ...)` in `vc_port_report()` | JSON-text fault reports to MQTT `robot/g10/fault` | |
 
 Each interface is tested by at least one integration test
 (`testing/integration/TEST_LOG.md`).

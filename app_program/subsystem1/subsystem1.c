@@ -48,29 +48,46 @@ ER subsystem1_start(void)
 }
 
 /* IF-T1 */
-ER s1_post(const char * p_topic, const char * p_text)
+ER s1_post(const char * p_topic, const void * p_data, int32_t data_len)
 {
-    char    line[S1_LINE_MAX];
-    int32_t len = 0;
+    uint8_t line[S1_LINE_MAX];
+    const uint8_t * data = (const uint8_t *)p_data;
+    int32_t topic_len = 0;
+    int32_t len;
     int32_t idx;
     ER      ercd;
 
-    for (idx = 0; (p_topic[idx] != '\0') && (len < S1_BRIDGE_TOPIC_MAX); idx++)
+    if ((p_topic == NULL) || (data_len < 1) || (p_data == NULL))
     {
-        line[len++] = p_topic[idx];
+        return E_PAR;
     }
-    line[len++] = '\0';
-    for (idx = 0; (p_text[idx] != '\0') && (len < S1_LINE_MAX - 1); idx++)
+    while ((p_topic[topic_len] != '\0') &&
+           (topic_len < S1_BRIDGE_TOPIC_MAX))
     {
-        line[len++] = p_text[idx];
+        topic_len++;
     }
-    line[len++] = '\0';
+    if ((p_topic[topic_len] != '\0') ||
+        (data_len > (S1_LINE_MAX - topic_len - 1)))
+    {
+        return E_PAR;
+    }
+
+    for (idx = 0; idx < topic_len; idx++)
+    {
+        line[idx] = (uint8_t)p_topic[idx];
+    }
+    line[topic_len] = '\0';
+    for (idx = 0; idx < data_len; idx++)
+    {
+        line[topic_len + 1 + idx] = data[idx];
+    }
+    len = topic_len + 1 + data_len;
 
     ercd = tk_snd_mbf(g_mbf_telemetry, line, len, TMO_POL);
     if (ercd < E_OK)
     {
         /* full: drop the OLDEST line so telemetry stays fresh */
-        char old[S1_LINE_MAX];
+        uint8_t old[S1_LINE_MAX];
         (void)tk_rcv_mbf(g_mbf_telemetry, old, TMO_POL);
         g_s1_stat.dropped++;
         ercd = tk_snd_mbf(g_mbf_telemetry, line, len, TMO_POL);

@@ -96,16 +96,21 @@ ER vc_port_report(vc_source_t src, vc_fault_severity_t sev, uint32_t code)
     static const char * const sev_names[] = { "non-critical", "recoverable",
                                               "CRITICAL" };
     uint8_t                   msg[VC_FAULT_MSG_MAX];
+    int32_t                   msg_len = 0;
 
     g_vc_port_log.reports++;
 
     /* Fault message to MQTT (robot/g10/fault) through S1's queue;
      * s1_post() never blocks, so the controller cannot stall (FR8). */
-    /* Casts: the console API takes uint8_t strings and int32_t args;
-       s1_post takes plain char strings. */
+    /* The console formatter writes a NUL-terminated JSON fault payload;
+       the binary-safe S1 queue receives its explicit length. */
     tm_sprintf(msg, (const uint8_t *)"{\"src\":%d,\"sev\":%d,\"code\":%u}",
                (int32_t)src, (int32_t)sev, code);
-    (void)s1_post("fault", (const char *)msg);
+    while ((msg_len < (int32_t)sizeof(msg)) && (msg[msg_len] != '\0'))
+    {
+        msg_len++;
+    }
+    (void)s1_post("fault", msg, msg_len);
     tm_printf((uint8_t *)"vc: fault from S%d  %s  code 0x%04x\n", (int32_t)src,
               ((uint32_t)sev <= (uint32_t)VC_FAULT_CRITICAL) ? sev_names[sev]
                                                              : "?",
@@ -118,7 +123,7 @@ ER vc_port_telemetry(const vc_status_t * p_status)
     g_vc_port_log.telemetry++;
 
     /* S1's telemetry_task reads vc_get_status() itself every 200 ms
-     * and puts the mission state in robot/g10/telemetry, so nothing
+     * and puts the mission state in robot/g10/t, so nothing
      * needs to be sent from here. */
     (void)p_status;
     return E_OK;

@@ -21,6 +21,9 @@
 #include "wifi_secrets.h"
 #include "mqtt_utk.h"
 #include <tm/tmonitor.h>
+#ifndef MQTT_TOPIC
+#define MQTT_TOPIC "robot/g10/heartbeat"
+#endif
 /* Robot telemetry / command bridge (app_program/subsystem1, Buddy 1).
  * Plain-C header: safe to include here. */
 #include "../../../../app_program/subsystem1/s1_bridge.h"
@@ -46,6 +49,8 @@ static u8_t		connecting;
 static char		rx_topic[MQTT_UTK_RX_TOPIC_MAX];
 static UB		rx_data[MQTT_UTK_RX_DATA_MAX];
 static u16_t		rx_len;
+static u32_t		rx_expected_len;
+static u8_t		rx_topic_truncated;
 static u8_t		rx_truncated;
 
 static void heartbeat_timeout(void *arg);
@@ -67,15 +72,15 @@ static void incoming_publish_cb(void *arg, const char *topic, u32_t tot_len)
 	u32_t	i;
 
 	(void)arg;
-	(void)tot_len;
-
 	for(i = 0; i < (MQTT_UTK_RX_TOPIC_MAX - 1) && topic[i] != '\0'; i++) {
 		rx_topic[i] = topic[i];
 	}
 	rx_topic[i] = '\0';
 
 	rx_len = 0;
-	rx_truncated = 0;
+	rx_expected_len = tot_len;
+	rx_topic_truncated = topic[i] != '\0';
+	rx_truncated = tot_len > sizeof(rx_data);
 }
 
 static void incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
@@ -85,22 +90,20 @@ static void incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
 	(void)arg;
 
 	for(i = 0; i < len; i++) {
-		if(rx_len < (MQTT_UTK_RX_DATA_MAX - 1)) {
-			/* The console is a terminal -- keep raw bytes from a
-			 * payload this demo did not publish from scrambling it. */
-			UB c = data[i];
-			rx_data[rx_len++] = (c >= 0x20 && c < 0x7f)? c: '.';
+		if(rx_len < sizeof(rx_data) && rx_len < rx_expected_len) {
+			rx_data[rx_len++] = data[i];
 		} else {
 			rx_truncated = 1;
 		}
 	}
 
 	if((flags & MQTT_DATA_FLAG_LAST) != 0) {
-		rx_data[rx_len] = '\0';
-		tm_printf((UB*)"mqtt: RX [%s] \"%s\"%s\n", rx_topic, rx_data,
-			  rx_truncated? " (truncated)": "");
-		if(topic_is(rx_topic, S1_TOPIC_CMD)) {
-			s1_bridge_on_command((const char *)rx_data, (int)rx_len);
+		tm_printf((UB*)"mqtt: RX [%s] %d byte(s)%s\n", rx_topic,
+			  (int)rx_len, rx_truncated? " (truncated)": "");
+		if(!rx_topic_truncated && topic_is(rx_topic, S1_TOPIC_CMD)) {
+			s1_bridge_on_command((const uint8_t *)rx_data,
+					     (rx_truncated || rx_len != rx_expected_len)
+					     ? 2 : (int32_t)rx_len);
 		}
 	}
 }
@@ -109,7 +112,7 @@ static void subscribe_done_cb(void *arg, err_t result)
 {
 	(void)arg;
 	if(result == ERR_OK) {
-		tm_printf((UB*)"mqtt: subscribed to " MQTT_TOPIC "\n");
+		tm_printf((UB*)"mqtt: subscription accepted\n");
 	} else {
 		tm_printf((UB*)"mqtt: subscribe failed, err=%d\n", (int)result);
 	}
@@ -149,8 +152,8 @@ static void heartbeat_timeout(void *arg)
  * task keeps servicing the radio. Re-arms itself like the heartbeat. */
 static void telemetry_timeout(void *arg)
 {
-	static char	topic[S1_BRIDGE_TOPIC_MAX];
-	static char	payload[S1_BRIDGE_LINE_MAX];
+	static char	topic[S1_BRIDGE_FULL_TOPIC_MAX];
+	static uint8_t	payload[S1_BRIDGE_LINE_MAX];
 	int		i, len;
 
 	(void)arg;
@@ -160,7 +163,7 @@ static void telemetry_timeout(void *arg)
 		if(len <= 0) {
 			break;
 		}
-		(void)mqtt_publish(client, topic, payload, (u16_t)len,
+		(void)mqtt_publish(client, topic, (const u8_t *)payload, (u16_t)len,
 				   0 /* qos */, 0 /* retain */,
 				   publish_done_cb, NULL);
 	}

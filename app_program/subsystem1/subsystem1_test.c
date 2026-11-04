@@ -5,6 +5,7 @@
  */
 
 #include "subsystem1.h"
+#include "s1_codec.h"
 #include "../test_report.h"
 
 #if APP_TEST
@@ -21,9 +22,12 @@ static bool str_eq(const char * p_lhs, const char * p_rhs)
 
 void subsystem1_test(void)
 {
-    char           topic[S1_BRIDGE_TOPIC_MAX];
-    char           payload[S1_BRIDGE_LINE_MAX] = { 0 };
+    char           topic[S1_BRIDGE_FULL_TOPIC_MAX];
+    uint8_t        payload[S1_BRIDGE_LINE_MAX] = { 0 };
     comms_status_t comms;
+    S1_TLM         tlm;
+    uint8_t        invalid_command = 0xC0;
+    const uint8_t  binary_sample[] = { 0x41, 0x00, 0xFF };
     uint32_t       before;
     int32_t        idx;
     int32_t        len     = 0;
@@ -32,30 +36,37 @@ void subsystem1_test(void)
     TEST_INIT();
 
     /* S1-U01: a posted line comes out of the bridge with the full topic */
-    TEST_CHECK("S1-U01a", E_OK == s1_post("selftest", "hello"),
-               "s1_post queues a line");
+    TEST_CHECK("S1-U01a",
+               E_OK == s1_post("selftest", binary_sample,
+                               (int32_t)sizeof(binary_sample)),
+               "s1_post queues a binary payload");
     for (idx = 0; (idx < (2 * S1_QUEUE_LINES)) && (!b_found); idx++)
     {
         len     = s1_bridge_pop(topic, sizeof(topic), payload, sizeof(payload));
         b_found = (len > 0) && (str_eq(topic, S1_TOPIC_ROOT "selftest"));
     }
-    TEST_CHECK("S1-U01b", b_found && (str_eq(payload, "hello")),
-               "bridge returns robot/g10/selftest \"hello\"");
+    TEST_CHECK("S1-U01b", b_found &&
+               (len == (int32_t)sizeof(binary_sample)) &&
+               (payload[0] == binary_sample[0]) &&
+               (payload[1] == binary_sample[1]) &&
+               (payload[2] == binary_sample[2]),
+               "bridge preserves payload bytes and exact length");
 
-    /* S1-U02: telemetry_task produces a JSON line within 400 ms */
+    /* S1-U02: telemetry_task produces a binary frame within 400 ms */
     tk_dly_tsk(400);
     len = s1_bridge_pop(topic, sizeof(topic), payload, sizeof(payload));
-    TEST_CHECK("S1-U02", (len > 0) && ('{' == payload[0]),
-               "telemetry JSON queued");
+    TEST_CHECK("S1-U02", (len == S1_TLM_BYTES) &&
+               str_eq(topic, S1_TOPIC_ROOT S1_TOPIC_TLM) &&
+               (s1_tlm_decode(payload, len, &tlm) == 0),
+               "14-byte versioned telemetry frame queued");
 
-    /* S1-U03: an unknown command is counted and ignored (does not
-       start the mission during the test run) */
+    /* S1-U03: reserved command code is counted and rejected. */
     s1_get_status(&comms);
     before = comms.commands;
-    s1_bridge_on_command("hello", 5);
+    s1_bridge_on_command(&invalid_command, 1);
     s1_get_status(&comms);
     TEST_CHECK("S1-U03", comms.commands == (before + 1),
-               "command counted, unknown ignored");
+               "reserved command counted and rejected without a VC event");
 
     TEST_SUMMARY("subsystem1");
 }
