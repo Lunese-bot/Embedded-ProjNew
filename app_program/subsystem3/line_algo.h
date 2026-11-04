@@ -69,6 +69,13 @@ typedef struct
     uint16_t     found_count;
     uint16_t     junction_count;
     int16_t      prev_error;
+    int8_t       corr_side;  /* straddle: side being corrected, 0 = none */
+    uint16_t     corr_count; /* straddle: samples that side has been black */
+    int16_t      corr_mag;   /* straddle: last correction strength        */
+    uint16_t     hold_count; /* straddle: samples of curve memory so far   */
+    bool         b_hold;     /* straddle: line passed outside, keep turning */
+    bool         b_reentry;  /* straddle: line came back in after a hold    */
+    int8_t       mem_side;   /* straddle: side corr_count belongs to (kept over short white gaps) */
 } line_tracker_t;
 
 /* Default parameters from s3_config.h */

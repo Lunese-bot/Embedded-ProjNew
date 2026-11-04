@@ -499,33 +499,46 @@ static int32_t wheel_duty(pid_ctrl_t * p_pid, int32_t target,
 
     /* Below S2_DUTY_MIN_MOVE the motor only hums: lift to the minimum
        in the commanded direction (static friction compensation). */
-#if S2_WEBDEBUG
     {
-        /* Bench: the full S2_DUTY_MIN_MOVE kick only while the wheel is
-           (nearly) stopped; once it turns, the floor is g_lt_dmin, so the
+        /* The full S2_DUTY_MIN_MOVE kick only while the wheel is (nearly)
+           stopped; once it turns, the floor is S2_DUTY_MIN_RUN, so the
            speed controller can slow a fast wheel below the kick duty. */
-        int32_t floor_duty = ((measured > -20.0f) && (measured < 20.0f))
-                                 ? S2_DUTY_MIN_MOVE
-                                 : g_lt_dmin;
-        if ((target > 0) && (duty < floor_duty))
-        {
-            duty = floor_duty;
-        }
-        if ((target < 0) && (duty > -floor_duty))
-        {
-            duty = -floor_duty;
-        }
-    }
+#if S2_WEBDEBUG
+        int32_t run_duty = g_lt_dmin; /* live from the dashboard */
 #else
-    if ((target > 0) && (duty < S2_DUTY_MIN_MOVE))
-    {
-        duty = S2_DUTY_MIN_MOVE;
-    }
-    if ((target < 0) && (duty > -S2_DUTY_MIN_MOVE))
-    {
-        duty = -S2_DUTY_MIN_MOVE;
-    }
+        int32_t run_duty = S2_DUTY_MIN_RUN;
 #endif
+        /* Work in the commanded direction (dir = +1 or -1) so one rule
+           covers both.  2026-11-04: the floor only helps a wheel that is
+           too SLOW.  A wheel already at or above its target may drop to
+           0 duty, so the inner wheel of a sharp turn can really slow
+           down (the 125 floor held it at ~75 mm/s when 14 was asked). */
+        int32_t dir  = (target > 0) ? 1 : -1;
+        int32_t tmag = target * dir;               /* wanted speed, > 0 */
+        float32_t mmag = measured * (float32_t)dir; /* speed that way    */
+        int32_t dmag = duty * dir;
+        int32_t floor_duty;
+
+        if (mmag >= (float32_t)tmag)
+        {
+            floor_duty = 0;                /* fast enough: may coast  */
+        }
+        else if ((mmag > -20.0f) && (mmag < 20.0f))
+        {
+            /* (nearly) stopped: kick, unless a crawl is all that is
+               wanted (inner wheel of a U-turn) */
+            floor_duty = (tmag >= 20) ? S2_DUTY_MIN_MOVE : 0;
+        }
+        else
+        {
+            floor_duty = run_duty;
+        }
+        if (dmag < floor_duty)
+        {
+            dmag = floor_duty;             /* also never reverses     */
+        }
+        duty = dmag * dir;
+    }
     return duty;
 }
 
@@ -660,9 +673,9 @@ void motion_task(int32_t stacd, void * p_exinf)
     (void)stacd;
     (void)p_exinf;
 
-    pid_init(&g_motion_ctx.pid_l, S2_PID_KFF, S2_PID_KP, S2_PID_KI, S2_PID_KD,
+    pid_init(&g_motion_ctx.pid_l, S2_PID_KFF * (float32_t)S2_PID_KFF_BOOST_L / 1000.0f, S2_PID_KP, S2_PID_KI, S2_PID_KD,
              S2_PID_I_LIMIT, (float32_t)S2_DUTY_MAX);
-    pid_init(&g_motion_ctx.pid_r, S2_PID_KFF, S2_PID_KP, S2_PID_KI, S2_PID_KD,
+    pid_init(&g_motion_ctx.pid_r, S2_PID_KFF * (float32_t)S2_PID_KFF_BOOST_R / 1000.0f, S2_PID_KP, S2_PID_KI, S2_PID_KD,
              S2_PID_I_LIMIT, (float32_t)S2_DUTY_MAX);
 
     if ((E_OK != drv_motor_init()) || (E_OK != drv_encoder_init()))

@@ -199,15 +199,103 @@ static void test_line(void)
         {
             if (LINE_EVT_LOST == line_tracker_step(&t, &p, white, false)) { lost_at = i; break; }
         }
-        CHECK("H-L09b", (lost_at >= 0) && (LINE_STATE_LOST == t.state), "long white -> LOST");
-        for (i = 0; i < 3; i++) { e = line_tracker_step(&t, &p, white, false); }
-        CHECK("H-L09c", LINE_STATE_LOST == t.state, "white alone does not leave LOST");
+        for (i = 0; i < 1000; i++) { (void)line_tracker_step(&t, &p, white, false); }
+        CHECK("H-L09b", (LINE_STATE_FOLLOW == t.state) && (0 == t.steering),
+              "straddle: 10 s of white stays FOLLOW and straight (no LOST)");
         for (i = 0; i < 3; i++) { e = line_tracker_step(&t, &p, c_only, false); }
-        CHECK("H-L09d", LINE_STATE_FOLLOW == t.state, "a black sensor returns to FOLLOW");
+        CHECK("H-L09d", (LINE_STATE_FOLLOW == t.state) && (t.steering < 0),
+              "C black still steers left");
         for (i = 0; i < 3; i++) { e = line_tracker_step(&t, &p, both, false); }
         CHECK("H-L09e", (LINE_EVT_JUNCTION == e) && (LINE_STATE_JUNCTION == t.state),
               "C and R both black -> JUNCTION");
         (void)e;
+
+        /* H-L10..12: no over-correction, gentle start that grows */
+        {
+            int16_t first;
+            int16_t later;
+
+            line_params_default(&p);
+            p.kp_num = 4;   /* first nudge 100 */
+            p.kd_num = 10;  /* +10 per sample */
+            line_tracker_reset(&t);
+            (void)line_tracker_step(&t, &p, white, false);
+            (void)line_tracker_step(&t, &p, white, false);
+            (void)line_tracker_step(&t, &p, r_only, false);
+            first = t.steering;
+            for (i = 0; i < 20; i++) { (void)line_tracker_step(&t, &p, r_only, false); }
+            later = t.steering;
+            CHECK("H-L10", (100 == first) && (300 == later),
+                  "R black: starts at 100, grows to 300 after 20 more samples");
+            (void)line_tracker_step(&t, &p, both, false);
+            CHECK("H-L11a", t.steering >= later, "both black holds the correction");
+            (void)line_tracker_step(&t, &p, white, false);
+            CHECK("H-L11b", 0 == t.steering, "medium correction (310) then white: straight at once");
+            (void)line_tracker_step(&t, &p, c_only, false);
+            CHECK("H-L12", -100 == t.steering, "other side starts gently again");
+            /* H-L13..16: curve memory for tight curves / U-turns */
+            p.kp_num = 4; p.kd_num = 10;
+            line_tracker_reset(&t);
+            (void)line_tracker_step(&t, &p, white, false);
+            (void)line_tracker_step(&t, &p, white, false);
+            for (i = 0; i < 5; i++) { (void)line_tracker_step(&t, &p, c_only, false); }
+            (void)line_tracker_step(&t, &p, white, false);
+            CHECK("H-L13", 0 == t.steering, "short touch then white: straight at once");
+            for (i = 0; i < 70; i++) { (void)line_tracker_step(&t, &p, c_only, false); }
+            later = t.steering;
+            (void)line_tracker_step(&t, &p, white, false);
+            CHECK("H-L14a", (later < 0) && (t.steering == later),
+                  "long left correction then white: keeps turning left (line outside)");
+            for (i = 0; i < 50; i++) { (void)line_tracker_step(&t, &p, white, false); }
+            CHECK("H-L14b", t.steering == later, "still turning after 0.5 s of white");
+            (void)line_tracker_step(&t, &p, c_only, false);
+            (void)line_tracker_step(&t, &p, white, false);
+            CHECK("H-L15", 0 == t.steering, "line came back in, then white: straight (no new hold)");
+            for (i = 0; i < 70; i++) { (void)line_tracker_step(&t, &p, c_only, false); }
+            for (i = 0; i < S3_STRADDLE_HOLD_MAX + 2; i++) { (void)line_tracker_step(&t, &p, white, false); }
+            CHECK("H-L16a", 0 == t.steering, "curve memory gives up after HOLD_MAX");
+            for (i = 0; i < 5; i++) { (void)line_tracker_step(&t, &p, white, false); }
+            CHECK("H-L16b", 0 == t.steering, "and does not start again on white");
+            for (i = 0; i < 70; i++) { (void)line_tracker_step(&t, &p, c_only, false); }
+            (void)line_tracker_step(&t, &p, white, false);
+            (void)line_tracker_step(&t, &p, r_only, false);
+            CHECK("H-L16c", 100 == t.steering, "other sensor during hold: gentle right (100)");
+            p.kp_num = 0; p.kd_num = 0;
+            (void)line_tracker_step(&t, &p, c_only, false);
+            CHECK("H-L12b", 0 == t.steering, "Kp 0 and Kd 0: no steering");
+#if (S3_STRADDLE_DECAY > 0)
+            /* H-L17: turn memory over short white gaps (S3_STRADDLE_DECAY) */
+            p.kp_num = 4; p.kd_num = 10;
+            line_tracker_reset(&t);
+            (void)line_tracker_step(&t, &p, white, false);
+            (void)line_tracker_step(&t, &p, white, false);
+            for (i = 0; i < 10; i++) { (void)line_tracker_step(&t, &p, r_only, false); }
+            CHECK("H-L17a", 190 == t.steering, "R black 10 samples: 190");
+            for (i = 0; i < 3; i++) { (void)line_tracker_step(&t, &p, white, false); }
+            CHECK("H-L17b", 0 == t.steering, "short white gap: straight (no over-correction)");
+            (void)line_tracker_step(&t, &p, r_only, false);
+            CHECK("H-L17c", (100 + 10 * (9 - 3 * S3_STRADDLE_DECAY + 1)) == t.steering,
+                  "R black again soon: carries on, not back to the first nudge");
+            for (i = 0; i < 200; i++) { (void)line_tracker_step(&t, &p, white, false); }
+            (void)line_tracker_step(&t, &p, r_only, false);
+            CHECK("H-L17d", 100 == t.steering, "after a long white gap: first nudge again");
+            for (i = 0; i < 10; i++) { (void)line_tracker_step(&t, &p, r_only, false); }
+            (void)line_tracker_step(&t, &p, white, false);
+            (void)line_tracker_step(&t, &p, c_only, false);
+            CHECK("H-L17e", -100 == t.steering, "other side always starts gently");
+            /* flicker on a tight curve: 5 black / 2 white repeated builds up to a hold */
+            line_tracker_reset(&t);
+            (void)line_tracker_step(&t, &p, white, false);
+            (void)line_tracker_step(&t, &p, white, false);
+            for (int j = 0; j < 30; j++)
+            {
+                for (i = 0; i < 5; i++) { (void)line_tracker_step(&t, &p, r_only, false); }
+                for (i = 0; i < 2; i++) { (void)line_tracker_step(&t, &p, white, false); }
+            }
+            CHECK("H-L17f", t.steering >= S3_STRADDLE_HOLD_MAG,
+                  "R flickering on a curve: grows and the curve memory takes over");
+#endif
+        }
     }
 
     /* H-L05: calibration + normalisation (analogue C, R) */

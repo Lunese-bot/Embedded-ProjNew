@@ -69,6 +69,43 @@
    weighted-average position is used (line under the sensors). */
 #define S3_STRADDLE 1
 
+/* Straddle steering (line_algo.c).  While one sensor is black:
+     steer = S3_KP_NUM * S3_STRADDLE_BASE + S3_KD_NUM * (10 ms samples black)
+   clamped to 1000 (1000 = inner wheel stopped).  Steering is 0 as soon as
+   both sensors read white again.  KP = how hard the first nudge is,
+   KD = how fast it grows while the sensor stays on the line.  TUNE. */
+#define S3_STRADDLE_BASE 25
+
+/* Curve memory (tight curves, U-turns).  If the robot was already turning
+   hard (steering at least HOLD_MAG of 1000) when the sensor reads white
+   again, the line has probably slipped OUTSIDE the sensor, so keep the same
+   turn for up to HOLD_MAX samples (10 ms each) or until the line is back
+   under a sensor.  Gentle corrections (straights) still release at once,
+   so there is no over-correction there.  HOLD_MAX 0 = off.  TUNE. */
+#define S3_STRADDLE_HOLD_MAG 700 /* only after a hard turn (70 %) */
+#define S3_STRADDLE_HOLD_MAX 100 /* keep turning up to 1.0 s      */
+
+/* Straddle, 2026-11-04 (U-turn CSVs): on a tight curve C touches the line,
+   goes white for a moment, touches again...  Each touch restarted at the
+   gentle first nudge, so the turn never built up.  Now each white sample
+   only takes S3_STRADDLE_DECAY off the grow counter, so a touch soon after
+   another on the SAME side carries on where it was.  The other side still
+   starts gently.  Steering on white is still 0.  0 = reset at once (old). */
+#define S3_STRADDLE_DECAY 1
+
+/* Straddle: L as a far-left helper.  L black means the line is even further
+   left than C.  Only used while a left turn is in progress (or remembered),
+   so a barcode under L on a straight does not steer:
+     L+C black          -> full left turn
+     L black, C R white -> full left turn and keep it (curve memory)
+   1 = on, 0 = L for barcodes only (old). */
+#define S3_STRADDLE_L_ASSIST 0
+
+/* Straddle: 0 = never enter LOST (both white just means drive straight),
+   1 = LOST after S3_LOST_SAMPLES of both white.  Off for now: LOST
+   triggered searches that were not wanted. */
+#define S3_STRADDLE_LOST 0
+
 /* Sensors that must all see black for a junction: C and R (the left sensor
    only reads barcodes). */
 #define S3_JUNCTION_MASK (S3_MASK_C | S3_MASK_R)
@@ -110,8 +147,8 @@
 
 /* PD steering: steering = (KP*err + KD*(err - prev_err)) / GAIN_DEN,
    clamped to +-1000 (positive = steer right).  TUNE. */
-#define S3_KP_NUM   8
-#define S3_KD_NUM   0 /* start P-only; add D back later if needed */
+#define S3_KP_NUM   5  /* straddle: first nudge 5*25 = 125 (tuned 2026-11-04) */
+#define S3_KD_NUM   16 /* straddle: +16 per 10 ms on black (tuned 2026-11-04) */
 #define S3_GAIN_DEN 10
 
 /* Calibration (ADC mode): sweep the sensors over line and floor for

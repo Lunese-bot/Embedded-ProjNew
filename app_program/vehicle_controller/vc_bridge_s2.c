@@ -33,6 +33,7 @@
  */
 
 #include "vc_bridge.h"
+#include "vc_sm.h" /* VC_CURVE_SLOW_PERMILLE */
 #include "../subsystem2/subsystem2.h"
 #include "../debugging/live_tune.h"
 
@@ -120,9 +121,27 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
                 value = -value; /* dashboard: swap left and right steering */
             }
 #endif
-            g_steer     = -((value * sent_speed()) / VC_STEER_FULL_SCALE);
-            g_b_driving = true;
-            ercd        = s2_cmd_drive(sent_speed(), g_steer);
+            {
+                /* slower in curves: the harder S3 steers, the lower the
+                   forward speed (vc_sm.h VC_CURVE_SLOW_PERMILLE) */
+                int32_t base = sent_speed();
+                int32_t mag  = (value < 0) ? -value : value;
+                int32_t fwd;
+#if S2_WEBDEBUG
+                int32_t slow = g_lt_curve;
+#else
+                int32_t slow = VC_CURVE_SLOW_PERMILLE;
+#endif
+                mag = (mag > VC_STEER_FULL_SCALE) ? VC_STEER_FULL_SCALE : mag;
+                fwd = base - ((base * slow / 1000) * mag) / VC_STEER_FULL_SCALE;
+                if ((fwd < VC_CURVE_MIN_MMS) && (base > VC_CURVE_MIN_MMS))
+                {
+                    fwd = VC_CURVE_MIN_MMS;
+                }
+                g_steer     = -((value * fwd) / VC_STEER_FULL_SCALE);
+                g_b_driving = true;
+                ercd        = s2_cmd_drive(fwd, g_steer);
+            }
             break;
         case VC_MOVE_SET_SPEED:
             g_speed = value;

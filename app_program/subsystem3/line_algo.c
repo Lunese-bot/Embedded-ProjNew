@@ -169,6 +169,13 @@ void line_tracker_reset(line_tracker_t * p_trk)
     p_trk->found_count    = 0u;
     p_trk->junction_count = 0u;
     p_trk->prev_error     = 0;
+    p_trk->corr_side      = 0;
+    p_trk->corr_count     = 0u;
+    p_trk->corr_mag       = 0;
+    p_trk->hold_count     = 0u;
+    p_trk->b_hold         = false;
+    p_trk->b_reentry      = false;
+    p_trk->mem_side       = 0;
 }
 
 /* Step 4 of line_tracker_step(): the line state machine */
@@ -200,7 +207,8 @@ static line_evt_t tracker_update_state(line_tracker_t *      p_trk,
                 p_trk->state = LINE_STATE_JUNCTION;
                 evt          = LINE_EVT_JUNCTION;
             }
-            else if (p_trk->lost_count >= p_params->lost_samples)
+            else if ((p_trk->lost_count >= p_params->lost_samples) &&
+                     ((!p_params->straddle) || (0 != S3_STRADDLE_LOST)))
             {
                 p_trk->state = LINE_STATE_LOST;
                 evt          = LINE_EVT_LOST;
@@ -306,14 +314,146 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
         p_trk->position = (int16_t)(p_trk->last_side * LINE_POS_MAX);
     }
 
-    /* 2. PD steering on the error */
+    /* 2. Steering */
     p_trk->error = clamp16((int32_t)p_trk->position - p_params->setpoint,
                            2 * LINE_POS_MAX);
-    steer        = ((int32_t)p_params->kp_num * p_trk->error) +
-            ((int32_t)p_params->kd_num * (p_trk->error - p_trk->prev_error));
-    if (p_params->gain_den != 0)
+    if (p_params->straddle)
     {
-        steer /= p_params->gain_den;
+        /* Straddle: correct ONLY while a sensor sees black, and stop the
+           moment both are white again, so the robot never keeps turning
+           past the line (no over-correction).
+             C black only -> steer left, R black only -> steer right,
+             both white   -> 0 (straight),
+             both black   -> keep the current correction (junction off).
+           Strength = a gentle start (kp_num * S3_STRADDLE_BASE) that grows
+           by kd_num per 10 ms sample while that sensor stays black, so a
+           short touch gives a small nudge and a sharp curve a strong turn. */
+        bool    b_c  = (0u != (mask & S3_MASK_C));
+        bool    b_r  = (0u != (mask & S3_MASK_R));
+        int8_t  side = (b_c && !b_r) ? -1 : ((b_r && !b_c) ? 1 : 0);
+        int32_t mag;
+        /* L black while a left turn is going on (or remembered): the line
+           is further left than C */
+        bool    b_far = (0 != S3_STRADDLE_L_ASSIST) &&
+                        (0u != (mask & S3_MASK_L)) && (!b_r) &&
+                        ((p_trk->corr_side < 0) ||
+                         ((p_trk->mem_side < 0) && (p_trk->corr_count > 0u)));
+
+        if (b_c && b_r)
+        {
+            side = p_trk->corr_side; /* both black: hold */
+        }
+        if ((0 == side) && b_far)
+        {
+            /* only L black: the line is outside on the left.  Turn fully
+               and keep turning (curve memory) until it is back under C. */
+            p_trk->b_hold     = true;
+            p_trk->hold_count = 0u;
+            p_trk->b_reentry  = false;
+            p_trk->corr_mag   = (int16_t)LINE_STEER_MAX;
+            p_trk->mem_side   = -1;
+            side              = -1;
+            steer             = -(int32_t)LINE_STEER_MAX;
+        }
+        else if ((0 == side) && p_trk->b_hold)
+        {
+            /* Curve memory: the line slipped past the sensor to the
+               outside of a tight curve, so both read white although the
+               robot is NOT centred.  Keep turning the same way until the
+               line comes back under a sensor, or for at most
+               S3_STRADDLE_HOLD_MAX samples. */
+            p_trk->hold_count++;
+            if (p_trk->hold_count > S3_STRADDLE_HOLD_MAX)
+            {
+                /* gave up: drive straight, no new hold until a sensor
+                   sees black again */
+                p_trk->b_hold     = false;
+                p_trk->corr_count = 0u;
+                steer             = 0;
+                side              = 0;
+            }
+            else
+            {
+                steer = (int32_t)p_trk->corr_side * p_trk->corr_mag;
+                side  = p_trk->corr_side; /* still correcting this side */
+            }
+        }
+        else if (0 == side)
+        {
+            /* A HARD correction that ends on white means the line went
+               outside (a sharp curve): start the curve memory.  A short
+               touch, or the line coming back in after a hold, means the
+               robot is centred again: go straight at once. */
+            if ((0 != p_trk->corr_side) && (!p_trk->b_reentry) &&
+                (S3_STRADDLE_HOLD_MAX > 0) &&
+                (p_trk->corr_mag >= S3_STRADDLE_HOLD_MAG))
+            {
+                p_trk->b_hold     = true;
+                p_trk->hold_count = 0u;
+                steer             = (int32_t)p_trk->corr_side * p_trk->corr_mag;
+                side              = p_trk->corr_side;
+            }
+            else
+            {
+                /* straight now, but remember the turn for a short while
+                   (S3_STRADDLE_DECAY per sample, 0 = forget at once) */
+                p_trk->b_reentry = false;
+                if ((0 == S3_STRADDLE_DECAY) ||
+                    (p_trk->corr_count <= (uint16_t)S3_STRADDLE_DECAY))
+                {
+                    p_trk->corr_count = 0u;
+                }
+                else
+                {
+                    p_trk->corr_count =
+                        (uint16_t)(p_trk->corr_count - S3_STRADDLE_DECAY);
+                }
+                steer = 0;
+            }
+        }
+        else
+        {
+            if (p_trk->b_hold)
+            {
+                /* the line is back under a sensor: the hold is over.  Same
+                   side = it re-enters from outside, so the next white means
+                   centred (no new hold). */
+                p_trk->b_hold    = false;
+                p_trk->b_reentry = (side == p_trk->corr_side);
+            }
+            if ((side != p_trk->mem_side) ||
+                ((0u == p_trk->corr_count) && (side != p_trk->corr_side)))
+            {
+                p_trk->corr_count = 0u; /* other side: start gently */
+                p_trk->b_reentry  = false;
+            }
+            else if (p_trk->corr_count < 1000u)
+            {
+                p_trk->corr_count++; /* same side: carry on growing */
+            }
+            p_trk->mem_side = side;
+            mag = ((int32_t)p_params->kp_num * S3_STRADDLE_BASE) +
+                  ((int32_t)p_params->kd_num * (int32_t)p_trk->corr_count);
+            if (b_far && (side < 0))
+            {
+                mag = LINE_STEER_MAX; /* L and C black: line far left */
+            }
+            mag   = (mag > LINE_STEER_MAX) ? LINE_STEER_MAX : ((mag < 0) ? 0 : mag);
+            steer = (int32_t)side * mag;
+            p_trk->corr_mag  = (int16_t)mag;
+            p_trk->last_side = side;
+        }
+        p_trk->corr_side = side;
+    }
+    else
+    {
+        /* PD steering on the error */
+        steer = ((int32_t)p_params->kp_num * p_trk->error) +
+                ((int32_t)p_params->kd_num * (p_trk->error - p_trk->prev_error));
+        if (p_params->gain_den != 0)
+        {
+            steer /= p_params->gain_den;
+        }
     }
     p_trk->steering   = clamp16(steer, LINE_STEER_MAX);
     p_trk->prev_error = p_trk->error;

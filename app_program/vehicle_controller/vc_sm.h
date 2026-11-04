@@ -19,8 +19,14 @@
  *  Tuning.  Preliminary values: validate on the track (NFR2, NFR5,
  *  design review 8.3 "recovery limits ... need validation").
  * --------------------------------------------------------------------- */
-#define VC_SPEED_CRUISE_MMS 200 /* normal line following */
-#define VC_SPEED_SLOW_MMS   100 /* barcode reading, humps */
+#define VC_SPEED_CRUISE_MMS 120 /* normal line following (tuned 2026-11-04: was 200 at 60%) */
+#define VC_SPEED_SLOW_MMS   60  /* barcode reading, humps (scaled with cruise) */
+/* Slow down in curves: forward speed is cut by up to this much (permille)
+   at full steering, in proportion to how hard S3 steers.  400 = at a full
+   turn the robot drives at 60 % of cruise; a small nudge barely slows it.
+   Never below VC_CURVE_MIN_MMS.  TUNE (live on the dashboard). */
+#define VC_CURVE_SLOW_PERMILLE 600 /* tuned 2026-11-04: U-turn works at 60 % */
+#define VC_CURVE_MIN_MMS       60
 #define VC_TURN_DEG         90  /* barcode LEFT / RIGHT */
 #define VC_SEARCH_TURN_DEG  30  /* LOST_LINE attempt 1 (attempt 2: x2) */
 #define VC_SEARCH_BACK_MM   50  /* LOST_LINE attempt 3: reverse */
