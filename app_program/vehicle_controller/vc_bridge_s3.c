@@ -29,6 +29,7 @@
  */
 
 #include "vc_bridge.h"
+#include "../debugging/live_tune.h"
 #include "vc_sm.h"
 #include "../subsystem3/subsystem3.h"
 
@@ -38,6 +39,15 @@
 
 static uint32_t g_last_seq;
 static bool     g_b_ready_pending;
+
+/* Bench switch from the dashboard: 0 = the mission ignores barcodes (no
+   start, decode or fail events, and S3 is kept from scanning), so the line
+   follower can be tested on its own. */
+#if S2_WEBDEBUG
+#define BC_OFF (0 == g_lt_bc_en)
+#else
+#define BC_OFF 0
+#endif
 
 static void make(vc_event_t * p_event, vc_event_type_t type, int32_t param1,
                  int32_t param2, uint32_t time_ms)
@@ -57,6 +67,12 @@ static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
 {
     bool b_event = true;
 
+    if (BC_OFF && ((S3_EVT_BARCODE_START == p_s3->type) ||
+                   (S3_EVT_BARCODE_DECODED == p_s3->type) ||
+                   (S3_EVT_BARCODE_FAILED == p_s3->type)))
+    {
+        return false; /* barcodes switched off from the dashboard */
+    }
     switch (p_s3->type)
     {
         case S3_EVT_LINE_LOST:
@@ -182,7 +198,8 @@ ER vc_bridge_s3_request(vc_request_t req, int32_t arg)
             }
             break;
         case VC_REQ_LINE_FOLLOW:
-            ercd = s3_request(S3_REQ_BC_ENABLE);
+            ercd = BC_OFF ? s3_request(S3_REQ_BC_DISABLE)
+                          : s3_request(S3_REQ_BC_ENABLE);
             break;
         case VC_REQ_BARCODE_READ:
             if (arg > 0)

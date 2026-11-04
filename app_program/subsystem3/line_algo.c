@@ -34,7 +34,11 @@ void line_params_default(line_params_t * p_params)
     p_params->line_mask        = (uint8_t)S3_LINE_MASK;
     p_params->junction_mask    = (uint8_t)S3_JUNCTION_MASK;
     p_params->weight[S3_IR_L]  = S3_WEIGHT_L;
+#if (S3_LINE_MASK) == (S3_MASK_L | S3_MASK_C | S3_MASK_R)
     p_params->weight[S3_IR_C]  = S3_WEIGHT_C;
+#else
+    p_params->weight[S3_IR_C]  = S3_WEIGHT_C_CR;
+#endif
     p_params->weight[S3_IR_R]  = S3_WEIGHT_R;
     p_params->setpoint         = S3_LINE_SETPOINT;
     p_params->black_threshold  = S3_BLACK_THRESHOLD;
@@ -44,6 +48,8 @@ void line_params_default(line_params_t * p_params)
     p_params->kp_num           = S3_KP_NUM;
     p_params->kd_num           = S3_KD_NUM;
     p_params->gain_den         = S3_GAIN_DEN;
+    p_params->junction_threshold = S3_JUNCTION_THRESHOLD;
+    p_params->straddle         = (0 != S3_STRADDLE);
 }
 
 void line_cal_reset(line_cal_t * p_cal)
@@ -230,7 +236,9 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
     int32_t steer;
     uint8_t idx;
     uint8_t mask = 0u;
+    uint8_t jmask = 0u; /* sensors above the (stricter) junction threshold */
     bool    b_line_seen;
+    bool    b_found;
     bool    b_junction;
 
     /* 1. Which sensors see black, and the weighted line position */
@@ -239,6 +247,10 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
         if (p_norm[idx] >= p_params->black_threshold)
         {
             mask |= (uint8_t)(1u << idx);
+        }
+        if (p_norm[idx] >= p_params->junction_threshold)
+        {
+            jmask |= (uint8_t)(1u << idx);
         }
         if (0u != (p_params->line_mask & (1u << idx)))
         {
@@ -250,10 +262,29 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
 
     b_line_seen = (0u != (mask & p_params->line_mask));
     b_junction =
-        ((mask & p_params->junction_mask) == p_params->junction_mask) &&
+        (0u != p_params->junction_mask) && /* 0 = junction detection off */
+        ((jmask & p_params->junction_mask) == p_params->junction_mask) &&
         (!b_junction_inhibit);
 
-    if (b_line_seen && (sum_n > 0))
+    if (p_params->straddle)
+    {
+        /* Line between C and R: position = R - C (weights -1000 / +1000).
+           Both white = 0 (straight), C black = left, R black = right. */
+        p_trk->position = clamp16(sum_w / (int32_t)LINE_NORM_MAX, LINE_POS_MAX);
+        if (p_trk->position < p_params->setpoint)
+        {
+            p_trk->last_side = -1;
+        }
+        else if (p_trk->position > p_params->setpoint)
+        {
+            p_trk->last_side = 1;
+        }
+        else
+        {
+            /* centred: keep the last side */
+        }
+    }
+    else if (b_line_seen && (sum_n > 0))
     {
         p_trk->position = clamp16(sum_w / sum_n, LINE_POS_MAX);
         if (p_trk->position < p_params->setpoint)
@@ -289,7 +320,12 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
 
     /* 3. Debounce counters */
     p_trk->lost_count  = b_line_seen ? 0u : (uint16_t)(p_trk->lost_count + 1u);
-    p_trk->found_count = b_line_seen ? (uint16_t)(p_trk->found_count + 1u) : 0u;
+    /* Straddle: both white is a valid "on the line" reading while searching,
+       but to leave LOST a sensor must see black again. */
+    b_found = p_params->straddle
+                  ? (b_line_seen || (LINE_STATE_SEARCH == p_trk->state))
+                  : b_line_seen;
+    p_trk->found_count = b_found ? (uint16_t)(p_trk->found_count + 1u) : 0u;
     p_trk->junction_count =
         b_junction ? (uint16_t)(p_trk->junction_count + 1u) : 0u;
 

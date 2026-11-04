@@ -28,6 +28,15 @@
 
 #include "vc_bridge.h"
 #include "../subsystem5/subsystem5.h"
+#include "../debugging/live_tune.h"
+
+/* Bench switch from the dashboard: 0 = the mission ignores the obstacle
+   sensor completely, so line following can be tested on its own. */
+#if S2_WEBDEBUG
+#define OBST_OFF (0 == g_lt_obst_en)
+#else
+#define OBST_OFF 0
+#endif
 
 #ifdef S5_PRI_AVOID /* S5's real interface is present */
 
@@ -115,6 +124,10 @@ static void convert_motion(const s5_motion_req_t * p_req, uint32_t time_ms)
 /* One S5 event -> zero, one or two pending controller events */
 static void convert_s5_event(const s5_evt_t * p_evt)
 {
+    if (OBST_OFF)
+    {
+        return; /* obstacle checking switched off from the dashboard */
+    }
     switch (p_evt->type)
     {
         case S5_EVT_OBSTACLE_DETECTED:
@@ -238,7 +251,10 @@ ER vc_bridge_s5_request(vc_request_t req, int32_t arg)
             }
             break;
         case VC_REQ_OBST_MONITOR:
-            send_cmd(S5_CMD_ENABLE, 0, 0);
+            if (!OBST_OFF)
+            {
+                send_cmd(S5_CMD_ENABLE, 0, 0);
+            }
             break;
         case VC_REQ_OBST_AVOID:
             g_b_wait_done = false;

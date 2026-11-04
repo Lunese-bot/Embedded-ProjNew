@@ -59,12 +59,34 @@
    the line too. */
 #define S3_LINE_MASK (S3_MASK_C | S3_MASK_R)
 
-/* Sensors that must all see black for a junction */
-#define S3_JUNCTION_MASK (S3_MASK_L | S3_MASK_C | S3_MASK_R)
+/* STRADDLE layout (S3_STRADDLE 1): the line runs BETWEEN the centre and the
+   right sensor.
+     both white   -> the line is between them: drive straight
+     C black only -> the line drifted toward C: steer left
+     R black only -> the line drifted toward R: steer right
+     both black   -> junction
+   The left sensor is only used for barcodes.  With S3_STRADDLE 0 the old
+   weighted-average position is used (line under the sensors). */
+#define S3_STRADDLE 1
+
+/* Sensors that must all see black for a junction: C and R (the left sensor
+   only reads barcodes). */
+#define S3_JUNCTION_MASK (S3_MASK_C | S3_MASK_R)
+
+/* A junction needs those sensors above THIS normalised reading
+   (0 white .. 1000 black), which is stricter than S3_BLACK_THRESHOLD, so
+   a curve that only partly covers a sensor does not count.  Only has an
+   effect on analogue sensors (S3_IR_USE_ADC 1): digital sensors read 0 or
+   1000.  Adjustable live from the dashboard.  TUNE. */
+#define S3_JUNCTION_THRESHOLD 950
 
 /* Position weight of each sensor, -1000 (far left) .. +1000 (far right) */
 #define S3_WEIGHT_L (-1000)
 #define S3_WEIGHT_C 0
+/* Centre weight when only C+R steer: C -1000 / R +1000 is symmetric, so
+   both on black = 0, C only = -1000, R only = +1000 (error can be negative).
+   With L+C+R the normal S3_WEIGHT_C is used. */
+#define S3_WEIGHT_C_CR (-1000)
 #define S3_WEIGHT_R 1000
 
 /* Position the controller holds the robot at.  With S3_LINE_MASK = C+R,
@@ -76,14 +98,20 @@
 #define S3_BLACK_THRESHOLD 500
 
 /* Debounce, in samples of S3_LINE_PERIOD_MS */
+#if S3_STRADDLE
+/* Both sensors white is normal (line between them), so only call the line
+   lost after both have been white this long: 150 samples = 1.5 s. */
+#define S3_LOST_SAMPLES 150
+#else
 #define S3_LOST_SAMPLES     5 /* 50 ms with no line -> LOST     */
+#endif
 #define S3_FOUND_SAMPLES    2 /* 20 ms with line   -> FOLLOW    */
 #define S3_JUNCTION_SAMPLES 3 /* 30 ms all black   -> JUNCTION  */
 
 /* PD steering: steering = (KP*err + KD*(err - prev_err)) / GAIN_DEN,
    clamped to +-1000 (positive = steer right).  TUNE. */
 #define S3_KP_NUM   8
-#define S3_KD_NUM   20
+#define S3_KD_NUM   0 /* start P-only; add D back later if needed */
 #define S3_GAIN_DEN 10
 
 /* Calibration (ADC mode): sweep the sensors over line and floor for

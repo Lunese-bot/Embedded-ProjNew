@@ -22,6 +22,7 @@
 #include "subsystem3.h"
 #include "drv_ir.h"
 #include "line_algo.h"
+#include "../debugging/live_tune.h"
 
 /* Line task state, private to this file */
 static line_params_t  g_params;
@@ -160,6 +161,28 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us)
 
     /* A barcode bar can look like a junction: no junctions
        while barcode_task is reading one */
+#if S2_WEBDEBUG
+    /* live tuning of the steering PD from the dashboard */
+    g_params.kp_num = (int16_t)g_lt_line_kp;
+    g_params.kd_num = (int16_t)g_lt_line_kd;
+    g_params.junction_threshold = (uint16_t)g_lt_junc_thr;
+    if (g_lt_junc_mode >= 0)
+    {
+        g_params.junction_mask =
+            (0 == g_lt_junc_mode)
+                ? (uint8_t)0
+                : ((1 == g_lt_junc_mode) ? (uint8_t)(S3_MASK_C | S3_MASK_R)
+                                         : (uint8_t)(S3_MASK_L | S3_MASK_C | S3_MASK_R));
+    }
+    g_params.lost_samples = (uint16_t)g_lt_lost;
+    g_params.setpoint  = (int16_t)g_lt_line_sp;
+    /* straddle only applies with C+R steering; L+C+R uses the old weights */
+    g_params.straddle = (0 == g_lt_line_all) && (0 != S3_STRADDLE);
+    g_params.weight[S3_IR_C] = (0 != g_lt_line_all) ? S3_WEIGHT_C : S3_WEIGHT_C_CR;
+    g_params.line_mask = (0 != g_lt_line_all)
+                             ? (uint8_t)(S3_MASK_L | S3_MASK_C | S3_MASK_R)
+                             : (uint8_t)S3_LINE_MASK;
+#endif
     evt = line_tracker_step(&g_tracker, &g_params, norm, g_b_s3_bc_scanning);
 
     switch (evt)

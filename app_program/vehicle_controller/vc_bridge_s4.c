@@ -25,6 +25,16 @@
 
 #include "vc_bridge.h"
 #include "../subsystem4/subsystem4.h"
+#include "../debugging/live_tune.h"
+
+/* Bench switch from the dashboard: 0 = the mission ignores IMU hump, impact,
+   tilt and fault events (calibration-done still passes, so the start-up
+   self check works).  Lets the line follower be tested on its own. */
+#if S2_WEBDEBUG
+#define IMU_OFF (0 == g_lt_imu_en)
+#else
+#define IMU_OFF 0
+#endif
 
 #ifdef S4_PRI_IMU /* S4's real interface is present */
 
@@ -70,6 +80,10 @@ static bool map_imu_event(const imu_event_msg_t * p_msg, vc_event_t * p_event)
 {
     bool b_event = true;
 
+    if (IMU_OFF && (IMU_EVT_CAL_DONE != p_msg->type))
+    {
+        return false; /* IMU events switched off from the dashboard */
+    }
     switch (p_msg->type)
     {
         case IMU_EVT_CAL_DONE:

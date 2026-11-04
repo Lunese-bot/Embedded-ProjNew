@@ -34,6 +34,7 @@
 
 #include "vc_bridge.h"
 #include "../subsystem2/subsystem2.h"
+#include "../debugging/live_tune.h"
 
 #ifdef S2_PRI_MOTION /* S2's real interface is present */
 
@@ -47,6 +48,32 @@
 #define S2_EVENT_BITS (MFLG_CMD_DONE | MFLG_STOPPED | MFLG_FAULT | MFLG_CMD_TIMEOUT)
 
 static int32_t  g_speed     = 0;     /* current forward speed, mm/s */
+
+/* Speed actually sent to S2.  Normally g_speed; with the dashboard's live
+   tuning on, scaled by g_lt_speed_pct so the mission speed can be tried
+   without a rebuild. */
+static int32_t sent_speed(void)
+{
+#if S2_WEBDEBUG
+    return (g_speed * g_lt_speed_pct) / 100;
+#else
+    return g_speed;
+#endif
+}
+/* Spin speed for the controller's turns (line search, barcode turns).  With
+   the dashboard's live tuning on it follows the mission speed percent, so
+   slowing the mission also slows the spinning; never below what a wheel
+   can turn smoothly. */
+#define VC_TURN_MIN_MMS 60
+static int32_t sent_turn_speed(void)
+{
+#if S2_WEBDEBUG
+    int32_t v = (VC_TURN_SPEED_MMS * g_lt_speed_pct) / 100;
+    return (v < VC_TURN_MIN_MMS) ? VC_TURN_MIN_MMS : v;
+#else
+    return VC_TURN_SPEED_MMS;
+#endif
+}
 static int32_t  g_steer     = 0;     /* last steering, S2 units */
 static bool     g_b_driving = false; /* last command was a DRIVE */
 static uint32_t g_got;               /* flag bits not yet handed out */
@@ -84,28 +111,34 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
             g_speed     = value;
             g_steer     = 0;
             g_b_driving = true;
-            ercd        = s2_cmd_drive(g_speed, 0);
+            ercd        = s2_cmd_drive(sent_speed(), 0);
             break;
         case VC_MOVE_STEER:
-            g_steer     = -((value * g_speed) / VC_STEER_FULL_SCALE);
+#if S2_WEBDEBUG
+            if (0 != g_lt_steer_inv)
+            {
+                value = -value; /* dashboard: swap left and right steering */
+            }
+#endif
+            g_steer     = -((value * sent_speed()) / VC_STEER_FULL_SCALE);
             g_b_driving = true;
-            ercd        = s2_cmd_drive(g_speed, g_steer);
+            ercd        = s2_cmd_drive(sent_speed(), g_steer);
             break;
         case VC_MOVE_SET_SPEED:
             g_speed = value;
-            ercd    = g_b_driving ? s2_cmd_drive(g_speed, g_steer) : E_OK;
+            ercd    = g_b_driving ? s2_cmd_drive(sent_speed(), g_steer) : E_OK;
             break;
         case VC_MOVE_TURN_LEFT:
             g_b_driving = false;
-            ercd        = s2_cmd_turn(VC_TURN_SPEED_MMS, value);
+            ercd        = s2_cmd_turn(sent_turn_speed(), value);
             break;
         case VC_MOVE_TURN_RIGHT:
             g_b_driving = false;
-            ercd        = s2_cmd_turn(VC_TURN_SPEED_MMS, -value);
+            ercd        = s2_cmd_turn(sent_turn_speed(), -value);
             break;
         case VC_MOVE_U_TURN:
             g_b_driving = false;
-            ercd        = s2_cmd_turn(VC_TURN_SPEED_MMS, VC_U_TURN_DEG);
+            ercd        = s2_cmd_turn(sent_turn_speed(), VC_U_TURN_DEG);
             break;
         case VC_MOVE_DRIVE_DIST:
             g_b_driving = false;
