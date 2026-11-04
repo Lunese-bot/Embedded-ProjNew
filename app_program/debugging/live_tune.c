@@ -23,6 +23,10 @@ volatile int32_t g_lt_steer_inv = 0;
 volatile int32_t g_lt_bc_en     = 1;
 volatile int32_t g_lt_imu_en    = 1;
 volatile int32_t g_lt_obst_en   = 1;
+volatile int32_t g_lt_ff_l      = 1000;
+volatile int32_t g_lt_ff_r      = 1000;
+volatile int32_t g_lt_ilim      = (int32_t)S2_PID_I_LIMIT;
+volatile int32_t g_lt_trim_step = 2;
 
 #endif /* S2_WEBDEBUG */
 

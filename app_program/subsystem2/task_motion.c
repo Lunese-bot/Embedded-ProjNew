@@ -525,6 +525,11 @@ static void calculate_pwm(float32_t dt_s)
     g_motion_ctx.pid_r.kp = (float32_t)g_lt_pid_kp100 / 100.0f;
     g_motion_ctx.pid_l.ki = (float32_t)g_lt_pid_ki100 / 100.0f;
     g_motion_ctx.pid_r.ki = (float32_t)g_lt_pid_ki100 / 100.0f;
+    /* per-wheel feed-forward and the integral limit */
+    g_motion_ctx.pid_l.kff = S2_PID_KFF * (float32_t)g_lt_ff_l / 1000.0f;
+    g_motion_ctx.pid_r.kff = S2_PID_KFF * (float32_t)g_lt_ff_r / 1000.0f;
+    g_motion_ctx.pid_l.i_limit = (float32_t)g_lt_ilim;
+    g_motion_ctx.pid_r.i_limit = (float32_t)g_lt_ilim;
 #endif
     g_motion_ctx.duty_l = wheel_duty(&g_motion_ctx.pid_l, g_motion_ctx.tgt_l,
                                      g_motion_ctx.spd_l, dt_s);

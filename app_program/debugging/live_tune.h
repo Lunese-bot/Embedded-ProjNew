@@ -31,6 +31,10 @@ extern volatile int32_t g_lt_steer_inv; /* 1 = swap left/right line steering */
 extern volatile int32_t g_lt_bc_en;     /* 1 = mission reads barcodes */
 extern volatile int32_t g_lt_imu_en;    /* 1 = mission uses the IMU events */
 extern volatile int32_t g_lt_obst_en;   /* 1 = mission uses the obstacle sensor */
+extern volatile int32_t g_lt_ff_l;      /* left feed-forward, permille of S2_PID_KFF (1000 = config) */
+extern volatile int32_t g_lt_ff_r;      /* right feed-forward, permille of S2_PID_KFF */
+extern volatile int32_t g_lt_ilim;      /* PID integral limit, permille duty */
+extern volatile int32_t g_lt_trim_step; /* trim change per button press, permille */
 #endif
 
 #endif /* LIVE_TUNE_H */

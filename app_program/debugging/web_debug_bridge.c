@@ -66,7 +66,7 @@ static int32_t clamp_to(int32_t v, int32_t lo, int32_t hi)
 
 static int32_t clamp_trim(int32_t v)
 {
-    return (v < 700) ? 700 : ((v > 1100) ? 1100 : v);
+    return (v < 500) ? 500 : ((v > 1500) ? 1500 : v);
 }
 
 /* ---------------------------------------------------------------------
@@ -97,6 +97,7 @@ static int32_t area_of(char c)
         case 'f': case 'b': case 'l': case 'r': case 'L': case 'R': case 'x':
         case 't': case 'T': case 'u': case 'U': case 'h': case 'v': case 'V':
         case 'p': case 'P': case 'i': case 'I':
+        case '8': case '9': case '0': case 'S': case '-': case '.': case '_': case '~':
             return 0; /* motor */
         case 'k': case 'K': case 'd': case 'D': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case 'w': case 'X': case 'a': case 'B': case 'o': case 'O': case 'm':
         case 'n': case 'y': case 'Y': case 'z':
@@ -318,10 +319,17 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
         case 'L': er = s2_cmd_turn(S2_TURN_SPEED_MM_S, WD_TURN_DEG); break;
         case 'R': er = s2_cmd_turn(S2_TURN_SPEED_MM_S, -WD_TURN_DEG); break;
         /* live tuning: no motion command, just change the trims */
-        case 't': g_s2_dbg_trim_l = clamp_trim(g_s2_dbg_trim_l - WD_TRIM_STEP); er = E_OK; break;
-        case 'T': g_s2_dbg_trim_l = clamp_trim(g_s2_dbg_trim_l + WD_TRIM_STEP); er = E_OK; break;
-        case 'u': g_s2_dbg_trim_r = clamp_trim(g_s2_dbg_trim_r - WD_TRIM_STEP); er = E_OK; break;
-        case 'U': g_s2_dbg_trim_r = clamp_trim(g_s2_dbg_trim_r + WD_TRIM_STEP); er = E_OK; break;
+        case 't': g_s2_dbg_trim_l = clamp_trim(g_s2_dbg_trim_l - g_lt_trim_step); er = E_OK; break;
+        case 'T': g_s2_dbg_trim_l = clamp_trim(g_s2_dbg_trim_l + g_lt_trim_step); er = E_OK; break;
+        case 'u': g_s2_dbg_trim_r = clamp_trim(g_s2_dbg_trim_r - g_lt_trim_step); er = E_OK; break;
+        case 'U': g_s2_dbg_trim_r = clamp_trim(g_s2_dbg_trim_r + g_lt_trim_step); er = E_OK; break;
+        case 'S': g_lt_trim_step = (2 == g_lt_trim_step) ? 10 : ((10 == g_lt_trim_step) ? 25 : 2); er = E_OK; break;
+        case '8': g_lt_ff_l = clamp_to(g_lt_ff_l - 25, 400, 2500); er = E_OK; break;
+        case '9': g_lt_ff_l = clamp_to(g_lt_ff_l + 25, 400, 2500); er = E_OK; break;
+        case '-': g_lt_ff_r = clamp_to(g_lt_ff_r - 25, 400, 2500); er = E_OK; break;
+        case '.': g_lt_ff_r = clamp_to(g_lt_ff_r + 25, 400, 2500); er = E_OK; break;
+        case '0': g_lt_ilim = clamp_to(g_lt_ilim - 100, 0, 900); er = E_OK; break;
+        case '_': g_lt_ilim = clamp_to(g_lt_ilim + 100, 0, 900); er = E_OK; break;
         case 'h': g_s2_dbg_straight = (0 != g_s2_dbg_straight) ? 0 : 1; er = E_OK; break;
         case 'v': g_wd_speed = (g_wd_speed - WD_SPEED_STEP < WD_SPEED_MIN) ? WD_SPEED_MIN : (g_wd_speed - WD_SPEED_STEP); er = E_OK; break;
         case 'V': g_wd_speed = (g_wd_speed + WD_SPEED_STEP > S2_MAX_SPEED_MM_S) ? S2_MAX_SPEED_MM_S : (g_wd_speed + WD_SPEED_STEP); er = E_OK; break;
@@ -440,6 +448,10 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
     n = kv(p_out, n, out_max, "lko", lock_state(3, client));
     n = kv(p_out, n, out_max, "lkv", lock_state(4, client));
     n = kv(p_out, n, out_max, "pidKp100", g_lt_pid_kp100);
+    n = kv(p_out, n, out_max, "ffL", g_lt_ff_l);
+    n = kv(p_out, n, out_max, "ffR", g_lt_ff_r);
+    n = kv(p_out, n, out_max, "ilim", g_lt_ilim);
+    n = kv(p_out, n, out_max, "tstep", g_lt_trim_step);
     n = kv(p_out, n, out_max, "pidKi100", g_lt_pid_ki100);
     n = kv(p_out, n, out_max, "lineKp", g_lt_line_kp);
     n = kv(p_out, n, out_max, "lineKd", g_lt_line_kd);
