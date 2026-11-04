@@ -499,6 +499,24 @@ static int32_t wheel_duty(pid_ctrl_t * p_pid, int32_t target,
 
     /* Below S2_DUTY_MIN_MOVE the motor only hums: lift to the minimum
        in the commanded direction (static friction compensation). */
+#if S2_WEBDEBUG
+    {
+        /* Bench: the full S2_DUTY_MIN_MOVE kick only while the wheel is
+           (nearly) stopped; once it turns, the floor is g_lt_dmin, so the
+           speed controller can slow a fast wheel below the kick duty. */
+        int32_t floor_duty = ((measured > -20.0f) && (measured < 20.0f))
+                                 ? S2_DUTY_MIN_MOVE
+                                 : g_lt_dmin;
+        if ((target > 0) && (duty < floor_duty))
+        {
+            duty = floor_duty;
+        }
+        if ((target < 0) && (duty > -floor_duty))
+        {
+            duty = -floor_duty;
+        }
+    }
+#else
     if ((target > 0) && (duty < S2_DUTY_MIN_MOVE))
     {
         duty = S2_DUTY_MIN_MOVE;
@@ -507,6 +525,7 @@ static int32_t wheel_duty(pid_ctrl_t * p_pid, int32_t target,
     {
         duty = -S2_DUTY_MIN_MOVE;
     }
+#endif
     return duty;
 }
 

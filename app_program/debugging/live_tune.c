@@ -24,6 +24,7 @@ volatile int32_t g_lt_bc_en     = 1;
 volatile int32_t g_lt_imu_en    = 0;   /* start with IMU checking OFF */
 volatile int32_t g_lt_obst_en   = 0;   /* start with obstacle checking OFF */
 volatile int32_t g_lt_lost_en    = 0;  /* start with lost-line handling OFF */
+volatile int32_t g_lt_dmin      = S2_DUTY_MIN_MOVE; /* same as before until changed */
 volatile int32_t g_lt_ff_l      = 1000;
 volatile int32_t g_lt_ff_r      = 1000;
 volatile int32_t g_lt_ilim      = (int32_t)S2_PID_I_LIMIT;

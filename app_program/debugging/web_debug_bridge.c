@@ -98,7 +98,7 @@ static int32_t area_of(char c)
         case 't': case 'T': case 'u': case 'U': case 'h': case 'v': case 'V':
         case 'p': case 'P': case 'i': case 'I':
         case '8': case '9': case '0': case 'S': case '-': case '.': case '_':
-        case '(': case ')':
+        case '(': case ')': case '!': case '*':
             return 0; /* motor */
         case 'k': case 'K': case 'd': case 'D': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case 'w': case 'X': case 'a': case 'B': case 'o': case 'O': case 'm':
         case 'n': case 'y': case 'Y': case 'z':
@@ -331,6 +331,8 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
         case 'S': g_lt_trim_step = (2 == g_lt_trim_step) ? 10 : ((10 == g_lt_trim_step) ? 25 : 2); er = E_OK; break;
         case '~': g_lt_lost_en = 0; er = E_OK; break; /* mission ignores LINE_LOST */
         case '=': g_lt_lost_en = 1; er = E_OK; break;
+        case '!': g_lt_dmin = clamp_to(g_lt_dmin - 25, 0, S2_DUTY_MIN_MOVE); er = E_OK; break;
+        case '*': g_lt_dmin = clamp_to(g_lt_dmin + 25, 0, S2_DUTY_MIN_MOVE); er = E_OK; break;
         case '8': g_lt_ff_l = clamp_to(g_lt_ff_l - 25, 400, 2500); er = E_OK; break;
         case '9': g_lt_ff_l = clamp_to(g_lt_ff_l + 25, 400, 2500); er = E_OK; break;
         case '-': g_lt_ff_r = clamp_to(g_lt_ff_r - 25, 400, 2500); er = E_OK; break;
@@ -456,6 +458,7 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
     n = kv(p_out, n, out_max, "lkv", lock_state(4, client));
     n = kv(p_out, n, out_max, "pidKp100", g_lt_pid_kp100);
     n = kv(p_out, n, out_max, "lostEn", g_lt_lost_en);
+    n = kv(p_out, n, out_max, "dmin", g_lt_dmin);
     n = kv(p_out, n, out_max, "ffL", g_lt_ff_l);
     n = kv(p_out, n, out_max, "ffR", g_lt_ff_r);
     n = kv(p_out, n, out_max, "ilim", g_lt_ilim);

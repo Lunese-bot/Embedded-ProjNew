@@ -32,6 +32,7 @@ extern volatile int32_t g_lt_bc_en;     /* 1 = mission reads barcodes */
 extern volatile int32_t g_lt_imu_en;    /* 1 = mission uses the IMU events */
 extern volatile int32_t g_lt_obst_en;   /* 1 = mission uses the obstacle sensor */
 extern volatile int32_t g_lt_lost_en;   /* 1 = mission reacts to LINE_LOST */
+extern volatile int32_t g_lt_dmin;     /* least duty while a wheel turns (bench), permille */
 extern volatile int32_t g_lt_ff_l;      /* left feed-forward, permille of S2_PID_KFF (1000 = config) */
 extern volatile int32_t g_lt_ff_r;      /* right feed-forward, permille of S2_PID_KFF */
 extern volatile int32_t g_lt_ilim;      /* PID integral limit, permille duty */
