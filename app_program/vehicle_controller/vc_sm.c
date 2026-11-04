@@ -1,6 +1,6 @@
 /*
  *      vc_sm.c
- *      Vehicle Controller -- Vehicle Controller mission state machine.
+ *      Subsystem 6 -- Vehicle Controller mission state machine.
  *
  *      Implements the "Vehicle controller" statechart of the design review
  *      (sections 5 and 6.1) and the fault rules of FR8 / NFR5 / NFR8:
@@ -9,9 +9,9 @@
  *        FOLLOW_LINE --line_lost-------> LOST_LINE      --found--> FOLLOW_LINE
  *                    --obstacle--------> AVOID_OBSTACLE --done---> FOLLOW_LINE
  *                    --barcode_start---> DECODE_BARCODE --decoded->
- * EXECUTE_ACTION
- *                                                       --manoeuvre_done-->
- * FOLLOW_LINE
+ * FOLLOW_LINE (buffer full barcode text)
+ *                    --junction--------> JUNCTION_STOP --S2 stopped->
+ * EXECUTE_ACTION --manoeuvre_done--> FOLLOW_LINE
  *                    --hump_start------> TERRAIN_CHECK  --cleared-> FOLLOW_LINE
  *                    --end_of_course---> MISSION_COMPLETE
  *        any active state --critical fault / impact / stop--> FAULT --reset-->
@@ -26,24 +26,26 @@
  */
 
 #include "vc_sm.h"
+#include "vc_barcode_rules.h"
 
 /* ------------------------------------------------------------------ */
 /*  Names, for console and telemetry                                   */
 /* ------------------------------------------------------------------ */
 
 static const char * const g_state_names[VC_ST_COUNT] = {
-    "IDLE",           "MISSION_START",   "FOLLOW_LINE",    "LOST_LINE",
-    "AVOID_OBSTACLE", "DECODE_BARCODE",  "EXECUTE_ACTION", "TERRAIN_CHECK",
-    "FAULT",          "MISSION_COMPLETE"
+    "IDLE",           "MISSION_START",   "FOLLOW_LINE",    "JUNCTION_STOP",
+    "LOST_LINE",      "AVOID_OBSTACLE",  "DECODE_BARCODE", "EXECUTE_ACTION",
+    "TERRAIN_CHECK",  "FAULT",           "MISSION_COMPLETE"
 };
 
 static const char * const g_event_names[VC_EV_COUNT] = {
     "NONE",          "READY",          "MOVE_REQUEST",    "FAULT",
     "CMD_START",     "CMD_STOP",       "CMD_RESET",       "WIFI_DOWN",
-    "WIFI_UP",       "MANOEUVRE_DONE", "LINE_LOST",       "LINE_FOUND",
-    "JUNCTION",      "BARCODE_START",  "BARCODE_DECODED", "BARCODE_FAILED",
-    "END_OF_COURSE", "HUMP_START",     "HUMP_CLEARED",    "IMPACT",
-    "OBSTACLE",      "AVOID_DONE",     "AVOID_FAILED",    "TICK"
+    "WIFI_UP",       "MANOEUVRE_DONE", "MOTION_STOPPED",  "LINE_LOST",
+    "LINE_FOUND",    "JUNCTION",       "BARCODE_START",  "BARCODE_DECODED",
+    "BARCODE_FAILED", "END_OF_COURSE", "HUMP_START",     "HUMP_CLEARED",
+    "IMPACT",        "OBSTACLE",       "AVOID_DONE",     "AVOID_FAILED",
+    "TICK"
 };
 
 const char * vc_state_name(vc_state_t state)
@@ -165,6 +167,7 @@ static void search_step(const vc_sm_t * p_sm, vc_actions_t * p_out)
 
 static void enter_execute(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
 {
+    (void)now_ms;
     switch (p_sm->pending_nav)
     {
         case NAV_LEFT:
@@ -179,8 +182,9 @@ static void enter_execute(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
         case NAV_STRAIGHT:
         case NAV_NONE:
         default:
-            /* nothing to do: carry straight on along the line */
-            enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
+            /* Clear the crossing before handing motion back to S3.  This
+               distance is a track-tuning value, not a universal constant. */
+            move(p_out, VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM);
             break;
     }
 }
@@ -222,6 +226,12 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
             request(p_out, VC_SRC_LINE, VC_REQ_LINE_FOLLOW, 0);
             move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS);
             move(p_out, VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS);
+            break;
+
+        case VC_ST_JUNCTION_STOP:
+            /* Do not execute a turn yet. S2 reports MOTION_STOPPED only
+               after both wheels have physically reached the stop threshold. */
+            move(p_out, VC_MOVE_STOP_CONFIRM, 0);
             break;
 
         case VC_ST_LOST_LINE:
@@ -304,7 +314,8 @@ static void move_request(vc_sm_t * p_sm, const vc_event_t * p_event,
     /* Command arbitration: only the current owner may move us */
     if ((src != VC_SRC_NONE) && (src == vc_sm_motion_owner(state)) &&
         (p_event->p1 >= 0) && (p_event->p1 < (int32_t)VC_MOVE_COUNT) &&
-        (p_event->p1 != (int32_t)VC_MOVE_RESET))
+        (p_event->p1 != (int32_t)VC_MOVE_RESET) &&
+        (p_event->p1 != (int32_t)VC_MOVE_STOP_CONFIRM))
     {
         /* Cast: p1 was range-checked against VC_MOVE_COUNT. */
         vc_move_t move_cmd = (vc_move_t)p_event->p1;
@@ -468,15 +479,36 @@ static void on_mission_start(vc_sm_t * p_sm, const vc_event_t * p_event,
     }
 }
 
-/* A barcode was decoded: remember it and carry out its action */
+/* A decoded barcode is only a pending instruction.  Its action is held
+   until the robot reaches the next junction. */
 static void take_barcode(vc_sm_t * p_sm, const vc_event_t * p_event,
                          uint32_t now_ms, vc_actions_t * p_out)
 {
-    /* Cast: p1 carries a navigation_command_t value. */
-    p_sm->pending_nav = (navigation_command_t)p_event->p1;
+    uint32_t idx;
+
+    /* Store the complete decoded text. The configured rule table matches
+       the whole string; an unknown string deliberately becomes NAV_NONE. */
+    for (idx = 0u; idx < sizeof(p_sm->pending_barcode) - 1u; idx++)
+    {
+        p_sm->pending_barcode[idx] = p_event->barcode_text[idx];
+        if ('\0' == p_event->barcode_text[idx])
+        {
+            break;
+        }
+    }
+    p_sm->pending_barcode[sizeof(p_sm->pending_barcode) - 1u] = '\0';
+    p_sm->pending_nav = vc_barcode_lookup(p_sm->pending_barcode);
+    /* Backward-compatible event producers may still send only p1=nav.
+       The real S3 bridge supplies barcode_text, so full-string rules win. */
+    if (('\0' == p_sm->pending_barcode[0]) &&
+        (p_event->p1 > (int32_t)NAV_NONE) &&
+        (p_event->p1 <= (int32_t)NAV_U_TURN))
+    {
+        p_sm->pending_nav = (navigation_command_t)p_event->p1;
+    }
     p_sm->st.last_nav = p_sm->pending_nav;
     p_sm->st.barcodes_read++;
-    enter(p_sm, VC_ST_EXECUTE_ACTION, now_ms, p_out);
+    enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
 }
 
 static void on_follow_line(vc_sm_t * p_sm, const vc_event_t * p_event,
@@ -493,6 +525,11 @@ static void on_follow_line(vc_sm_t * p_sm, const vc_event_t * p_event,
             /* Cast: p1 is the last side seen, -1, 0 or +1. */
             p_sm->lost_side = (int8_t)p_event->p1;
             enter(p_sm, VC_ST_LOST_LINE, now_ms, p_out);
+            break;
+        case VC_EV_JUNCTION:
+            /* Stop first. The dedicated state waits for S2's physical-stop
+               confirmation before selecting and executing the buffered rule. */
+            enter(p_sm, VC_ST_JUNCTION_STOP, now_ms, p_out);
             break;
         case VC_EV_BARCODE_START:
             enter(p_sm, VC_ST_DECODE_BARCODE, now_ms, p_out);
@@ -621,6 +658,39 @@ static void on_decode_barcode(vc_sm_t * p_sm, const vc_event_t * p_event,
     }
 }
 
+static void on_junction_stop(vc_sm_t * p_sm, const vc_event_t * p_event,
+                             vc_event_type_t type, uint32_t in_state,
+                             uint32_t now_ms, vc_actions_t * p_out)
+{
+    (void)p_event;
+    if (VC_EV_MOTION_STOPPED == type)
+    {
+        /* No mapping (including an unknown barcode) means continue straight. */
+        if (NAV_NONE == p_sm->pending_nav)
+        {
+            p_sm->pending_nav = NAV_STRAIGHT;
+        }
+        enter(p_sm, VC_ST_EXECUTE_ACTION, now_ms, p_out);
+    }
+    else if ((VC_EV_TICK == type) && (in_state >= VC_JUNCTION_STOP_MS))
+    {
+        go_fault(p_sm, VC_SRC_MOTION, VC_FC_JUNCTION_STOP, now_ms, p_out);
+    }
+    else if (VC_EV_END_OF_COURSE == type)
+    {
+        p_sm->pending_nav = NAV_NONE;
+        p_sm->pending_barcode[0] = '\0';
+        enter(p_sm, VC_ST_MISSION_COMPLETE, now_ms, p_out);
+    }
+    else if (VC_EV_OBSTACLE == type)
+    {
+        /* Obstacle safety takes priority; discard the pending junction action. */
+        p_sm->pending_nav = NAV_NONE;
+        p_sm->pending_barcode[0] = '\0';
+        enter(p_sm, VC_ST_AVOID_OBSTACLE, now_ms, p_out);
+    }
+}
+
 static void on_execute_action(vc_sm_t * p_sm, const vc_event_t * p_event,
                               vc_event_type_t type, uint32_t in_state,
                               uint32_t now_ms, vc_actions_t * p_out)
@@ -628,10 +698,14 @@ static void on_execute_action(vc_sm_t * p_sm, const vc_event_t * p_event,
     (void)p_event;
     if (VC_EV_MANOEUVRE_DONE == type)
     {
+        p_sm->pending_nav = NAV_NONE;
+        p_sm->pending_barcode[0] = '\0';
         enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
     }
     else if (VC_EV_OBSTACLE == type)
     {
+        p_sm->pending_nav = NAV_NONE;
+        p_sm->pending_barcode[0] = '\0';
         enter(p_sm, VC_ST_AVOID_OBSTACLE, now_ms, p_out);
     }
     else if ((VC_EV_TICK == type) && (in_state >= VC_EXECUTE_MS))
@@ -639,6 +713,8 @@ static void on_execute_action(vc_sm_t * p_sm, const vc_event_t * p_event,
         /* manoeuvre never finished: look for the line */
         report(p_sm, p_out, VC_SRC_MOTION, VC_FAULT_RECOVERABLE,
                VC_FC_STATE_TIMEOUT);
+        p_sm->pending_nav = NAV_NONE;
+        p_sm->pending_barcode[0] = '\0';
         enter(p_sm, VC_ST_LOST_LINE, now_ms, p_out);
     }
     else
@@ -708,6 +784,9 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
                 break;
             case VC_ST_FOLLOW_LINE:
                 on_follow_line(p_sm, p_event, type, in_state, now_ms, p_out);
+                break;
+            case VC_ST_JUNCTION_STOP:
+                on_junction_stop(p_sm, p_event, type, in_state, now_ms, p_out);
                 break;
             case VC_ST_LOST_LINE:
                 on_lost_line(p_sm, p_event, type, in_state, now_ms, p_out);

@@ -469,6 +469,8 @@ static void mode_logic(void)
                 (absf(g_motion_ctx.spd_l) < S2_STOP_SPEED_MM_S) &&
                 (absf(g_motion_ctx.spd_r) < S2_STOP_SPEED_MM_S))
             {
+                /* Vehicle Controller waits for this physical-stop confirmation
+                   before it executes a buffered barcode at a junction. */
                 enter_idle(MFLG_STOPPED);
             }
             break;

@@ -45,6 +45,8 @@ typedef struct
     int16_t  kp_num;
     int16_t  kd_num;
     int16_t  gain_den;
+    uint16_t junction_threshold; /* 0..1000, stricter than black_threshold */
+    bool     straddle; /* line runs between C and R: both white = straight */
 } line_params_t;
 
 typedef enum

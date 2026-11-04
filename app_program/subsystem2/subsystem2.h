@@ -148,7 +148,7 @@ extern ER s2_get_status(motion_status_t * p_out);
  *  so each event is consumed by the task that handles it.
  * --------------------------------------------------------------------- */
 #define MFLG_CMD_DONE     (1U << 0) /* DRIVE_DIST / TURN finished */
-#define MFLG_STOPPED      (1U << 1) /* MOTION_STOP reached 0 speed */
+#define MFLG_STOPPED      (1U << 1) /* MOTION_STOP reached 0 speed; VC junction handshake */
 #define MFLG_SAFE_STOPPED (1U << 2) /* entered MSTATE_SAFE_STOP */
 #define MFLG_FAULT        (1U << 3) /* entered MSTATE_FAULT */
 #define MFLG_CMD_TIMEOUT  (1U << 4) /* DRIVE had no fresh command */

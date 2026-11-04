@@ -98,12 +98,13 @@ static int32_t area_of(char c)
         case 't': case 'T': case 'u': case 'U': case 'h': case 'v': case 'V':
         case 'p': case 'P': case 'i': case 'I':
             return 0; /* motor */
-        case 'k': case 'K': case 'd': case 'D': case 'y': case 'Y': case 'z':
+        case 'k': case 'K': case 'd': case 'D': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case 'w': case 'X': case 'a': case 'B': case 'o': case 'O': case 'm':
+        case 'n': case 'y': case 'Y': case 'z':
         case 'Z':
             return 1; /* line */
-        case 'j': case 'J':
+        case 'j': case 'J': case 'q': case 'H':
             return 2; /* imu */
-        case 'Q': case 'W': case 'E': case 'e':
+        case 'Q': case 'W': case 'E': case 'e': case 'g': case 'G':
             return 3; /* obstacle + servo */
         case 'M': case 'N': case 'F': case 'A': case 'c': case 'C':
             return 4; /* mission */
@@ -187,6 +188,17 @@ static ER servo_test(int32_t deg)
     return E_OK;
 }
 
+/* Stop the obstacle subsystem now (monitoring and any avoid in progress) */
+static ER obst_stop(void)
+{
+    s5_cmd_t cmd = { 0 };
+
+    cmd.type = S5_CMD_ABORT;
+    (void)tk_snd_mbf(g_mbf_s5_cmd, &cmd, sizeof(cmd), TMO_POL);
+    cmd.type = S5_CMD_DISABLE;
+    return tk_snd_mbf(g_mbf_s5_cmd, &cmd, sizeof(cmd), TMO_POL);
+}
+
 static ER monitoring_on(void)
 {
     s5_cmd_t cmd = { 0 };
@@ -243,6 +255,8 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
                 er = E_OBJ; /* still locked: tune manually first */
                 break;
             }
+            /* the bench straight-hold would fight the line steering */
+            g_s2_dbg_straight = 0;
             (void)s2_cmd_reset();
             (void)vc_post_event(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0, TMO_POL);
             er        = vc_post_event(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0, TMO_POL);
@@ -251,7 +265,34 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
         case 'Q': er = servo_test(45); break;   /* + = left */
         case 'W': er = servo_test(0); break;
         case 'E': er = servo_test(-45); break;
+        case '5': g_lt_junc_mode = 0; er = E_OK; break; /* junction detection off */
+        case '6': g_lt_junc_mode = 1; er = E_OK; break; /* C + R */
+        case '7': g_lt_junc_mode = 2; er = E_OK; break; /* L + C + R */
+        case '3': g_lt_junc_thr = clamp_to(g_lt_junc_thr - 25, 500, 1000); er = E_OK; break;
+        case '4': g_lt_junc_thr = clamp_to(g_lt_junc_thr + 25, 500, 1000); er = E_OK; break;
+        case '1': g_lt_lost = clamp_to(g_lt_lost - 10, 2, 500); er = E_OK; break;
+        case '2': g_lt_lost = clamp_to(g_lt_lost + 10, 2, 500); er = E_OK; break;
+        case 'w': g_lt_steer_inv = 1; er = E_OK; break; /* swap steering direction */
+        case 'X': g_lt_steer_inv = 0; er = E_OK; break;
+        case 'a': /* mission ignores barcodes */
+            g_lt_bc_en = 0;
+            er         = s3_request(S3_REQ_BC_DISABLE);
+            break;
+        case 'B':
+            g_lt_bc_en = 1;
+            er         = s3_request(S3_REQ_BC_ENABLE);
+            break;
+        case 'q': g_lt_imu_en = 0; er = E_OK; break; /* mission ignores the IMU */
+        case 'H': g_lt_imu_en = 1; er = E_OK; break;
         case 'e': er = monitoring_on(); break;
+        case 'g': /* mission ignores the obstacle sensor */
+            g_lt_obst_en = 0;
+            er           = obst_stop();
+            break;
+        case 'G':
+            g_lt_obst_en = 1; /* the next mission start enables it again */
+            er           = E_OK;
+            break;
         case 'y': er = s3_request(S3_REQ_CALIBRATE); break;
         case 'Y': er = s3_request(S3_REQ_RESET_LINE); break;
         case 'z': er = s3_request(S3_REQ_BC_ENABLE); break;
@@ -289,6 +330,10 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
         case 'P': g_lt_pid_kp100 = clamp_to(g_lt_pid_kp100 + 10, 0, 1000); er = E_OK; break;
         case 'i': g_lt_pid_ki100 = clamp_to(g_lt_pid_ki100 - 50, 0, 3000); er = E_OK; break;
         case 'I': g_lt_pid_ki100 = clamp_to(g_lt_pid_ki100 + 50, 0, 3000); er = E_OK; break;
+        case 'o': g_lt_line_sp = clamp_to(g_lt_line_sp - 100, -1000, 1000); er = E_OK; break;
+        case 'O': g_lt_line_sp = clamp_to(g_lt_line_sp + 100, -1000, 1000); er = E_OK; break;
+        case 'm': g_lt_line_all = 0; er = E_OK; break; /* centre + right steer */
+        case 'n': g_lt_line_all = 1; er = E_OK; break; /* left + centre + right */
         case 'k': g_lt_line_kp = clamp_to(g_lt_line_kp - 1, 0, 60); er = E_OK; break;
         case 'K': g_lt_line_kp = clamp_to(g_lt_line_kp + 1, 0, 60); er = E_OK; break;
         case 'd': g_lt_line_kd = clamp_to(g_lt_line_kd - 2, 0, 100); er = E_OK; break;
@@ -382,6 +427,13 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
     }
     n = kv(p_out, n, out_max, "mode", g_wd_mode);
     n = kv(p_out, n, out_max, "arm", g_wd_armed);
+    n = kv(p_out, n, out_max, "obst", g_lt_obst_en);
+    n = kv(p_out, n, out_max, "imu", g_lt_imu_en);
+    n = kv(p_out, n, out_max, "bc", g_lt_bc_en);
+    n = kv(p_out, n, out_max, "sinv", g_lt_steer_inv);
+    n = kv(p_out, n, out_max, "lost", g_lt_lost);
+    n = kv(p_out, n, out_max, "jthr", g_lt_junc_thr);
+    n = kv(p_out, n, out_max, "jmode", g_lt_junc_mode);
     n = kv(p_out, n, out_max, "lkm", lock_state(0, client));
     n = kv(p_out, n, out_max, "lkl", lock_state(1, client));
     n = kv(p_out, n, out_max, "lki", lock_state(2, client));
@@ -391,6 +443,8 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
     n = kv(p_out, n, out_max, "pidKi100", g_lt_pid_ki100);
     n = kv(p_out, n, out_max, "lineKp", g_lt_line_kp);
     n = kv(p_out, n, out_max, "lineKd", g_lt_line_kd);
+    n = kv(p_out, n, out_max, "lsp", g_lt_line_sp);
+    n = kv(p_out, n, out_max, "lall", g_lt_line_all);
     n = kv(p_out, n, out_max, "pct", g_lt_speed_pct);
     n = put_str(p_out, n, out_max, "\"_\":0},\"s2\":");
 
@@ -506,7 +560,14 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
         n = put_str(p_out, n, out_max, "{");
         n = kv(p_out, n, out_max, "state", (int32_t)vc.state);
         n = kv(p_out, n, out_max, "prev", (int32_t)vc.prev_state);
-        n = kv(p_out, n, out_max, "sinceMs", (int32_t)vc.state_since_ms);
+        {
+            /* state_since_ms is the kernel time when the state began, not a
+               duration: send how long ago that was */
+            SYSTIM now;
+            (void)tk_get_tim(&now);
+            n = kv(p_out, n, out_max, "sinceMs",
+                   (int32_t)((uint32_t)now.lo - vc.state_since_ms));
+        }
         n = kv(p_out, n, out_max, "fault", (int32_t)vc.last_fault_code);
         n = kv(p_out, n, out_max, "barcodes", (int32_t)vc.barcodes_read);
         n = kv(p_out, n, out_max, "events", (int32_t)vc.events_handled);

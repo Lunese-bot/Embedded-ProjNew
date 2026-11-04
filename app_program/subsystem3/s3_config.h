@@ -7,7 +7,7 @@
  *      measurement in testing/subsystem3/TEST_LOG.md.
  *
  *      This header holds plain numbers only, so that the host unit tests
- *      (testing/subsystem3/host_test/) can include it without the kernel.
+ *      (testing/subsystem3/host/) can include it without the kernel.
  */
 
 #ifndef S3_CONFIG_H
@@ -59,12 +59,34 @@
    the line too. */
 #define S3_LINE_MASK (S3_MASK_C | S3_MASK_R)
 
-/* Sensors that must all see black for a junction */
-#define S3_JUNCTION_MASK (S3_MASK_L | S3_MASK_C | S3_MASK_R)
+/* STRADDLE layout (S3_STRADDLE 1): the line runs BETWEEN the centre and the
+   right sensor.
+     both white   -> the line is between them: drive straight
+     C black only -> the line drifted toward C: steer left
+     R black only -> the line drifted toward R: steer right
+     both black   -> junction
+   The left sensor is only used for barcodes.  With S3_STRADDLE 0 the old
+   weighted-average position is used (line under the sensors). */
+#define S3_STRADDLE 1
+
+/* Sensors that must all see black for a junction: C and R (the left sensor
+   only reads barcodes). */
+#define S3_JUNCTION_MASK (S3_MASK_C | S3_MASK_R)
+
+/* A junction needs those sensors above THIS normalised reading
+   (0 white .. 1000 black), which is stricter than S3_BLACK_THRESHOLD, so
+   a curve that only partly covers a sensor does not count.  Only has an
+   effect on analogue sensors (S3_IR_USE_ADC 1): digital sensors read 0 or
+   1000.  Adjustable live from the dashboard.  TUNE. */
+#define S3_JUNCTION_THRESHOLD 950
 
 /* Position weight of each sensor, -1000 (far left) .. +1000 (far right) */
 #define S3_WEIGHT_L (-1000)
 #define S3_WEIGHT_C 0
+/* Centre weight when only C+R steer: C -1000 / R +1000 is symmetric, so
+   both on black = 0, C only = -1000, R only = +1000 (error can be negative).
+   With L+C+R the normal S3_WEIGHT_C is used. */
+#define S3_WEIGHT_C_CR (-1000)
 #define S3_WEIGHT_R 1000
 
 /* Position the controller holds the robot at.  With S3_LINE_MASK = C+R,
@@ -76,14 +98,20 @@
 #define S3_BLACK_THRESHOLD 500
 
 /* Debounce, in samples of S3_LINE_PERIOD_MS */
+#if S3_STRADDLE
+/* Both sensors white is normal (line between them), so only call the line
+   lost after both have been white this long: 150 samples = 1.5 s. */
+#define S3_LOST_SAMPLES 150
+#else
 #define S3_LOST_SAMPLES     5 /* 50 ms with no line -> LOST     */
+#endif
 #define S3_FOUND_SAMPLES    2 /* 20 ms with line   -> FOLLOW    */
 #define S3_JUNCTION_SAMPLES 3 /* 30 ms all black   -> JUNCTION  */
 
 /* PD steering: steering = (KP*err + KD*(err - prev_err)) / GAIN_DEN,
    clamped to +-1000 (positive = steer right).  TUNE. */
 #define S3_KP_NUM   8
-#define S3_KD_NUM   20
+#define S3_KD_NUM   0 /* start P-only; add D back later if needed */
 #define S3_GAIN_DEN 10
 
 /* Calibration (ADC mode): sweep the sensors over line and floor for
@@ -94,22 +122,25 @@
 
 /* ---------------------------------------------------------------------
  *  Barcode (task_barcode.c, code39.c)
- *      Code 39 (start/stop '*', 9 elements per character, 3 of
- *      them wide).  The data characters are the letters A-Z only: no digits
- *      or symbols are used.
+ *      Code 39 is assumed (start/stop '*', 9 elements per character, 3 of
+ *      them wide).  CONFIRM the symbology with the course rules.
  * --------------------------------------------------------------------- */
 #define S3_BC_SENSOR S3_IR_L /* sensor that reads barcodes */
 
-#define S3_BC_MAX_CHARS    6 /* including the two '*' */
-#define S3_BC_MAX_ELEMENTS (S3_BC_MAX_CHARS * 10)
-#define S3_BC_TEXT_MAX     8 /* decoded text incl. '\0' */
+/* The course barcodes contain uppercase letters A-Z only.  The maximum
+   below counts DATA letters; Code 39 start/stop '*' are additional. */
+#define S3_BC_LETTERS_ONLY 1
+#define S3_BC_MAX_LETTERS  10u
+#define S3_BC_MAX_CHARS    (S3_BC_MAX_LETTERS + 2u) /* incl. '*' markers */
+#define S3_BC_MAX_ELEMENTS ((S3_BC_MAX_CHARS * 10u) - 1u)
+#define S3_BC_TEXT_MAX     (S3_BC_MAX_LETTERS + 1u) /* incl. NUL */
 
 /* A white gap longer than S3_BC_QUIET_FACTOR x the widest element seen
    so far ends the barcode (Code 39 quiet zone is >= 10 narrow). */
-#define S3_BC_QUIET_FACTOR   3
+#define S3_BC_QUIET_FACTOR   5
 #define S3_BC_QUIET_MIN_MS   150  /* never end sooner than this     */
 #define S3_BC_ELEMENT_MAX_MS 1500 /* longer black run = not a bar   */
-#define S3_BC_MIN_ELEMENTS   29   /* "*X*" = 3 chars x 10 - 1       */
+#define S3_BC_MIN_ELEMENTS   29u  /* "*A*" = 3 symbols x 10 - 1 */
 
 /* Smallest accepted wide:narrow ratio, x10 (15 = 1.5).  Code 39 is
    printed at 2.0..3.0. */
@@ -117,9 +148,14 @@
 
 #define S3_BC_MAX_RETRIES 2 /* reported to the controller     */
 
-/* Barcode letter -> navigation command: see the table s3_bc_map[] in
-   subsystem3.c (one row per letter A-Z, edit it there once the course
-   tells us what each letter means). */
+/* Legacy first-character mapping retained for the S3 event interface.
+   The full Vehicle Controller now uses exact full-string rules in
+   subsystem6/vc_barcode_rules.c.  Keep these disabled to avoid inventing
+   course mappings or executing placeholder actions. */
+#define S3_BC_CHAR_LEFT     '\0'
+#define S3_BC_CHAR_RIGHT    '\0'
+#define S3_BC_CHAR_STRAIGHT '\0'
+#define S3_BC_CHAR_UTURN    '\0'
 
 #endif /* S3_CONFIG_H */
 

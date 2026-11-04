@@ -87,7 +87,7 @@
    Tune: drive on a straight line.  Still drifts to the RIGHT (left too
    fast)  -> lower S2_TRIM_L_PERMILLE (e.g. 960 -> 950).  Drifts LEFT
    -> raise it towards 1000, then lower S2_TRIM_R_PERMILLE instead. */
-#define S2_TRIM_L_PERMILLE 960
+#define S2_TRIM_L_PERMILLE 800
 #define S2_TRIM_R_PERMILLE 1000
 
 /* Straight-line correction: steer = K * (left_mm - right_mm) since the

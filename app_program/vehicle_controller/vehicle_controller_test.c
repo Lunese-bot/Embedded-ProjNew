@@ -104,9 +104,19 @@ void vehicle_controller_test(void)
     feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
     feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, NAV_LEFT, 0);
     TEST_CHECK("VC-U06",
+               (VC_ST_FOLLOW_LINE == g_t_sm.st.state) &&
+                   (NAV_LEFT == g_t_sm.pending_nav),
+               "decoded barcode is buffered until the next junction");
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    TEST_CHECK("VC-U06a",
+               (VC_ST_JUNCTION_STOP == g_t_sm.st.state) &&
+                   has_move(VC_MOVE_STOP_CONFIRM),
+               "junction requests a stop and waits for S2 confirmation");
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    TEST_CHECK("VC-U06b",
                (VC_ST_EXECUTE_ACTION == g_t_sm.st.state) &&
                    has_move(VC_MOVE_TURN_LEFT),
-               "barcode LEFT -> EXECUTE_ACTION, turn left");
+               "turn is issued only after S2 confirms stopped");
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 0, 0);
     TEST_CHECK("VC-U07", VC_ST_FOLLOW_LINE == g_t_sm.st.state,
                "manoeuvre done -> FOLLOW_LINE");

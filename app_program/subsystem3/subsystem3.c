@@ -158,68 +158,32 @@ void s3_send_event(s3_event_t * p_evt)
     }
 }
 
-/* ---------------------------------------------------------------------
- *  Barcode letter -> navigation command.
- *  Code 39 here uses the letters A-Z only.  What each letter means is not
- *  known yet, so EVERY letter has a row below: to give a letter a meaning,
- *  change its NAV_xxx.  NAV_NONE = decoded but no action.  The four
- *  PLACEHOLDER rows (L, R, S, U) are kept because the S3 tests use them.
- *  Available commands: NAV_LEFT, NAV_RIGHT, NAV_STRAIGHT, NAV_U_TURN
- *  (add more to navigation_command_t in robot_types.h if needed).
- * --------------------------------------------------------------------- */
-typedef struct
-{
-    char                 letter;
-    navigation_command_t nav;
-} s3_bc_map_t;
-
-static const s3_bc_map_t s3_bc_map[] = {
-    { 'A', NAV_NONE },
-    { 'B', NAV_NONE },
-    { 'C', NAV_NONE },
-    { 'D', NAV_NONE },
-    { 'E', NAV_NONE },
-    { 'F', NAV_NONE },
-    { 'G', NAV_NONE },
-    { 'H', NAV_NONE },
-    { 'I', NAV_NONE },
-    { 'J', NAV_NONE },
-    { 'K', NAV_NONE },
-    { 'L', NAV_LEFT },     /* PLACEHOLDER */
-    { 'M', NAV_NONE },
-    { 'N', NAV_NONE },
-    { 'O', NAV_NONE },
-    { 'P', NAV_NONE },
-    { 'Q', NAV_NONE },
-    { 'R', NAV_RIGHT },    /* PLACEHOLDER */
-    { 'S', NAV_STRAIGHT }, /* PLACEHOLDER */
-    { 'T', NAV_NONE },
-    { 'U', NAV_U_TURN },   /* PLACEHOLDER */
-    { 'V', NAV_NONE },
-    { 'W', NAV_NONE },
-    { 'X', NAV_NONE },
-    { 'Y', NAV_NONE },
-    { 'Z', NAV_NONE },
-};
-
-#define S3_BC_MAP_COUNT (sizeof(s3_bc_map) / sizeof(s3_bc_map[0]))
-
-/* Barcode text -> navigation command.  Only the first character is used;
-   anything that is not a letter in the table gives NAV_NONE. */
+/* Barcode text -> optional navigation command.  The configurable mapping
+   in s3_config.h uses the first data character; unmapped means straight. */
 navigation_command_t s3_text_to_nav(const uint8_t * p_text)
 {
-    navigation_command_t nav = NAV_NONE;
-    uint32_t             idx;
-
-    for (idx = 0; idx < S3_BC_MAP_COUNT; idx++)
+    if (NULL == p_text)
     {
-        if ((char)p_text[0] == s3_bc_map[idx].letter)
-        {
-            nav = s3_bc_map[idx].nav;
-            break;
-        }
+        return NAV_NONE;
     }
-    return nav;
+    if ((S3_BC_CHAR_LEFT != '\0') && (p_text[0] == S3_BC_CHAR_LEFT))
+    {
+        return NAV_LEFT;
+    }
+    if ((S3_BC_CHAR_RIGHT != '\0') && (p_text[0] == S3_BC_CHAR_RIGHT))
+    {
+        return NAV_RIGHT;
+    }
+    if ((S3_BC_CHAR_STRAIGHT != '\0') &&
+        (p_text[0] == S3_BC_CHAR_STRAIGHT))
+    {
+        return NAV_STRAIGHT;
+    }
+    if ((S3_BC_CHAR_UTURN != '\0') && (p_text[0] == S3_BC_CHAR_UTURN))
+    {
+        return NAV_U_TURN;
+    }
+    return NAV_NONE;
 }
 
 /*** end of file ***/

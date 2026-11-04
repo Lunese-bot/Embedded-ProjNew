@@ -132,6 +132,9 @@ static void test_line(void)
 
     line_params_default(&p);
     p.line_mask = S3_MASK_L | S3_MASK_C | S3_MASK_R;
+    p.weight[S3_IR_C] = S3_WEIGHT_C; /* classic weighted-average mode */
+    p.straddle        = false;
+    p.lost_samples    = 5u;
 
     /* H-L01: SEARCH -> FOLLOW after FOUND_SAMPLES */
     line_tracker_reset(&t);
@@ -150,7 +153,7 @@ static void test_line(void)
     {
         if (LINE_EVT_LOST == line_tracker_step(&t, &p, white, false)) { lost_at = i + 1; break; }
     }
-    CHECK("H-L03", (S3_LOST_SAMPLES == lost_at) && (LINE_STATE_LOST == t.state) &&
+    CHECK("H-L03", (5 == lost_at) && (LINE_STATE_LOST == t.state) &&
           (-1 == t.last_side) && (-1000 == t.position),
           "lost after 5 white samples, last side kept");
 
@@ -167,6 +170,45 @@ static void test_line(void)
     }
     CHECK("H-L04b", (LINE_EVT_JUNCTION == e) && (LINE_STATE_JUNCTION == t.state),
           "junction after 3 all-black samples");
+
+    /* H-L06..09: straddle layout, line BETWEEN C and R */
+    {
+        uint16_t c_only[S3_IR_COUNT] = { 0u, 1000u, 0u };
+        uint16_t r_only[S3_IR_COUNT] = { 0u, 0u, 1000u };
+        uint16_t both[S3_IR_COUNT]   = { 0u, 1000u, 1000u };
+
+        line_params_default(&p);
+        CHECK("H-L06", p.straddle && (-1000 == p.weight[S3_IR_C]) &&
+              (1000 == p.weight[S3_IR_R]), "straddle is the default, C/R weights symmetric");
+        line_tracker_reset(&t);
+        (void)line_tracker_step(&t, &p, white, false);
+        e = line_tracker_step(&t, &p, white, false);
+        CHECK("H-L07", (LINE_STATE_FOLLOW == t.state) && (0 == t.position) &&
+              (0 == t.steering), "both white -> FOLLOW and straight");
+        (void)line_tracker_step(&t, &p, c_only, false);
+        CHECK("H-L08a", (t.position < 0) && (t.steering < 0), "C black -> steer left");
+        (void)line_tracker_step(&t, &p, r_only, false);
+        CHECK("H-L08b", (t.position > 0) && (t.steering > 0), "R black -> steer right");
+        line_tracker_reset(&t);
+        (void)line_tracker_step(&t, &p, white, false);
+        (void)line_tracker_step(&t, &p, white, false);
+        for (i = 0; i < 100; i++) { e = line_tracker_step(&t, &p, white, false); }
+        CHECK("H-L09a", (LINE_STATE_FOLLOW == t.state), "1 s of white is not lost");
+        lost_at = -1;
+        for (i = 0; i < 100; i++)
+        {
+            if (LINE_EVT_LOST == line_tracker_step(&t, &p, white, false)) { lost_at = i; break; }
+        }
+        CHECK("H-L09b", (lost_at >= 0) && (LINE_STATE_LOST == t.state), "long white -> LOST");
+        for (i = 0; i < 3; i++) { e = line_tracker_step(&t, &p, white, false); }
+        CHECK("H-L09c", LINE_STATE_LOST == t.state, "white alone does not leave LOST");
+        for (i = 0; i < 3; i++) { e = line_tracker_step(&t, &p, c_only, false); }
+        CHECK("H-L09d", LINE_STATE_FOLLOW == t.state, "a black sensor returns to FOLLOW");
+        for (i = 0; i < 3; i++) { e = line_tracker_step(&t, &p, both, false); }
+        CHECK("H-L09e", (LINE_EVT_JUNCTION == e) && (LINE_STATE_JUNCTION == t.state),
+              "C and R both black -> JUNCTION");
+        (void)e;
+    }
 
     /* H-L05: calibration + normalisation (analogue C, R) */
     line_cal_reset(&cal);

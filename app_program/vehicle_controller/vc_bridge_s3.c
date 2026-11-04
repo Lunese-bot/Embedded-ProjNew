@@ -1,6 +1,6 @@
 /*
  *      vc_bridge_s3.c
- *      Vehicle Controller -- adapter to subsystem 3 (IR line following + barcode).
+ *      Subsystem 6 -- adapter to subsystem 3 (IR line following + barcode).
  *      S3's interface: ../subsystem3/subsystem3.h (IF-31, IF-32, IF-33).
  *
  *      S3 -> controller
@@ -9,8 +9,9 @@
  *          LINE_FOUND       -> VC_EV_LINE_FOUND
  *          JUNCTION         -> VC_EV_JUNCTION
  *          BARCODE_START    -> VC_EV_BARCODE_START
- *          BARCODE_DECODED  -> VC_EV_BARCODE_DECODED, p1 = nav, p2 = 1 if read
- * backwards BARCODE_FAILED   -> VC_EV_BARCODE_FAILED, p1 = reason, p2 = S3
+ *          BARCODE_DECODED  -> VC_EV_BARCODE_DECODED, p1 = legacy nav,
+ *                              barcode_text = complete decoded A-Z string,
+ *                              p2 = 1 if read backwards BARCODE_FAILED   -> VC_EV_BARCODE_FAILED, p1 = reason, p2 = S3
  * retries CAL_FAILED       -> non-critical fault 0x3002 (old calibration kept)
  *        s3_get_line_status() (IF-31): while S3 owns motion (FOLLOW_LINE,
  *          DECODE_BARCODE, TERRAIN_CHECK), each NEW sample's PD steering
@@ -28,6 +29,7 @@
  */
 
 #include "vc_bridge.h"
+#include "../debugging/live_tune.h"
 #include "vc_sm.h"
 #include "../subsystem3/subsystem3.h"
 
@@ -38,6 +40,15 @@
 static uint32_t g_last_seq;
 static bool     g_b_ready_pending;
 
+/* Bench switch from the dashboard: 0 = the mission ignores barcodes (no
+   start, decode or fail events, and S3 is kept from scanning), so the line
+   follower can be tested on its own. */
+#if S2_WEBDEBUG
+#define BC_OFF (0 == g_lt_bc_en)
+#else
+#define BC_OFF 0
+#endif
+
 static void make(vc_event_t * p_event, vc_event_type_t type, int32_t param1,
                  int32_t param2, uint32_t time_ms)
 {
@@ -47,6 +58,7 @@ static void make(vc_event_t * p_event, vc_event_type_t type, int32_t param1,
     p_event->p1      = param1;
     p_event->p2      = param2;
     p_event->time_ms = time_ms;
+    p_event->barcode_text[0] = '\0';
 }
 
 /* One S3 event -> controller event.  Returns false for events the
@@ -55,6 +67,12 @@ static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
 {
     bool b_event = true;
 
+    if (BC_OFF && ((S3_EVT_BARCODE_START == p_s3->type) ||
+                   (S3_EVT_BARCODE_DECODED == p_s3->type) ||
+                   (S3_EVT_BARCODE_FAILED == p_s3->type)))
+    {
+        return false; /* barcodes switched off from the dashboard */
+    }
     switch (p_s3->type)
     {
         case S3_EVT_LINE_LOST:
@@ -76,6 +94,19 @@ static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
             /* Cast: arg is 0 or 1 (read backwards). */
             make(p_event, VC_EV_BARCODE_DECODED, p_s3->nav, (int32_t)p_s3->arg,
                  p_s3->time_ms);
+            /* Carry the complete text through the Vehicle Controller; action rules match the
+               whole barcode rather than only S3's legacy first-letter nav. */
+            {
+                uint32_t idx;
+                for (idx = 0u;
+                     (idx < (sizeof(p_event->barcode_text) - 1u)) &&
+                     (idx < (sizeof(p_s3->text) - 1u)) &&
+                     ('\0' != (char)p_s3->text[idx]); idx++)
+                {
+                    p_event->barcode_text[idx] = (char)p_s3->text[idx];
+                }
+                p_event->barcode_text[idx] = '\0';
+            }
             break;
         case S3_EVT_BARCODE_FAILED:
             /* Cast: arg is a small retry count. */
@@ -167,7 +198,8 @@ ER vc_bridge_s3_request(vc_request_t req, int32_t arg)
             }
             break;
         case VC_REQ_LINE_FOLLOW:
-            ercd = s3_request(S3_REQ_BC_ENABLE);
+            ercd = BC_OFF ? s3_request(S3_REQ_BC_DISABLE)
+                          : s3_request(S3_REQ_BC_ENABLE);
             break;
         case VC_REQ_BARCODE_READ:
             if (arg > 0)
