@@ -22,7 +22,6 @@
 #include "drv_motor.h"
 #include "drv_encoder.h"
 #include "motion_pid.h"
-#include "../debugging/live_tune.h"
 
 /* Private control state.  Only motion_task reads or writes it. */
 typedef struct
@@ -201,17 +200,6 @@ static void apply_command(const motion_cmd_t * p_cmd)
             break;
 
         case MOTION_DRIVE:
-#if S2_WEBDEBUG
-            /* new reference only when the drive starts or changes, not on
-               every 200 ms refresh of the same command */
-            if ((MSTATE_DRIVING != g_motion_ctx.state) ||
-                (p_cmd->speed_mm_s != g_motion_ctx.cmd.speed_mm_s) ||
-                (p_cmd->steer_mm_s != g_motion_ctx.cmd.steer_mm_s))
-            {
-                g_motion_ctx.seg_l = g_motion_ctx.odo_l;
-                g_motion_ctx.seg_r = g_motion_ctx.odo_r;
-            }
-#endif
             g_motion_ctx.cmd = *p_cmd;
             g_motion_ctx.cmd.speed_mm_s =
                 clampi(p_cmd->speed_mm_s, S2_MAX_SPEED_MM_S);
@@ -361,21 +349,6 @@ static int32_t slow_near_end(int32_t speed, float32_t remaining_mm,
     return speed;
 }
 
-#if S2_WEBDEBUG
-/* Live tuning from the browser page (debugging/web_debug_bridge.c).
-   Start at the s2_config.h values; lost on reboot.  Read by the control
-   task, written by the WiFi task: single aligned words, so no lock needed
-   for bench use. */
-volatile int32_t g_s2_dbg_trim_l   = S2_TRIM_L_PERMILLE;
-volatile int32_t g_s2_dbg_trim_r   = S2_TRIM_R_PERMILLE;
-volatile int32_t g_s2_dbg_straight = 1; /* 1 = hold DRIVE straight */
-#define TRIM_L g_s2_dbg_trim_l
-#define TRIM_R g_s2_dbg_trim_r
-#else
-#define TRIM_L S2_TRIM_L_PERMILLE
-#define TRIM_R S2_TRIM_R_PERMILLE
-#endif
-
 /* Per-motor trim (s2_config.h): scale a wheel set-point so the two motors
    give the same real speed for the same command. */
 static int32_t apply_trim(int32_t want, int32_t trim_permille)
@@ -407,23 +380,10 @@ static void mode_logic(void)
                 g_motion_ctx.cmd.speed_mm_s - g_motion_ctx.cmd.steer_mm_s;
             g_motion_ctx.want_r =
                 g_motion_ctx.cmd.speed_mm_s + g_motion_ctx.cmd.steer_mm_s;
-#if S2_WEBDEBUG
-            /* Bench only: hold a plain forward/back DRIVE straight by
-               slowing the wheel that has travelled further since the
-               drive started (same idea as DRIVE_DIST). */
-            if ((0 != g_s2_dbg_straight) && (0 == g_motion_ctx.cmd.steer_mm_s) &&
-                (0 != g_motion_ctx.cmd.speed_mm_s))
-            {
-                float32_t fix = S2_STRAIGHT_K * (delta_l - delta_r);
-                fix = (fix > 100.0f) ? 100.0f : ((fix < -100.0f) ? -100.0f : fix);
-                g_motion_ctx.want_l -= (int32_t)fix;
-                g_motion_ctx.want_r += (int32_t)fix;
-            }
-#endif
             g_motion_ctx.want_l =
-                apply_trim(g_motion_ctx.want_l, TRIM_L);
+                apply_trim(g_motion_ctx.want_l, S2_TRIM_L_PERMILLE);
             g_motion_ctx.want_r =
-                apply_trim(g_motion_ctx.want_r, TRIM_R);
+                apply_trim(g_motion_ctx.want_r, S2_TRIM_R_PERMILLE);
             break;
 
         case MSTATE_DRIVING_DIST:
@@ -443,9 +403,9 @@ static void mode_logic(void)
             g_motion_ctx.want_l = (dir * speed) - (int32_t)steer;
             g_motion_ctx.want_r = (dir * speed) + (int32_t)steer;
             g_motion_ctx.want_l =
-                apply_trim(g_motion_ctx.want_l, TRIM_L);
+                apply_trim(g_motion_ctx.want_l, S2_TRIM_L_PERMILLE);
             g_motion_ctx.want_r =
-                apply_trim(g_motion_ctx.want_r, TRIM_R);
+                apply_trim(g_motion_ctx.want_r, S2_TRIM_R_PERMILLE);
             break;
 
         case MSTATE_TURNING:
@@ -469,6 +429,8 @@ static void mode_logic(void)
                 (absf(g_motion_ctx.spd_l) < S2_STOP_SPEED_MM_S) &&
                 (absf(g_motion_ctx.spd_r) < S2_STOP_SPEED_MM_S))
             {
+                /* Vehicle Controller waits for this physical-stop confirmation
+                   before it executes a buffered barcode at a junction. */
                 enter_idle(MFLG_STOPPED);
             }
             break;
@@ -517,13 +479,6 @@ static void calculate_pwm(float32_t dt_s)
     g_motion_ctx.tgt_r =
         motion_ramp(g_motion_ctx.tgt_r, g_motion_ctx.want_r, step);
 
-#if S2_WEBDEBUG
-    /* live tuning of the speed PID from the dashboard */
-    g_motion_ctx.pid_l.kp = (float32_t)g_lt_pid_kp100 / 100.0f;
-    g_motion_ctx.pid_r.kp = (float32_t)g_lt_pid_kp100 / 100.0f;
-    g_motion_ctx.pid_l.ki = (float32_t)g_lt_pid_ki100 / 100.0f;
-    g_motion_ctx.pid_r.ki = (float32_t)g_lt_pid_ki100 / 100.0f;
-#endif
     g_motion_ctx.duty_l = wheel_duty(&g_motion_ctx.pid_l, g_motion_ctx.tgt_l,
                                      g_motion_ctx.spd_l, dt_s);
     g_motion_ctx.duty_r = wheel_duty(&g_motion_ctx.pid_r, g_motion_ctx.tgt_r,

@@ -61,6 +61,7 @@ static void make(vc_event_t * p_event, vc_event_type_t type, int32_t param1,
     p_event->p1      = param1;
     p_event->p2      = param2;
     p_event->time_ms = time_ms;
+    p_event->barcode_text[0] = '\0';
 }
 
 /* One IMU event -> controller event.  Returns false for events the

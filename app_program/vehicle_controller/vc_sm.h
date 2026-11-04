@@ -1,6 +1,6 @@
 /*
  *      vc_sm.h
- *      Vehicle Controller -- Vehicle Controller mission state machine.
+ *      Subsystem 6 -- Vehicle Controller mission state machine.
  *
  *      Pure logic: vc_sm_handle() takes one event and returns a list of
  *      ACTIONS (move, request, report).  It never calls the kernel or a
@@ -31,6 +31,8 @@
 #define VC_DECODE_MS         1500  /* DECODE_BARCODE: one read */
 #define VC_BARCODE_MAX_RETRY 2     /* then give up, keep following */
 #define VC_EXECUTE_MS        4000  /* EXECUTE_ACTION: manoeuvre */
+#define VC_JUNCTION_STOP_MS  2000  /* wait for S2 to confirm zero speed */
+#define VC_JUNCTION_CLEAR_MM 60    /* straight distance to clear the crossing; TUNE */
 #define VC_TERRAIN_MS        5000  /* TERRAIN_CHECK: hump must clear */
 #define VC_AVOID_MS          15000 /* AVOID_OBSTACLE: whole bypass */
 
@@ -74,7 +76,8 @@ typedef struct
     uint8_t              attempts;         /* LOST_LINE search attempts */
     uint8_t              retries;          /* barcode read retries */
     int8_t               lost_side;        /* -1 left, +1 right, 0 unknown */
-    navigation_command_t pending_nav;      /* for EXECUTE_ACTION */
+    navigation_command_t pending_nav;      /* decoded action for next junction */
+    char                 pending_barcode[16]; /* full decoded barcode text */
 } vc_sm_t;
 
 extern void vc_sm_init(vc_sm_t * p_sm, uint32_t now_ms);

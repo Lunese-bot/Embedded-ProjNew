@@ -115,12 +115,14 @@ static TMO wait_timeout(void)
 static void decode(void)
 {
     s3_event_t      evt = { 0 };
-    code39_params_t prm;
-    code39_result_t res;
-    bool            b_reversed = false;
+    code39_options_t opt;
+    code39_result_t  res;
+    bool             b_reversed = false;
 
     set_state(BARCODE_STATE_DECODE);
-    prm.min_ratio_x10 = S3_BC_MIN_RATIO_X10;
+    opt.min_ratio_x10 = S3_BC_MIN_RATIO_X10;
+    opt.letters_only  = (S3_BC_LETTERS_ONLY != 0);
+    opt.max_chars     = (uint8_t)S3_BC_MAX_CHARS;
 
     if (g_n_widths < S3_BC_MIN_ELEMENTS)
     {
@@ -129,8 +131,9 @@ static void decode(void)
     else
     {
         /* Cast: the text buffer holds plain characters. */
-        res = code39_decode(g_widths, g_n_widths, &prm, (char *)evt.text,
-                            sizeof(evt.text), &b_reversed);
+        res = code39_decode_ex(g_widths, g_n_widths, &opt,
+                               (char *)evt.text, sizeof(evt.text),
+                               &b_reversed);
     }
 
     tk_loc_mtx(g_mtx_s3_status, TMO_FEVR);
@@ -201,7 +204,7 @@ static void on_run(const s3_bc_run_t * p_run)
             {
                 decode(); /* trailing quiet zone */
             }
-            else
+            else if (g_n_widths < S3_BC_MAX_ELEMENTS)
             {
                 g_widths[g_n_widths] = p_run->width_us;
                 g_n_widths++;

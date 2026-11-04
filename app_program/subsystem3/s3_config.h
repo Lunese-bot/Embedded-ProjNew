@@ -7,7 +7,7 @@
  *      measurement in testing/subsystem3/TEST_LOG.md.
  *
  *      This header holds plain numbers only, so that the host unit tests
- *      (testing/subsystem3/host_test/) can include it without the kernel.
+ *      (testing/subsystem3/host/) can include it without the kernel.
  */
 
 #ifndef S3_CONFIG_H
@@ -94,22 +94,25 @@
 
 /* ---------------------------------------------------------------------
  *  Barcode (task_barcode.c, code39.c)
- *      Code 39 (start/stop '*', 9 elements per character, 3 of
- *      them wide).  The data characters are the letters A-Z only: no digits
- *      or symbols are used.
+ *      Code 39 is assumed (start/stop '*', 9 elements per character, 3 of
+ *      them wide).  CONFIRM the symbology with the course rules.
  * --------------------------------------------------------------------- */
 #define S3_BC_SENSOR S3_IR_L /* sensor that reads barcodes */
 
-#define S3_BC_MAX_CHARS    6 /* including the two '*' */
-#define S3_BC_MAX_ELEMENTS (S3_BC_MAX_CHARS * 10)
-#define S3_BC_TEXT_MAX     8 /* decoded text incl. '\0' */
+/* The course barcodes contain uppercase letters A-Z only.  The maximum
+   below counts DATA letters; Code 39 start/stop '*' are additional. */
+#define S3_BC_LETTERS_ONLY 1
+#define S3_BC_MAX_LETTERS  10u
+#define S3_BC_MAX_CHARS    (S3_BC_MAX_LETTERS + 2u) /* incl. '*' markers */
+#define S3_BC_MAX_ELEMENTS ((S3_BC_MAX_CHARS * 10u) - 1u)
+#define S3_BC_TEXT_MAX     (S3_BC_MAX_LETTERS + 1u) /* incl. NUL */
 
 /* A white gap longer than S3_BC_QUIET_FACTOR x the widest element seen
    so far ends the barcode (Code 39 quiet zone is >= 10 narrow). */
-#define S3_BC_QUIET_FACTOR   3
+#define S3_BC_QUIET_FACTOR   5
 #define S3_BC_QUIET_MIN_MS   150  /* never end sooner than this     */
 #define S3_BC_ELEMENT_MAX_MS 1500 /* longer black run = not a bar   */
-#define S3_BC_MIN_ELEMENTS   29   /* "*X*" = 3 chars x 10 - 1       */
+#define S3_BC_MIN_ELEMENTS   29u  /* "*A*" = 3 symbols x 10 - 1 */
 
 /* Smallest accepted wide:narrow ratio, x10 (15 = 1.5).  Code 39 is
    printed at 2.0..3.0. */
@@ -117,9 +120,14 @@
 
 #define S3_BC_MAX_RETRIES 2 /* reported to the controller     */
 
-/* Barcode letter -> navigation command: see the table s3_bc_map[] in
-   subsystem3.c (one row per letter A-Z, edit it there once the course
-   tells us what each letter means). */
+/* Legacy first-character mapping retained for the S3 event interface.
+   The full Vehicle Controller now uses exact full-string rules in
+   subsystem6/vc_barcode_rules.c.  Keep these disabled to avoid inventing
+   course mappings or executing placeholder actions. */
+#define S3_BC_CHAR_LEFT     '\0'
+#define S3_BC_CHAR_RIGHT    '\0'
+#define S3_BC_CHAR_STRAIGHT '\0'
+#define S3_BC_CHAR_UTURN    '\0'
 
 #endif /* S3_CONFIG_H */
 

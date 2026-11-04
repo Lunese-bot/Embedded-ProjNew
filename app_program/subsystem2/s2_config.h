@@ -36,11 +36,7 @@
 /* ---------------------------------------------------------------------
  *  Geometry                                                    MEASURE
  * --------------------------------------------------------------------- */
-/* Measured 2026-11-02 by turning each wheel 10 turns by hand:
-   left +6922, right +6920 counts -> ~692 per wheel turn (not 20; the
-   encoder is probably on the motor shaft, before the gearbox).  One count is then
-   ~0.3 mm, so the speed reading is far finer than the old comments assume. */
-#define S2_TICKS_PER_REV 692    /* encoder counts per wheel turn */
+#define S2_TICKS_PER_REV 20     /* encoder edges per wheel turn */
 #define S2_WHEEL_DIAM_MM 65.0f  /* wheel diameter */
 #define S2_TRACK_MM      130.0f /* distance between wheel centres */
 #define S2_PI            3.14159265f
@@ -117,15 +113,6 @@
    robot off the table for the first try. */
 #ifndef S2_DEMO
 #define S2_DEMO 0
-#endif
-
-/* Browser remote control for bench debugging (default OFF).  1 = the
-   WiFi task serves a page with Forward/Back/Left/Right/Stop buttons that
-   drive the wheels through the normal DRIVE/TURN commands (see
-   app_program/debugging/README.md).  Needs a NET=lwip build.  BENCH ONLY:
-   there is no password, and the Vehicle Controller can also send commands. */
-#ifndef S2_WEBDEBUG
-#define S2_WEBDEBUG 1
 #endif
 
 /* Print one status line every N periods (0 = never) */

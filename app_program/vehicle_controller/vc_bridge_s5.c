@@ -54,6 +54,7 @@ static void push(vc_event_type_t type, int32_t param1, int32_t param2,
         p_event->p1      = param1;
         p_event->p2      = param2;
         p_event->time_ms = time_ms;
+        p_event->barcode_text[0] = '\0';
     }
 }
 
