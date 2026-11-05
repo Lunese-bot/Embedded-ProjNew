@@ -68,21 +68,36 @@
 
 /* L (barcode sensor) through the ADC as well: 1 = L's A0 on GP28 (ADC2),
    0 = L's D0 digital (set S3_PIN_IR_L back to the digital pin).
-   S3_L_ADC_WHITE / _BLACK work like R's.  Measured 2026-11-05: white
-   180-240, bar edge 190-250, middle of a black bar 2450-2580.
-   Cut-off (halfway) 900: well above white, and lower than full black on
-   purpose so a NARROW bar (L may not reach full black on it) still counts.
-   With S3_BC_HYST 100: black from about 1030, white again below 770.
-   Narrow bars missed: lower BLACK.  Bars read too wide: raise it. */
+   S3_L_ADC_WHITE / _BLACK work like R's.  Re-measured 2026-11-05 after
+   lowering L: white 140-190, THINNEST bar of 'A' 200-250, thickest bar
+   1300-1400.  Thin bars are only ~50 above white, so the cut-off has to
+   sit in that small gap: halfway = 215, and with S3_BC_HYST 100 L turns
+   black above about 219 and white again below about 211.  PROVISIONAL:
+   check the L trace on the dashboard (white noise must stay under the
+   green line, every thin bar must cross the red one). */
 #define S3_IR_L_ADC    1
-#define S3_L_ADC_WHITE 250
-#define S3_L_ADC_BLACK 1550
+#define S3_L_ADC_WHITE 195
+#define S3_L_ADC_BLACK 235
 
 /* Barcode reading: dead band around the black threshold (0..1000 scale) so
    L does not flicker at a bar edge and split one bar into two.  L turns
    black at threshold + HYST and white again below threshold - HYST.
    Only matters for an analogue L (digital L is 0 or 1000). */
 #define S3_BC_HYST 100
+
+/* Barcode edge finder (added 2026-11-05).  1 = find bars by L's rises and
+   falls (raw ADC), 0 = the fixed cut-off above.  Needs an analogue L.
+   Why: L's trace over 'A' showed the thin white gaps only dropping to
+   1100-1700 raw (white is ~140-250), so a fixed cut-off merged every bar.
+   S3_BC_EDGE_SWING: how far (raw) L must fall from a bar's peak to count a
+     gap, or rise from a gap's valley to count a bar.  Real gaps in the
+     trace fell 500-1800; flat noise on a bar wobbles under ~100.
+   S3_BC_EDGE_FLOOR: below this raw value L is always white, and L must be
+     above it to count a bar (white paper read 140-260, up to ~360 at an
+     edge).  Both can be changed live on the dashboard (Line test tab). */
+#define S3_BC_EDGE       1
+#define S3_BC_EDGE_SWING 300
+#define S3_BC_EDGE_FLOOR 400
 
 /* Digital level the module outputs over BLACK tape.  TUNE: most TCRT5000
    style modules give 1 on black, some give 0. */
@@ -218,7 +233,10 @@
 /* A white gap longer than S3_BC_QUIET_FACTOR x the widest element seen
    so far ends the barcode (Code 39 quiet zone is >= 10 narrow). */
 #define S3_BC_QUIET_FACTOR   5
-#define S3_BC_QUIET_MIN_MS   150  /* never end sooner than this     */
+#define S3_BC_QUIET_MIN_MS   800  /* never end sooner than this (was 150; 2026-11-05:
+                                     a slow, blurry pass had white gaps of 130-600 ms
+                                     inside one barcode and got split into pieces) */
+#define S3_BC_START_WHITE_MS 150  /* white needed before a bar can start a barcode */
 #define S3_BC_ELEMENT_MAX_MS 1500 /* longer black run = not a bar   */
 #define S3_BC_MIN_ELEMENTS   29u  /* "*A*" = 3 symbols x 10 - 1 */
 

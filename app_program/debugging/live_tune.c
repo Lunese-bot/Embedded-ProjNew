@@ -31,7 +31,12 @@ volatile int32_t g_lt_ff_l      = S2_PID_KFF_BOOST_L;
 volatile int32_t g_lt_ff_r      = S2_PID_KFF_BOOST_R;
 volatile int32_t g_lt_ilim      = (int32_t)S2_PID_I_LIMIT;
 char             g_lt_bc_text[16] = "-";
+char             g_lt_bc_hist[48] = "";
 volatile int32_t g_lt_next_nav  = 0;   /* junction action from the barcode */
+volatile int32_t g_lt_bc_edge   = S3_BC_EDGE;       /* barcode edge finder on/off */
+volatile int32_t g_lt_bc_swing  = S3_BC_EDGE_SWING; /* raw rise/fall that counts */
+volatile int32_t g_lt_bc_floor  = S3_BC_EDGE_FLOOR; /* raw: below = always white */
+volatile int32_t g_lt_steer_hold = 0;               /* steering correction mode */
 volatile int32_t g_lt_trim_step = 2;
 
 #endif /* S2_WEBDEBUG */

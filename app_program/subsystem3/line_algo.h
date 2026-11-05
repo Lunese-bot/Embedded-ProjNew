@@ -103,6 +103,34 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
                              uint16_t const        p_norm[S3_IR_COUNT],
                              bool                  b_junction_inhibit);
 
+
+/*
+ * Barcode edge finder (S3_BC_EDGE = 1).  Works on L's RAW reading and
+ * looks for rises and falls instead of a fixed cut-off, so a thin white
+ * gap counts even when L never gets back to real white.
+ *   black: follow the highest reading; turn white once L drops `swing`
+ *          below it (or under `floor`).
+ *   white: follow the lowest reading; turn black once L rises `swing`
+ *          above it AND is above `floor`.
+ * The edge time is when L crossed halfway between this bar's peak and
+ * the gap's valley (50 %), so a weak, blurry bump is not timed narrower
+ * than its gaps and rising / falling edges are timed the same way.
+ */
+typedef struct
+{
+    uint8_t  level;    /* 1 = black */
+    int32_t  ext;      /* peak (black) or valley (white) so far */
+    int32_t  prev;     /* the previous valley (black) or peak (white) */
+    uint8_t  b_prev;   /* 0 = no previous peak yet (first bar): use swing/2 */
+    uint32_t mid_t_us; /* last time L was on this side of halfway */
+} bc_edge_t;
+
+void bc_edge_reset(bc_edge_t * p_e, int32_t raw, uint32_t t_us);
+
+/* Returns 1 when the level changed; *p_edge_us = when the edge happened. */
+uint8_t bc_edge_step(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                     int32_t swing, int32_t floor, uint32_t * p_edge_us);
+
 #endif /* LINE_ALGO_H */
 
 /*** end of file ***/

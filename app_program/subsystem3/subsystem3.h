@@ -57,10 +57,32 @@ typedef struct
     bool            bc_enabled;
     uint32_t        bc_ok;   /* barcodes decoded                     */
     uint32_t        bc_fail; /* barcode reads that failed            */
+    uint16_t        bc_last_elems; /* bars + spaces in the last read (one
+                                      letter between '*' markers = 29) */
+    uint8_t         bc_last_err;   /* code39_result_t of the last read, 0 = ok */
     uint32_t evt_dropped;    /* events lost: g_mbf_s3_events was full        */
 } s3_line_status_t;
 
 extern ER s3_get_line_status(s3_line_status_t * p_out);
+
+/* Bench analysis (dashboard barcode recorder): a copy of the bar and space
+   widths of the LAST decode attempt, written by barcode_task.  Element 0 is
+   a black bar, then they alternate.  g_s3_bc_dbg_seq goes up by one after
+   each copy; a reader copies n widths, then checks seq did not change. */
+extern volatile uint32_t g_s3_bc_dbg_seq;
+extern volatile uint32_t g_s3_bc_dbg_n;
+extern volatile uint32_t g_s3_bc_dbg_us[S3_BC_MAX_ELEMENTS];
+
+/* Bench analysis: the barcode sensor's raw reading for the last
+   S3_LTRACE_N line samples (10 ms each), a ring written by line_task.
+   g_s3_ltrace_idx counts samples written (next slot = idx % N). */
+#define S3_LTRACE_N 400u
+extern volatile uint16_t g_s3_ltrace[S3_LTRACE_N];
+extern volatile uint32_t g_s3_ltrace_idx;
+/* Copy of the trace taken by barcode_task the moment a read ends (oldest
+   first), so the bars are still in it when the dashboard asks. */
+extern volatile uint16_t g_s3_ltrace_frz[S3_LTRACE_N];
+extern volatile uint32_t g_s3_ltrace_frz_n; /* samples in the copy, 0 = none yet */
 
 /* ---------------------------------------------------------------------
  *  IF-32: events, received by the Vehicle Controller:

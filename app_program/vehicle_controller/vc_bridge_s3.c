@@ -105,6 +105,28 @@ static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
     {
         /* not a barcode result */
     }
+    if ((S3_EVT_BARCODE_DECODED == p_s3->type) ||
+        (S3_EVT_BARCODE_FAILED == p_s3->type))
+    {
+        /* history, newest first: "<text> " + old, cut to fit */
+        char     tmp[sizeof(g_lt_bc_hist)];
+        uint32_t n = 0u;
+        uint32_t k;
+        for (k = 0u; ('\0' != g_lt_bc_text[k]) && (n < (sizeof(tmp) - 2u)); k++)
+        {
+            tmp[n++] = g_lt_bc_text[k];
+        }
+        tmp[n++] = ' ';
+        for (k = 0u; ('\0' != g_lt_bc_hist[k]) && (n < (sizeof(tmp) - 1u)); k++)
+        {
+            tmp[n++] = g_lt_bc_hist[k];
+        }
+        tmp[n] = '\0';
+        for (k = 0u; k <= n; k++)
+        {
+            g_lt_bc_hist[k] = tmp[k];
+        }
+    }
 #endif
     if (BC_OFF && ((S3_EVT_BARCODE_START == p_s3->type) ||
                    (S3_EVT_BARCODE_DECODED == p_s3->type) ||

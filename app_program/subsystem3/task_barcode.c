@@ -30,6 +30,13 @@
 #define S3_US_PER_MS 1000U /* run widths are in microseconds */
 
 static uint32_t        g_widths[S3_BC_MAX_ELEMENTS];
+
+/* bench copy of the last read (subsystem3.h) */
+volatile uint32_t g_s3_bc_dbg_seq;
+volatile uint32_t g_s3_bc_dbg_n;
+volatile uint16_t g_s3_ltrace_frz[S3_LTRACE_N];
+volatile uint32_t g_s3_ltrace_frz_n;
+volatile uint32_t g_s3_bc_dbg_us[S3_BC_MAX_ELEMENTS];
 static uint32_t        g_n_widths;
 static uint32_t        g_widest_us;
 static uint32_t        g_retries;
@@ -136,7 +143,32 @@ static void decode(void)
                                &b_reversed);
     }
 
+    {
+        uint32_t k;
+        for (k = 0U; (k < g_n_widths) && (k < S3_BC_MAX_ELEMENTS); k++)
+        {
+            g_s3_bc_dbg_us[k] = g_widths[k];
+        }
+        g_s3_bc_dbg_n = k;
+
+        /* freeze the L trace now, while the bars are still in the ring */
+        {
+            uint32_t idx   = g_s3_ltrace_idx;
+            uint32_t count = (idx < S3_LTRACE_N) ? idx : S3_LTRACE_N;
+            uint32_t start = idx - count;
+            for (k = 0U; k < count; k++)
+            {
+                g_s3_ltrace_frz[k] = g_s3_ltrace[(start + k) % S3_LTRACE_N];
+            }
+            g_s3_ltrace_frz_n = count;
+        }
+        g_s3_bc_dbg_seq++;
+    }
+
     tk_loc_mtx(g_mtx_s3_status, TMO_FEVR);
+    /* Cast: element count is at most S3_BC_MAX_ELEMENTS, result fits 8 bits */
+    g_s3_status.bc_last_elems = (uint16_t)g_n_widths;
+    g_s3_status.bc_last_err   = (uint8_t)res;
     if (CODE39_OK == res)
     {
         g_s3_status.bc_ok++;
@@ -180,7 +212,7 @@ static void on_run(const s3_bc_run_t * p_run)
                barcode only after a long white gap (the quiet zone). */
             if ((0U == p_run->black) &&
                 (p_run->width_us >=
-                 ((uint32_t)S3_BC_QUIET_MIN_MS * S3_US_PER_MS)))
+                 ((uint32_t)S3_BC_START_WHITE_MS * S3_US_PER_MS)))
             {
                 set_state(BARCODE_STATE_DETECT);
                 g_b_s3_bc_scanning = true;

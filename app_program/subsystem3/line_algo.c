@@ -484,4 +484,52 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
     return tracker_update_state(p_trk, p_params, b_junction);
 }
 
+/* ---- barcode edge finder (see line_algo.h) ---- */
+void bc_edge_reset(bc_edge_t * p_e, int32_t raw, uint32_t t_us)
+{
+    p_e->level    = 0U;
+    p_e->ext      = raw;
+    p_e->prev     = raw;
+    p_e->b_prev   = 0U;
+    p_e->mid_t_us = t_us;
+}
+
+uint8_t bc_edge_step(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                     int32_t swing, int32_t floor, uint32_t * p_edge_us)
+{
+    uint8_t next = p_e->level;
+    int32_t mid;
+
+    /* halfway between this run's extreme and the previous one; it only
+       moves towards the current sample's side as ext grows, so "last time
+       on this side of halfway" stays correct */
+    if (0U != p_e->level)
+    {
+        if (raw > p_e->ext) { p_e->ext = raw; }
+        mid = (p_e->ext + p_e->prev) / 2;
+        if (raw >= mid) { p_e->mid_t_us = t_us; }
+        if ((raw < (p_e->ext - swing)) || (raw < floor)) { next = 0U; }
+    }
+    else
+    {
+        if (raw < p_e->ext) { p_e->ext = raw; }
+        mid = (0U != p_e->b_prev) ? ((p_e->ext + p_e->prev) / 2)
+                                  : (p_e->ext + (swing / 2));
+        if (raw <= mid) { p_e->mid_t_us = t_us; }
+        if ((raw > (p_e->ext + swing)) && (raw > floor)) { next = 1U; }
+    }
+
+    if (next == p_e->level)
+    {
+        return 0U;
+    }
+    *p_edge_us    = p_e->mid_t_us;
+    p_e->level    = next;
+    p_e->prev     = p_e->ext;
+    p_e->b_prev   = 1U;
+    p_e->ext      = raw;
+    p_e->mid_t_us = t_us;
+    return 1U;
+}
+
 /*** end of file ***/

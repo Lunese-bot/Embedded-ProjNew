@@ -348,10 +348,199 @@ static void test_line(void)
           "calibration with 100-count span rejected");
 }
 
+/* ---- barcode edge finder (bc_edge_step) ---------------------------- */
+/* MY's real L trace over 'A', 2026-11-05 05:59, raw every 10 ms */
+static uint16_t const g_trace_a[] = {
+238, 234, 242, 248, 314, 876, 1404, 1753, 2042, 2230, 2421, 2459, 2522,
+2569, 2606, 2630, 2587, 2569, 2596, 2601, 2590, 2514, 2379, 2049, 1512,
+1177, 1325, 1578, 1782, 1856, 1937, 2051, 2212, 2272, 2286, 2281, 2234,
+2209, 2246, 2240, 2195, 2239, 2277, 2251, 2274, 2244, 2162, 2037, 1892,
+1812, 1678, 1621, 1504, 1376, 1185, 1105, 1096, 1153, 1262, 1238, 1241,
+1294, 1381, 1416, 1535, 1707, 1738, 1583, 1348, 682, 241, 223, 227, 296,
+702, 1642, 2450, 2865, 3123, 3288, 3291, 3305, 3347, 3313, 3316, 3315, 3378,
+3362, 3348, 3403, 3409, 3366, 3371, 3357, 3412, 3418, 3372, 3376, 3413,
+3404, 3350, 3364, 3319, 3317, 3283, 3277, 3286, 3291, 3245, 3250, 3230,
+3189, 3197, 3165, 3155, 3186, 3154, 3163, 3164, 3157, 3121, 3108, 3072,
+3027, 3012, 2873, 2786, 2675, 2606, 2444, 2292, 2052, 1845, 1739, 1632,
+1656, 1757, 1904, 2144, 2398, 2594, 2712, 2806, 2874, 2932, 3003, 3014,
+3026, 2976, 2955, 2926, 2896, 2905, 2882, 2864, 2880, 2923, 2926, 2947,
+2969, 2936, 2981, 2985, 2972, 2962, 2945, 2971, 2933, 2927, 2973, 2947,
+2988, 2944, 2978, 2921, 2946, 2909, 2889, 2873, 2886, 2828, 2848, 2772,
+2668, 2557, 2438, 2250, 2145, 1968, 1715, 1535, 1324, 1224, 1119, 1125,
+1183, 1183, 1236, 1301, 1396, 1427, 1526, 1566, 1648, 1681, 1753, 1760,
+1811, 1836, 1836, 1784, 1754, 1692, 1667, 1685, 1711, 1752, 1791, 1832,
+1876, 1821, 1826, 1745, 1686, 1535, 1342, 1097, 736, 364, 322, 278, 275,
+270, 264, 259, 243, 235, 234, 184, 195, 244, 197, 196, 201, 179, 217, 179,
+169, 181, 205, 169, 152, 187, 207, 196, 200, 172, 157, 152, 190, 187, 149,
+201, 181, 146, 144, 147, 154, 193, 181, 148, 170, 189, 179, 182, 179, 147,
+164, 148, 188, 171, 153, 153, 203, 153, 160, 194, 152, 172, 177, 153, 145,
+178, 197, 188, 155, 165, 202, 201, 198, 232, 153, 155, 156, 149, 184, 188,
+145, 201, 159, 157, 184, 149, 171, 152, 153, 148, 166, 161, 144, 191, 186,
+184, 147, 198, 147, 192, 200, 174, 203, 185, 166, 168, 146, 156, 187, 190,
+196, 149, 146, 178, 154, 153, 198, 170, 185, 155, 146, 192, 148, 185, 198,
+149, 154, 194, 155, 173, 173, 198, 163, 189, 183, 149, 157, 141, 187, 170,
+152, 153, 191, 143, 158, 172, 176, 208, 261, 1904, 2917, 2954, 2998, 2980,
+2978, 2968, 2948, 2965, 2956, 3006, 2984, 3020, 3100, 3112, 3185, 3218,
+3280, 3261, 3290, 3318, 3342, 3353, 3299
+};
+
+/* run the edge finder over a sampled signal, collect run widths (us) from
+   the first black run to the last black run */
+static uint32_t edge_runs(int32_t const * p_v, uint32_t n, int32_t swing,
+                          int32_t floor, uint32_t * p_w, uint32_t w_max)
+{
+    bc_edge_t e;
+    uint32_t  start = 0u, edge = 0u, k = 0u, i;
+    bc_edge_reset(&e, p_v[0], 0u);
+    for (i = 0u; i < n; i++)
+    {
+        uint32_t t = i * 10000u;
+        uint8_t  was = e.level;
+        if (0u != bc_edge_step(&e, p_v[i], t, swing, floor, &edge))
+        {
+            if ((0u != was) || (k > 0u)) /* skip the leading white */
+            {
+                if (k < w_max) { p_w[k++] = edge - start; }
+            }
+            start = edge;
+        }
+    }
+    if ((k > 0u) && (0u == (k % 2u))) { k--; } /* drop trailing white */
+    return k;
+}
+
+static void test_bc_edge(void)
+{
+    static int32_t v[1200];
+    uint32_t w[200], runs[100], ideal[100];
+    char     text[16];
+    bool     rev;
+    uint32_t n, i, k, j, t, nr;
+    int32_t  ok;
+
+    /* H-E01..03: ideal *A* (narrow 47 ms, wide 141 ms) sampled every 10 ms,
+       paper white 200 / black 3000, then blurred (average of
+       7 samples, a spot ~8 mm wide at 120 mm/s) so thin gaps only drop to
+       about 1000-1300, like MY's trace.  Plus a slow drift of +600. */
+    nr = code39_encode("A", 47u, 141u, ideal, 100u);
+    n = 0u;
+    for (i = 0u; i < 30u; i++) { v[n++] = 200; }        /* quiet zone */
+    t = 0u;
+    j = 0u; /* exact edge time (us); t = sample time */
+    for (k = 0u; k < nr; k++)
+    {
+        uint32_t end = (j += ideal[k] * 1000u);
+        int32_t  lev = (0u == (k % 2u)) ? 3000 : 200;   /* bar first */
+        for (; t < end; t += 10000u) { v[n++] = lev; }  /* t in us */
+    }
+    for (i = 0u; i < 60u; i++) { v[n++] = 200; }
+    {
+        static int32_t b[1200];
+        for (i = 0u; i < n; i++)
+        {
+            int32_t s = 0;
+            for (j = 0u; j < 7u; j++) { s += v[(i >= j) ? (i - j) : 0u]; }
+            b[i] = s / 7;
+        }
+        for (i = 0u; i < n; i++) { v[i] = b[i]; }
+    }
+    /* how white do the thin gaps get?  for each space, its lowest point
+       (the blur shifts it up to 7 samples late); keep the worst one */
+    ok = 0;
+    t = 0u;
+    for (k = 0u; k < nr; k++)
+    {
+        uint32_t a = 30u + t / 10000u, z;
+        int32_t  lo = 5000;
+        t += ideal[k] * 1000u;
+        z = 30u + t / 10000u + 7u;
+        if (1u == (k % 2u))
+        {
+            for (i = a; i < z; i++) { if (v[i] < lo) { lo = v[i]; } }
+            if (lo > ok) { ok = lo; }
+        }
+    }
+    printf("        blurred *A*: the thinnest gaps only get down to %d (white = 200)\n", (int)ok);
+    CHECK("H-E00", ok > 900, "test signal is as blurry as MY's (gaps stay above 900)");
+    k = edge_runs(v, n, S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR, runs, 100u);
+    CHECK("H-E01", k == nr, "edge finder: blurred *A* gives 29 bars+spaces");
+    CHECK("H-E02", (CODE39_OK == code39_decode(runs, k, &g_prm, text, sizeof text, &rev))
+                   && (0 == strcmp(text, "A")),
+          "edge finder: blurred *A* decodes as A");
+    for (i = 0u; i < n; i++) { v[i] += (int32_t)((i * 600u) / n); }
+    k = edge_runs(v, n, S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR, runs, 100u);
+    printf("        drift: %u runs:", (unsigned)k);
+    for (i = 0u; i < k; i++) { printf(" %u", (unsigned)(runs[i] / 1000u)); }
+    printf(" ms\n");
+    CHECK("H-E03", (k == nr) &&
+                   (CODE39_OK == code39_decode(runs, k, &g_prm, text, sizeof text, &rev))
+                   && (0 == strcmp(text, "A")),
+          "edge finder: still decodes A with the baseline drifting +600");
+    (void)ok; (void)w;
+
+    /* H-E06/07: like MY's 06:57 pass: weak bumps (white 200, bars only
+       reach ~950) on a slow pass (narrow 120 ms, wide 360 ms), blurred
+       over 9 samples.  Must give 29 runs, decode A, and no white gap
+       inside the barcode may be long enough to end the read. */
+    {
+        static int32_t b[1200];
+        uint32_t te = 0u, widest = 0u;
+        nr = code39_encode("A", 120u, 360u, ideal, 100u);
+        n = 0u; t = 0u;
+        for (i = 0u; i < 40u; i++) { v[n++] = 200; }
+        for (k = 0u; k < nr; k++)
+        {
+            uint32_t end = (te += ideal[k] * 1000u);
+            int32_t  lev = (0u == (k % 2u)) ? 950 : 200;
+            for (; t < end; t += 10000u) { v[n++] = lev; }
+        }
+        for (i = 0u; i < 120u; i++) { v[n++] = 200; }
+        for (i = 0u; i < n; i++)
+        {
+            int32_t s9 = 0;
+            for (j = 0u; j < 9u; j++) { s9 += v[(i >= j) ? (i - j) : 0u]; }
+            b[i] = s9 / 9;
+        }
+        for (i = 0u; i < n; i++) { v[i] = b[i]; }
+        k = edge_runs(v, n, S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR, runs, 100u);
+        for (i = 1u; i < k; i += 2u) { if (runs[i] > widest) { widest = runs[i]; } }
+        printf("        weak slow *A*: %u runs, longest white inside %u ms:", (unsigned)k, (unsigned)(widest / 1000u));
+        for (i = 0u; i < k; i++) { printf(" %u", (unsigned)(runs[i] / 1000u)); }
+        printf(" ms\n");
+        CHECK("H-E06", (k == nr) &&
+                       (CODE39_OK == code39_decode(runs, k, &g_prm, text, sizeof text, &rev))
+                       && (0 == strcmp(text, "A")),
+              "weak, slow, blurred *A* (bars only reach 950) decodes as A");
+        CHECK("H-E07", widest < ((uint32_t)S3_BC_QUIET_MIN_MS * 1000u),
+              "no white gap inside it is long enough to end the read early");
+    }
+
+    /* H-E04/05: MY's real trace */
+    n = (uint32_t)(sizeof g_trace_a / sizeof g_trace_a[0]);
+    for (i = 0u; i < n; i++) { v[i] = (int32_t)g_trace_a[i]; }
+    k = edge_runs(v, n, S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR, runs, 100u);
+    printf("        real trace: %u bars+spaces found (fixed cut-off found 1):", (unsigned)k);
+    for (i = 0u; i < k; i++) { printf(" %u", (unsigned)(runs[i] / 1000u)); }
+    printf(" ms\n");
+    CHECK("H-E04", k >= 11u, "real 'A' trace: edge finder sees at least 6 bars (cut-off saw 1)");
+    {
+        /* white paper part only (samples 240..380): no bar from the noise */
+        bc_edge_t e; uint32_t edge = 0u; int32_t flips = 0;
+        bc_edge_reset(&e, (int32_t)g_trace_a[240], 0u);
+        for (i = 240u; i < 370u; i++)
+        {
+            flips += bc_edge_step(&e, (int32_t)g_trace_a[i], i * 10000u,
+                                  S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR, &edge);
+        }
+        CHECK("H-E05", 0 == flips, "white paper noise (140-260) never counts as a bar");
+    }
+}
+
 int main(void)
 {
     test_code39();
     test_line();
+    test_bc_edge();
     printf("[TEST] subsystem3-host SUMMARY %d passed, %d failed\n", g_pass, g_fail);
     return (0 == g_fail) ? 0 : 1;
 }

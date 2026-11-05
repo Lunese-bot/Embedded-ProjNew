@@ -38,7 +38,12 @@ extern volatile int32_t g_lt_ff_l;      /* left feed-forward, permille of S2_PID
 extern volatile int32_t g_lt_ff_r;      /* right feed-forward, permille of S2_PID_KFF */
 extern volatile int32_t g_lt_ilim;      /* PID integral limit, permille duty */
 extern char             g_lt_bc_text[16]; /* last barcode seen by the mission bridge (dashboard) */
+extern char             g_lt_bc_hist[48]; /* the last few results, newest first, space separated */
 extern volatile int32_t g_lt_next_nav;  /* every junction: 0 = barcode decides, 1 left, 2 right, 3 straight */
+extern volatile int32_t g_lt_bc_edge;   /* barcode: 1 = edge finder, 0 = fixed cut-off */
+extern volatile int32_t g_lt_bc_swing;  /* S3_BC_EDGE_SWING (raw) */
+extern volatile int32_t g_lt_bc_floor;  /* S3_BC_EDGE_FLOOR (raw) */
+extern volatile int32_t g_lt_steer_hold; /* 0 steer normally, 1 straight while reading a barcode, 2 never steer */
 extern volatile int32_t g_lt_trim_step; /* trim change per button press, permille */
 #endif
 
