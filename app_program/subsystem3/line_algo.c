@@ -124,6 +124,8 @@ void line_normalise(line_cal_t const * p_cal, uint8_t analog_mask,
         }
         else
         {
+            bool b_hi = b_black_is_high;
+
             if ((NULL != p_cal) && (p_cal->b_valid))
             {
                 low  = p_cal->min[idx];
@@ -131,8 +133,17 @@ void line_normalise(line_cal_t const * p_cal, uint8_t analog_mask,
             }
             else
             {
-                low  = 0u;
-                high = ADC_FULL_SCALE;
+                /* not calibrated: use the sensor's measured white / black
+                   readings from s3_config.h (either order) */
+                uint32_t w = (S3_IR_R == idx) ? (uint32_t)S3_R_ADC_WHITE
+                           : ((S3_IR_C == idx) ? (uint32_t)S3_C_ADC_WHITE
+                                               : (uint32_t)S3_L_ADC_WHITE);
+                uint32_t k = (S3_IR_R == idx) ? (uint32_t)S3_R_ADC_BLACK
+                           : ((S3_IR_C == idx) ? (uint32_t)S3_C_ADC_BLACK
+                                               : (uint32_t)S3_L_ADC_BLACK);
+                low  = (w < k) ? w : k;
+                high = (w < k) ? k : w;
+                b_hi = (k >= w);
             }
 
             value = p_raw[idx];
@@ -148,7 +159,7 @@ void line_normalise(line_cal_t const * p_cal, uint8_t analog_mask,
             norm = (high > low)
                        ? (((value - low) * LINE_NORM_MAX) / (high - low))
                        : 0u;
-            if (!b_black_is_high)
+            if (!b_hi)
             {
                 norm = LINE_NORM_MAX - norm;
             }

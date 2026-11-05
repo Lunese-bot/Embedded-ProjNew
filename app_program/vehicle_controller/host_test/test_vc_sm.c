@@ -224,6 +224,20 @@ static void test_barcode(void)
           "configured full-string rule executes only after stop confirmation");
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
 
+    /* Dashboard "At every junction: Right" (vc_bridge_s3.c): an action-only
+       BARCODE_DECODED (p1 = nav, no text) just before the JUNCTION. */
+    feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_RIGHT, 0);
+    CHECK("S6-H13e", (VC_ST_FOLLOW_LINE == g_sm.st.state) && (NAV_RIGHT == g_sm.pending_nav),
+          "action-only event sets RIGHT and keeps following");
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    CHECK("S6-H13f", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+          has_move(VC_MOVE_TURN_RIGHT, VC_TURN_DEG, 1),
+          "junction after it: stop, then turn RIGHT");
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    CHECK("S6-H13g", (VC_ST_FOLLOW_LINE == g_sm.st.state) && (NAV_NONE == g_sm.pending_nav),
+          "after the turn: follow the line again, action cleared");
+
     /* A junction without any barcode follows the same safe straight path. */
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     CHECK("S6-H14", VC_ST_JUNCTION_STOP == g_sm.st.state,

@@ -13,10 +13,17 @@
 #include "s3_config.h"
 
 /* Sensors read through the ADC (S3_MASK_x bits), 0 in digital mode */
-#if S3_IR_USE_ADC
-#define DRV_IR_ANALOG_MASK (S3_MASK_C | S3_MASK_R)
+#if S3_IR_L_ADC
+#define DRV_IR_L_MASK (S3_MASK_L)
 #else
-#define DRV_IR_ANALOG_MASK 0u
+#define DRV_IR_L_MASK 0u
+#endif
+#if (2 == S3_IR_USE_ADC)
+#define DRV_IR_ANALOG_MASK (S3_MASK_R | DRV_IR_L_MASK)
+#elif S3_IR_USE_ADC
+#define DRV_IR_ANALOG_MASK (S3_MASK_C | S3_MASK_R | DRV_IR_L_MASK)
+#else
+#define DRV_IR_ANALOG_MASK (DRV_IR_L_MASK)
 #endif
 
 extern ER       drv_ir_init(void);

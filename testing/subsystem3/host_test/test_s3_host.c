@@ -298,6 +298,38 @@ static void test_line(void)
         }
     }
 
+    /* H-L19: R-only analogue, not calibrated: scaled between the measured
+       S3_R_ADC_WHITE and S3_R_ADC_BLACK, C and L stay digital */
+    {
+        uint16_t rw[S3_IR_COUNT];
+        uint16_t nm[S3_IR_COUNT];
+        line_cal_t nocal;
+
+        line_cal_reset(&nocal); /* not valid */
+        rw[S3_IR_L] = 0u; rw[S3_IR_C] = (uint16_t)S3_IR_BLACK_LEVEL; rw[S3_IR_R] = (uint16_t)S3_R_ADC_WHITE;
+        line_normalise(&nocal, (uint8_t)S3_MASK_R, true, (uint8_t)S3_IR_BLACK_LEVEL, rw, nm);
+        CHECK("H-L19a", (0u == nm[S3_IR_R]) && (1000u == nm[S3_IR_C]) && (0u == nm[S3_IR_L]),
+              "R over white reads 0, C digital black reads 1000");
+        rw[S3_IR_R] = (uint16_t)S3_R_ADC_BLACK;
+        line_normalise(&nocal, (uint8_t)S3_MASK_R, false, (uint8_t)S3_IR_BLACK_LEVEL, rw, nm);
+        CHECK("H-L19b", 1000u == nm[S3_IR_R], "R over black reads 1000 (direction from the config values)");
+        rw[S3_IR_R] = (uint16_t)((S3_R_ADC_WHITE + S3_R_ADC_BLACK) / 2);
+        line_normalise(&nocal, (uint8_t)S3_MASK_R, true, (uint8_t)S3_IR_BLACK_LEVEL, rw, nm);
+        CHECK("H-L19c", (nm[S3_IR_R] >= 495u) && (nm[S3_IR_R] <= 505u), "halfway reads about 500 = the black threshold");
+        rw[S3_IR_C] = (uint16_t)S3_C_ADC_WHITE;
+        line_normalise(&nocal, (uint8_t)(S3_MASK_C | S3_MASK_R), true, (uint8_t)S3_IR_BLACK_LEVEL, rw, nm);
+        CHECK("H-L19d", 0u == nm[S3_IR_C], "C analogue over white reads 0");
+        rw[S3_IR_C] = (uint16_t)S3_C_ADC_BLACK;
+        line_normalise(&nocal, (uint8_t)(S3_MASK_C | S3_MASK_R), true, (uint8_t)S3_IR_BLACK_LEVEL, rw, nm);
+        CHECK("H-L19e", 1000u == nm[S3_IR_C], "C analogue over black reads 1000");
+        rw[S3_IR_L] = (uint16_t)S3_L_ADC_WHITE;
+        line_normalise(&nocal, (uint8_t)(S3_MASK_L | S3_MASK_C | S3_MASK_R), true, (uint8_t)S3_IR_BLACK_LEVEL, rw, nm);
+        CHECK("H-L19f", 0u == nm[S3_IR_L], "L analogue over white reads 0");
+        rw[S3_IR_L] = (uint16_t)S3_L_ADC_BLACK;
+        line_normalise(&nocal, (uint8_t)(S3_MASK_L | S3_MASK_C | S3_MASK_R), true, (uint8_t)S3_IR_BLACK_LEVEL, rw, nm);
+        CHECK("H-L19g", 1000u == nm[S3_IR_L], "L analogue over black reads 1000");
+    }
+
     /* H-L05: calibration + normalisation (analogue C, R) */
     line_cal_reset(&cal);
     raw[0] = 0u; raw[1] = 300u;  raw[2] = 250u;  line_cal_update(&cal, raw);

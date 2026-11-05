@@ -30,6 +30,8 @@ volatile int32_t g_lt_curve     = VC_CURVE_SLOW_PERMILLE;
 volatile int32_t g_lt_ff_l      = S2_PID_KFF_BOOST_L;
 volatile int32_t g_lt_ff_r      = S2_PID_KFF_BOOST_R;
 volatile int32_t g_lt_ilim      = (int32_t)S2_PID_I_LIMIT;
+char             g_lt_bc_text[16] = "-";
+volatile int32_t g_lt_next_nav  = 0;   /* junction action from the barcode */
 volatile int32_t g_lt_trim_step = 2;
 
 #endif /* S2_WEBDEBUG */

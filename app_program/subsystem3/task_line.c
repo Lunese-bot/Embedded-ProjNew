@@ -115,7 +115,18 @@ static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT], uint32_t t_us)
     uint8_t     level;
     s3_bc_run_t run;
 
-    level = (p_norm[S3_BC_SENSOR] >= g_params.black_threshold) ? 1U : 0U;
+    /* dead band (S3_BC_HYST): a level only changes once L is clearly past
+       the threshold, so a bar edge does not flicker */
+    if (0U != g_bc_level)
+    {
+        level = ((int32_t)p_norm[S3_BC_SENSOR] <
+                 ((int32_t)g_params.black_threshold - S3_BC_HYST)) ? 0U : 1U;
+    }
+    else
+    {
+        level = ((int32_t)p_norm[S3_BC_SENSOR] >=
+                 ((int32_t)g_params.black_threshold + S3_BC_HYST)) ? 1U : 0U;
+    }
     if (level != g_bc_level)
     {
         run.width_us = t_us - g_bc_run_start_us; /* wraps correctly */

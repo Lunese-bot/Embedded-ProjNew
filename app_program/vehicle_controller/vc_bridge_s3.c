@@ -40,6 +40,15 @@
 static uint32_t g_last_seq;
 static bool     g_b_ready_pending;
 
+#if S2_WEBDEBUG
+/* Bench: "At every junction Left / Right / Straight" on the dashboard.  The
+   junction is held back for one call and a BARCODE_DECODED carrying that
+   action goes first, so the controller turns exactly as if a barcode had
+   been read (same code path, no change to vc_sm.c). */
+static bool       g_b_junction_held;
+static vc_event_t g_junction_held;
+#endif
+
 /* Bench switch from the dashboard: 0 = the mission ignores barcodes (no
    start, decode or fail events, and S3 is kept from scanning), so the line
    follower can be tested on its own. */
@@ -69,6 +78,34 @@ static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
 {
     bool b_event = true;
 
+#if S2_WEBDEBUG
+    /* dashboard: remember the last barcode result, even with barcodes
+       switched off for the mission, so reading can be tested by hand */
+    if (S3_EVT_BARCODE_DECODED == p_s3->type)
+    {
+        uint32_t idx;
+        for (idx = 0u; (idx < (sizeof(g_lt_bc_text) - 1u)) &&
+                       (idx < (sizeof(p_s3->text) - 1u)); idx++)
+        {
+            char ch = (char)p_s3->text[idx];
+            if ((ch < 'A') || (ch > 'Z'))
+            {
+                break; /* A-Z only (also keeps the JSON safe) */
+            }
+            g_lt_bc_text[idx] = ch;
+        }
+        g_lt_bc_text[idx] = '\0';
+    }
+    else if (S3_EVT_BARCODE_FAILED == p_s3->type)
+    {
+        g_lt_bc_text[0] = '?'; /* last read failed */
+        g_lt_bc_text[1] = '\0';
+    }
+    else
+    {
+        /* not a barcode result */
+    }
+#endif
     if (BC_OFF && ((S3_EVT_BARCODE_START == p_s3->type) ||
                    (S3_EVT_BARCODE_DECODED == p_s3->type) ||
                    (S3_EVT_BARCODE_FAILED == p_s3->type)))
@@ -165,10 +202,30 @@ bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
         make(p_event, VC_EV_READY, 0, 0, 0);
         b_event = true;
     }
+#if S2_WEBDEBUG
+    else if (g_b_junction_held)
+    {
+        g_b_junction_held = false;
+        *p_event          = g_junction_held; /* after the forced action */
+        b_event           = true;
+    }
+#endif
     /* 1. events first: a LINE_LOST must beat the next steering value */
     else if (next_s3_event(p_event))
     {
         b_event = true;
+#if S2_WEBDEBUG
+        if ((VC_EV_JUNCTION == p_event->type) &&
+            (g_lt_next_nav > (int32_t)NAV_NONE) &&
+            (g_lt_next_nav <= (int32_t)NAV_STRAIGHT))
+        {
+            /* send the dashboard's action first, the junction next call */
+            g_junction_held   = *p_event;
+            g_b_junction_held = true;
+            make(p_event, VC_EV_BARCODE_DECODED, g_lt_next_nav, 0,
+                 g_junction_held.time_ms);
+        }
+#endif
     }
     /* 2. steering, once per new S3 sample, only while S3 owns motion */
     else if ((VC_SRC_LINE == vc_sm_motion_owner(state)) &&
@@ -197,8 +254,9 @@ ER vc_bridge_s3_request(vc_request_t req, int32_t arg)
     switch (req)
     {
         case VC_REQ_SELF_CHECK:
-            if ((E_OK == s3_get_line_status(&line_st)) &&
-                ((line_st.calibrated) || (0 == S3_IR_USE_ADC)))
+            /* No calibration needed: analogue sensors use the white /
+               black readings in s3_config.h until one is run. */
+            if (E_OK == s3_get_line_status(&line_st))
             {
                 g_b_ready_pending = true;
             }

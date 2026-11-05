@@ -16,7 +16,7 @@
 /* ---------------------------------------------------------------------
  *  Pins (Design Review section 2; claim them in TEAM.md section 2)
  * --------------------------------------------------------------------- */
-#define S3_PIN_IR_L 6  /* IR_L  GP06  barcode sensor        */
+#define S3_PIN_IR_L 28 /* IR_L  GP28  barcode sensor (ADC2), moved from GP06 2026-11-05 */
 #define S3_PIN_IR_C 26 /* IR_C  GP26  line position (ADC0)  */
 #define S3_PIN_IR_R 27 /* IR_R  GP27  line position (ADC1)  */
 
@@ -35,11 +35,54 @@
  *      0: all three sensors are read as digital GPIO (the pin table).
  *      1: IR_C and IR_R are read through the ADC (finer line position and
  *         real min/max calibration).  IR_L stays digital: GP06 has no ADC.
+ *      2: ONLY IR_R through the ADC (2026-11-05: the R module is less
+ *         sensitive than C, so its black/white cut-off is set here in
+ *         software instead of by its pot).  Wire R's A0 (not D0) to GP27.
+ *         Needs only DEVCONF_ADC_PIN_INIT_1.  No calibration needed: R is
+ *         scaled between S3_R_ADC_WHITE and S3_R_ADC_BLACK below.
  *         Needs DEVCONF_ADC_PIN_INIT_0 and _1 set to TRUE in
  *         device/adc/sysdepend/rp2040/adc_cnf_sysdep.h (shared file: agree
  *         it with the team and record ADC ownership in TEAM.md section 3).
  * --------------------------------------------------------------------- */
-#define S3_IR_USE_ADC 0
+#define S3_IR_USE_ADC 1 /* 2026-11-05: C and R analogue (R alone felt smoother) */
+
+/* Modes 1 and 2: R's raw ADC reading (0..4095, shown as "raw L C R" on the
+   dashboard) over plain WHITE floor and over the middle of the BLACK line.
+   R counts as black above the halfway point (S3_BLACK_THRESHOLD 500 of
+   1000).  Either order works (black higher or lower than white).
+   Measured 2026-11-05: white 151-180, line edge 180-225, full black
+   2000-2050.  BLACK is set low ON PURPOSE so the cut-off (halfway) is 300:
+   above the edge readings (white noise must not count as black) but far
+   below full black, so R reports black as soon as it is partly over the
+   line.  Anything above 420 reads as full black.
+   Too twitchy on white: raise BLACK.  Still late on the line: lower it
+   (not below about 280, i.e. a 230 cut-off). */
+#define S3_R_ADC_WHITE 180
+#define S3_R_ADC_BLACK 420
+
+/* Mode 1: the same for C (wire C's A0 to GP26).  Used while no calibration
+   has been run.  Measured 2026-11-05: white 120-205, edge 139-210, full
+   black 2200-2300.  Cut-off (halfway) 300, the same as R. */
+#define S3_C_ADC_WHITE 200
+#define S3_C_ADC_BLACK 400
+
+/* L (barcode sensor) through the ADC as well: 1 = L's A0 on GP28 (ADC2),
+   0 = L's D0 digital (set S3_PIN_IR_L back to the digital pin).
+   S3_L_ADC_WHITE / _BLACK work like R's.  Measured 2026-11-05: white
+   180-240, bar edge 190-250, middle of a black bar 2450-2580.
+   Cut-off (halfway) 900: well above white, and lower than full black on
+   purpose so a NARROW bar (L may not reach full black on it) still counts.
+   With S3_BC_HYST 100: black from about 1030, white again below 770.
+   Narrow bars missed: lower BLACK.  Bars read too wide: raise it. */
+#define S3_IR_L_ADC    1
+#define S3_L_ADC_WHITE 250
+#define S3_L_ADC_BLACK 1550
+
+/* Barcode reading: dead band around the black threshold (0..1000 scale) so
+   L does not flicker at a bar edge and split one bar into two.  L turns
+   black at threshold + HYST and white again below threshold - HYST.
+   Only matters for an analogue L (digital L is 0 or 1000). */
+#define S3_BC_HYST 100
 
 /* Digital level the module outputs over BLACK tape.  TUNE: most TCRT5000
    style modules give 1 on black, some give 0. */

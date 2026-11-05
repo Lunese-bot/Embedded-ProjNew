@@ -102,7 +102,7 @@ static int32_t area_of(char c)
             return 0; /* motor */
         case 'k': case 'K': case 'd': case 'D': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case 'w': case 'X': case 'a': case 'B': case 'o': case 'O': case 'm':
         case 'n': case 'y': case 'Y': case 'z':
-        case 'Z': case '~': case '=':
+        case 'Z': case '~': case '=': case '[': case ']': case '{': case '}':
             return 1; /* line */
         case 'j': case 'J': case 'q': case 'H':
             return 2; /* imu */
@@ -267,6 +267,10 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
         case 'Q': er = servo_test(45); break;   /* + = left */
         case 'W': er = servo_test(0); break;
         case 'E': er = servo_test(-45); break;
+        case '}': g_lt_next_nav = 0; er = E_OK; break; /* junction: barcode decides */
+        case '[': g_lt_next_nav = 1; er = E_OK; break; /* every junction: left */
+        case ']': g_lt_next_nav = 2; er = E_OK; break; /* every junction: right */
+        case '{': g_lt_next_nav = 3; er = E_OK; break; /* every junction: straight */
         case '5': g_lt_junc_mode = 0; er = E_OK; break; /* junction detection off */
         case '6': g_lt_junc_mode = 1; er = E_OK; break; /* C + R */
         case '7': g_lt_junc_mode = 2; er = E_OK; break; /* L + C + R */
@@ -460,6 +464,7 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
     n = kv(p_out, n, out_max, "lkv", lock_state(4, client));
     n = kv(p_out, n, out_max, "pidKp100", g_lt_pid_kp100);
     n = kv(p_out, n, out_max, "lostEn", g_lt_lost_en);
+    n = kv(p_out, n, out_max, "nnav", g_lt_next_nav);
     n = kv(p_out, n, out_max, "dmin", g_lt_dmin);
     n = kv(p_out, n, out_max, "curve", g_lt_curve);
     n = kv(p_out, n, out_max, "ffL", g_lt_ff_l);
@@ -521,6 +526,9 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
         n = kv(p_out, n, out_max, "bc", (int32_t)l.bc_state);
         n = kv(p_out, n, out_max, "bcOk", (int32_t)l.bc_ok);
         n = kv(p_out, n, out_max, "bcFail", (int32_t)l.bc_fail);
+        n = put_str(p_out, n, out_max, "\"bcTxt\":\"");
+        n = put_str(p_out, n, out_max, g_lt_bc_text); /* A-Z, '?' or '-' */
+        n = put_str(p_out, n, out_max, "\",");
         n = put_str(p_out, n, out_max, "\"_\":0}");
     }
     else

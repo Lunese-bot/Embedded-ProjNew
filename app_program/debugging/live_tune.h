@@ -37,6 +37,8 @@ extern volatile int32_t g_lt_curve;    /* curve slow-down, permille at full stee
 extern volatile int32_t g_lt_ff_l;      /* left feed-forward, permille of S2_PID_KFF (1000 = config) */
 extern volatile int32_t g_lt_ff_r;      /* right feed-forward, permille of S2_PID_KFF */
 extern volatile int32_t g_lt_ilim;      /* PID integral limit, permille duty */
+extern char             g_lt_bc_text[16]; /* last barcode seen by the mission bridge (dashboard) */
+extern volatile int32_t g_lt_next_nav;  /* every junction: 0 = barcode decides, 1 left, 2 right, 3 straight */
 extern volatile int32_t g_lt_trim_step; /* trim change per button press, permille */
 #endif
 

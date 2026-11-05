@@ -26,7 +26,8 @@ static const vc_barcode_rule_t g_rules[] = {
     { "TESTRIGHT", NAV_RIGHT },
 #else
     /* Add confirmed course mappings here, e.g. { "ABC", NAV_LEFT }, */
-    { 0, NAV_NONE } /* sentinel: no mappings configured by default */
+    { "Z", NAV_RIGHT }, /* 2026-11-05: team's test barcode */
+    { 0, NAV_NONE }     /* sentinel: end of the table */
 #endif
 };
 
