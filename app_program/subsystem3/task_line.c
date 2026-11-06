@@ -239,6 +239,7 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us)
                              ? (uint8_t)(S3_MASK_L | S3_MASK_C | S3_MASK_R)
                              : (uint8_t)S3_LINE_MASK;
 #endif
+    g_tracker.l_raw = p_raw[S3_BC_SENSOR]; /* barcode-bar check */
     evt = line_tracker_step(&g_tracker, &g_params, norm, g_b_s3_bc_scanning);
 #if S2_WEBDEBUG
     /* dashboard "Steering correction": 1 = hold straight while a barcode

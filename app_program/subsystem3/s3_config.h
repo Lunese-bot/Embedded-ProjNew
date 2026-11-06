@@ -164,6 +164,14 @@
    triggered searches that were not wanted. */
 #define S3_STRADDLE_LOST 0
 
+/* Barcode bars lying across the line: when L, C and R are all black at
+   once (or C and R while a barcode is being read), drive straight and
+   reset the turn instead of holding and growing it.  0 = old behaviour. */
+#define S3_STRADDLE_BAR_STRAIGHT 1
+/* L counts as black for this check at or above this RAW reading.  White
+   paper reads up to ~260, thin bars 800-1300, thick bars 1100-4000. */
+#define S3_BAR_L_RAW 700
+
 /* Sensors that must all see black for a junction: C and R (the left sensor
    only reads barcodes). */
 #define S3_JUNCTION_MASK (S3_MASK_C | S3_MASK_R)

@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "code39.h"
 #include "line_algo.h"
 
@@ -346,6 +347,62 @@ static void test_line(void)
     raw[1] = 1100u; raw[2] = 1100u; line_cal_update(&cal, raw);
     CHECK("H-L05c", !line_cal_finish(&cal, S3_MASK_C | S3_MASK_R, S3_CAL_MIN_SPAN),
           "calibration with 100-count span rejected");
+
+    /* H-L20..24: barcode bars across the line (S3_STRADDLE_BAR_STRAIGHT) */
+    {
+        uint16_t c_only[S3_IR_COUNT] = { 0u, 1000u, 0u };
+        uint16_t r_only[S3_IR_COUNT] = { 0u, 0u, 1000u };
+        uint16_t both[S3_IR_COUNT]   = { 0u, 1000u, 1000u };
+        int      max_abs = 0;
+
+        line_params_default(&p);
+        line_tracker_reset(&t);
+        (void)line_tracker_step(&t, &p, white, false);
+        (void)line_tracker_step(&t, &p, white, false);
+        /* thick bar at a slight angle: R one sample early, then C+R+L for
+           32 samples (19 mm at 60 mm/s), then the white gap */
+        t.l_raw = 200u;
+        (void)line_tracker_step(&t, &p, r_only, true);
+        t.l_raw = 2000u;
+        for (i = 0; i < 32; i++)
+        {
+            (void)line_tracker_step(&t, &p, both, false);
+            if (abs(t.steering) > max_abs) { max_abs = abs(t.steering); }
+        }
+        CHECK("H-L20", 0 == max_abs, "L+C+R black (bar): straight the whole bar, no build-up");
+        t.l_raw = 200u;
+        for (i = 0; i < 30; i++) { (void)line_tracker_step(&t, &p, white, false); }
+        CHECK("H-L21", (0 == t.steering) && !t.b_hold,
+              "white after a bar: straight, no curve memory");
+
+        /* while scanning, C+R black is a bar even if L is on white */
+        line_tracker_reset(&t);
+        (void)line_tracker_step(&t, &p, white, true);
+        (void)line_tracker_step(&t, &p, c_only, true);
+        t.l_raw = 150u;
+        for (i = 0; i < 20; i++) { (void)line_tracker_step(&t, &p, both, true); }
+        CHECK("H-L22", (0 == t.steering) && (0u == t.corr_count),
+              "scanning: C+R black -> straight and turn forgotten");
+
+        /* normal line following unchanged: no scan, L on white paper
+           (even noisy, 260) -> both black still holds the turn */
+        line_params_default(&p);
+        line_tracker_reset(&t);
+        (void)line_tracker_step(&t, &p, white, false);
+        (void)line_tracker_step(&t, &p, white, false);
+        for (i = 0; i < 10; i++) { (void)line_tracker_step(&t, &p, r_only, false); }
+        t.l_raw = 260u;
+        (void)line_tracker_step(&t, &p, both, false);
+        CHECK("H-L23", t.steering > 0, "no barcode: C+R black still holds the right turn");
+
+        /* tight left curve: L and C black, R white -> still steers left */
+        line_tracker_reset(&t);
+        (void)line_tracker_step(&t, &p, white, false);
+        (void)line_tracker_step(&t, &p, white, false);
+        t.l_raw = 2000u;
+        for (i = 0; i < 10; i++) { (void)line_tracker_step(&t, &p, c_only, false); }
+        CHECK("H-L24", t.steering < 0, "L+C black, R white (curve): still steers left");
+    }
 }
 
 /* ---- barcode edge finder (bc_edge_step) ---------------------------- */

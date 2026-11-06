@@ -176,6 +176,7 @@ void line_tracker_reset(line_tracker_t * p_trk)
     p_trk->steering       = 0;
     p_trk->last_side      = 0;
     p_trk->black_mask     = 0u;
+    p_trk->l_raw          = 0u;
     p_trk->lost_count     = 0u;
     p_trk->found_count    = 0u;
     p_trk->junction_count = 0u;
@@ -350,11 +351,32 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
                         ((p_trk->corr_side < 0) ||
                          ((p_trk->mem_side < 0) && (p_trk->corr_count > 0u)));
 
-        if (b_c && b_r)
+        /* Barcode bar across the line: L, C and R all black at once (L
+           judged on its RAW reading, since its cut-off is set low for
+           barcodes and white paper can cross it), or C and R black while
+           a barcode is being read.  Drive straight and
+           forget the turn, so a thick bar does not build up a big
+           correction (or start the curve memory) and yank the robot. */
+        bool    b_bar = (0 != S3_STRADDLE_BAR_STRAIGHT) && b_c && b_r &&
+                        ((p_trk->l_raw >= (uint16_t)S3_BAR_L_RAW) ||
+                         b_junction_inhibit);
+
+        if (b_c && b_r && !b_bar)
         {
             side = p_trk->corr_side; /* both black: hold */
         }
-        if ((0 == side) && b_far)
+        if (b_bar)
+        {
+            p_trk->b_hold     = false;
+            p_trk->b_reentry  = false;
+            p_trk->hold_count = 0u;
+            p_trk->corr_count = 0u;
+            p_trk->corr_mag   = 0;
+            p_trk->mem_side   = 0;
+            side              = 0;
+            steer             = 0;
+        }
+        else if ((0 == side) && b_far)
         {
             /* only L black: the line is outside on the left.  Turn fully
                and keep turning (curve memory) until it is back under C. */

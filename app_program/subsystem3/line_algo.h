@@ -76,6 +76,7 @@ typedef struct
     bool         b_hold;     /* straddle: line passed outside, keep turning */
     bool         b_reentry;  /* straddle: line came back in after a hold    */
     int8_t       mem_side;   /* straddle: side corr_count belongs to (kept over short white gaps) */
+    uint16_t     l_raw;      /* L raw reading, set by the caller before each step (barcode-bar check) */
 } line_tracker_t;
 
 /* Default parameters from s3_config.h */
