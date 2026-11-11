@@ -14,8 +14,11 @@
    The scan task starts the avoidance itself and every motion request
    is printed and treated as done after S5_BENCH_MOVE_MS.  Set to 0
    before integrating with the Vehicle Controller. */
+/* 2026-11-10 review: was 1, so in the full robot build every bypass move
+   was only printed and the robot never drove round the obstacle.  Build
+   with -DS5_BENCH_MODE=1 for the stand-alone S5 bench test. */
 #ifndef S5_BENCH_MODE
-#define S5_BENCH_MODE 1
+#define S5_BENCH_MODE 0
 #endif
 #define S5_BENCH_MOVE_MS 500
 

@@ -249,6 +249,16 @@ bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
         }
 #endif
     }
+    /* 1b. Controller is searching (LOST_LINE): with the straddle layout S3
+       has no LOST state, so it never sends LINE_FOUND and the search could
+       only end in a fault.  C or R on black = found (review 2026-11-10). */
+    else if ((VC_ST_LOST_LINE == state) &&
+             (E_OK == s3_get_line_status(&line_st)) &&
+             (0u != (line_st.black_mask & (S3_MASK_C | S3_MASK_R))))
+    {
+        make(p_event, VC_EV_LINE_FOUND, 0, 0, line_st.time_ms);
+        b_event = true;
+    }
     /* 2. steering, once per new S3 sample, only while S3 owns motion */
     else if ((VC_SRC_LINE == vc_sm_motion_owner(state)) &&
              (E_OK == s3_get_line_status(&line_st)) &&

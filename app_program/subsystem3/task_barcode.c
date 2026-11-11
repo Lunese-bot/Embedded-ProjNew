@@ -60,6 +60,19 @@ static void go_idle(void)
     set_state(BARCODE_STATE_IDLE);
 }
 
+/* A read that had started (BARCODE_START was sent) is given up: tell the
+   controller, or it waits in DECODE_BARCODE for its whole time limit
+   (slow speed, for seconds) for a result that never comes. */
+static void abort_read(void)
+{
+    s3_event_t evt = { 0 };
+
+    evt.type = S3_EVT_BARCODE_FAILED;
+    evt.code = (uint8_t)CODE39_ERR_LENGTH; /* Cast: fits 8 bits */
+    s3_send_event(&evt);
+    go_idle();
+}
+
 static void handle_requests(void)
 {
     UINT ptn = 0;
@@ -229,7 +242,7 @@ static void on_run(const s3_bc_run_t * p_run)
                 (p_run->width_us >
                  ((uint32_t)S3_BC_ELEMENT_MAX_MS * S3_US_PER_MS)))
             {
-                go_idle(); /* not a barcode bar */
+                abort_read(); /* not a barcode bar */
             }
             else if ((0U == p_run->black) && (g_n_widths > 0U) &&
                      (p_run->width_us >= quiet_us()))
@@ -283,7 +296,7 @@ void barcode_task(int32_t stacd, void * p_exinf)
                 }
                 else
                 {
-                    go_idle(); /* black too long */
+                    abort_read(); /* black too long */
                 }
             }
         }

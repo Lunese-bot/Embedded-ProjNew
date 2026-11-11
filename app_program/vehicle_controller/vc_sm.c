@@ -168,13 +168,25 @@ static void search_step(const vc_sm_t * p_sm, vc_actions_t * p_out)
 static void enter_execute(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
 {
     (void)now_ms;
+    p_sm->exec_phase = 0u;
     switch (p_sm->pending_nav)
     {
         case NAV_LEFT:
-            move(p_out, VC_MOVE_TURN_LEFT, VC_TURN_DEG);
-            break;
         case NAV_RIGHT:
-            move(p_out, VC_MOVE_TURN_RIGHT, VC_TURN_DEG);
+            if (VC_JUNCTION_ADVANCE_MM > 0)
+            {
+                /* Put the axle over the crossing first; the turn follows
+                   when S2 reports this move done (on_execute_action). */
+                p_sm->exec_phase = 1u;
+                move(p_out, VC_MOVE_DRIVE_DIST, VC_JUNCTION_ADVANCE_MM);
+            }
+            else
+            {
+                move(p_out,
+                     (NAV_LEFT == p_sm->pending_nav) ? VC_MOVE_TURN_LEFT
+                                                     : VC_MOVE_TURN_RIGHT,
+                     VC_TURN_DEG);
+            }
             break;
         case NAV_U_TURN:
             move(p_out, VC_MOVE_U_TURN, 0);
@@ -647,6 +659,12 @@ static void on_decode_barcode(vc_sm_t * p_sm, const vc_event_t * p_event,
         case VC_EV_BARCODE_FAILED:
             barcode_retry(p_sm, now_ms, p_out);
             break;
+        case VC_EV_JUNCTION:
+            /* S3 reports no junctions while it is reading bars, so this is
+               a real crossing reached after the read ended.  It used to be
+               dropped here and the robot drove through the junction. */
+            enter(p_sm, VC_ST_JUNCTION_STOP, now_ms, p_out);
+            break;
         case VC_EV_TICK:
             if (elapsed(now_ms, p_sm->attempt_since_ms) >= VC_DECODE_MS)
             {
@@ -696,7 +714,16 @@ static void on_execute_action(vc_sm_t * p_sm, const vc_event_t * p_event,
                               uint32_t now_ms, vc_actions_t * p_out)
 {
     (void)p_event;
-    if (VC_EV_MANOEUVRE_DONE == type)
+    if ((VC_EV_MANOEUVRE_DONE == type) && (0u != p_sm->exec_phase))
+    {
+        /* the advance is done: the axle is over the crossing, now turn */
+        p_sm->exec_phase = 0u;
+        move(p_out,
+             (NAV_LEFT == p_sm->pending_nav) ? VC_MOVE_TURN_LEFT
+                                             : VC_MOVE_TURN_RIGHT,
+             VC_TURN_DEG);
+    }
+    else if (VC_EV_MANOEUVRE_DONE == type)
     {
         p_sm->pending_nav = NAV_NONE;
         p_sm->pending_barcode[0] = '\0';

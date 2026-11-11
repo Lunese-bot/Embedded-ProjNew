@@ -175,6 +175,21 @@ static void test_arbitration(void)
 }
 
 /* barcode and junction stop */
+/* LEFT / RIGHT at a junction: with VC_JUNCTION_ADVANCE_MM set, the robot
+   first drives that far (axle over the crossing) and turns when S2 reports
+   it done.  Feeds that MANOEUVRE_DONE so the next check sees the turn. */
+static void junction_advance(void)
+{
+#if VC_JUNCTION_ADVANCE_MM > 0
+    CHECK("S6-H45", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+          has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_ADVANCE_MM, 1) &&
+          !has_move(VC_MOVE_TURN_LEFT, VC_TURN_DEG, 1) &&
+          !has_move(VC_MOVE_TURN_RIGHT, VC_TURN_DEG, 1),
+          "turn at a junction starts with the advance, no turn yet");
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+#endif
+}
+
 static void test_barcode(void)
 {
     start_mission();
@@ -219,6 +234,7 @@ static void test_barcode(void)
           "full barcode string maps to LEFT; matching is not first-character based");
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    junction_advance();
     CHECK("S6-H13d", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
           has_move(VC_MOVE_TURN_LEFT, VC_TURN_DEG, 1),
           "configured full-string rule executes only after stop confirmation");
@@ -231,6 +247,7 @@ static void test_barcode(void)
           "action-only event sets RIGHT and keeps following");
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    junction_advance();
     CHECK("S6-H13f", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
           has_move(VC_MOVE_TURN_RIGHT, VC_TURN_DEG, 1),
           "junction after it: stop, then turn RIGHT");
@@ -259,12 +276,17 @@ static void test_barcode(void)
 
     start_mission();
     feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
-    feed(VC_SRC_LINE, VC_EV_BARCODE_FAILED, 0, 0);
-    feed(VC_SRC_LINE, VC_EV_BARCODE_FAILED, 0, 0);
-    CHECK("S6-H15",
-          (VC_ST_DECODE_BARCODE == g_sm.st.state) &&
-              has_request(VC_SRC_LINE, VC_REQ_BARCODE_READ),
-          "barcode retry within limit");
+    {
+        int32_t k;
+        bool    b_ok = (VC_ST_DECODE_BARCODE == g_sm.st.state);
+        for (k = 0; k < VC_BARCODE_MAX_RETRY; k++)
+        {
+            feed(VC_SRC_LINE, VC_EV_BARCODE_FAILED, 0, 0);
+            b_ok = b_ok && (VC_ST_DECODE_BARCODE == g_sm.st.state) &&
+                   has_request(VC_SRC_LINE, VC_REQ_BARCODE_READ);
+        }
+        CHECK("S6-H15", b_ok, "barcode retry within limit");
+    }
     feed(VC_SRC_LINE, VC_EV_BARCODE_FAILED, 0, 0);
     CHECK("S6-H16",
           (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
@@ -288,6 +310,28 @@ static void test_barcode(void)
     advance(VC_EXECUTE_MS + 20);
     CHECK("S6-H18a", VC_ST_LOST_LINE == g_sm.st.state,
           "junction clearing timeout -> LOST_LINE recovery");
+}
+
+/* review 2026-11-10: junction reached while still in DECODE_BARCODE */
+static void test_junction_in_decode(void)
+{
+    start_mission();
+    feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    CHECK("S6-H42", (VC_ST_JUNCTION_STOP == g_sm.st.state) &&
+          has_move(VC_MOVE_STOP_CONFIRM, 0, 1),
+          "junction during DECODE_BARCODE is not dropped: stop first");
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    CHECK("S6-H43", VC_ST_FOLLOW_LINE == g_sm.st.state,
+          "then straight across and follow again");
+
+    /* one failed read: no waiting for a retry that cannot happen */
+    feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
+    feed(VC_SRC_LINE, VC_EV_BARCODE_FAILED, 0, 0);
+    CHECK("S6-H44", (VC_BARCODE_MAX_RETRY > 0) ||
+          (VC_ST_FOLLOW_LINE == g_sm.st.state),
+          "failed read returns to FOLLOW_LINE at once (retry 0)");
 }
 
 /* line loss */
@@ -427,6 +471,7 @@ int main(void)
     test_startup();
     test_arbitration();
     test_barcode();
+    test_junction_in_decode();
     test_line_loss();
     test_obstacle();
     test_terrain();

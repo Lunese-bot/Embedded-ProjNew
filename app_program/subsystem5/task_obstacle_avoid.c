@@ -19,6 +19,7 @@
  */
 
 #include "s5_local.h"
+#include "../robot_types.h" /* ROBOT_IR_TO_AXLE_MM */
 
 typedef enum
 {
@@ -263,7 +264,19 @@ static step_result_t realign(void)
     s5_step_t     step   = { 0 };
     step_result_t result = STEP_DONE;
 
-    if (0 != g_heading_deg)
+    if ((0 != g_heading_deg) && (ROBOT_IR_TO_AXLE_MM > 0))
+    {
+        /* The search stopped with the SENSORS on the line.  Drive on until
+           the axle is over it, so the pivot below leaves the sensors on
+           the line instead of beside it (see robot_types.h). */
+        s5_step_t fwd = { 0 };
+
+        fwd.m.kind        = S5_MOVE_FORWARD;
+        fwd.m.distance_mm = (uint16_t)ROBOT_IR_TO_AXLE_MM;
+        fwd.m.speed_mm_s  = S5_SEARCH_SPEED_MM_S;
+        result            = run_step(&fwd);
+    }
+    if ((0 != g_heading_deg) && (STEP_DONE == result))
     {
         step.m.kind      = S5_MOVE_TURN;
         /* Cast: the net turn of a bypass is within +-127 degrees. */
