@@ -56,7 +56,8 @@ typedef enum
     IMU_EVT_MOTION,       /* value = imu_motion_t */
     IMU_EVT_FAULT,        /* value = kernel error code; retrying */
     IMU_EVT_FAULT_FATAL,  /* value = kernel error code; gave up */
-    IMU_EVT_RECOVERED     /* value = 0, IMU back after a fault */
+    IMU_EVT_RECOVERED,    /* value = 0, IMU back after a fault */
+    IMU_EVT_SAFETY_STOP   /* value = IMU_SAFETY_LIFT / OVERTURN */
 } imu_event_type_t;
 
 typedef struct

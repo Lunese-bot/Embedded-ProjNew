@@ -15,6 +15,18 @@ ID g_mtx_motion;     /* IF-M2 */
 ID g_flg_motion;     /* IF-M3 */
 ID g_tid_motion;
 ID g_cyc_motion;
+volatile uint32_t g_s2_imu_stop; /* one-way latch, only reboot clears it */
+
+void s2_latch_imu_stop(void)
+{
+    if (0U != g_s2_imu_stop)
+    {
+        return;
+    }
+    g_s2_imu_stop = 1U;
+    (void)tk_set_flg(g_flg_motion, MFLG_ESTOP_REQ);
+    (void)tk_wup_tsk(g_tid_motion);
+}
 
 #if S2_KEEP_EXAMPLE_IF
 ID g_sem_slots; /* example IF-02, see subsystem2.h */

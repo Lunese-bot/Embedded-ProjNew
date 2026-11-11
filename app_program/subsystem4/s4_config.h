@@ -36,10 +36,10 @@
 #define S4_CAL_MAX_SPREAD_MG 60 /* moved during cal if spread > this */
 
 /* ---- hump detection ------------------------------------------------ */
-#define S4_HUMP_ENTER_CDEG    600  /* 6.0 deg nose up/down = slope */
+#define S4_HUMP_ENTER_CDEG    250  /* 2.5 deg; shallow 1-2 cm humps */
 #define S4_ONE_WHEEL_PITCH_CDEG 400
 #define S4_ONE_WHEEL_ROLL_CDEG  700
-#define S4_HUMP_LEVEL_CDEG    250  /* |pitch| < 2.5 deg = level */
+#define S4_HUMP_LEVEL_CDEG    100  /* |pitch| < 1.0 deg = level (hysteresis) */
 #define S4_HUMP_CONFIRM       3    /* 60 ms to confirm a transition */
 #define S4_HUMP_TIMEOUT       500  /* 10 s in one hump state = abort */
 #define S4_HUMP_MIN_PEAK_UM   3000 /* < 3 mm is noise, not a hump */
@@ -50,6 +50,14 @@
 #define S4_IMPACT_MG       900  /* | |a| - 1 g | above this = impact */
 #define S4_IMPACT_HOLDOFF  25   /* 500 ms between impact events */
 #define S4_TILT_LIMIT_CDEG 3000 /* 30 deg pitch or roll = unsafe */
+
+/* Additional pickup/overturn stop, always enabled. Raw samples avoid EMA
+   delay. Two consecutive samples reject isolated vibration (40 ms).
+   Pickup acceleration thresholds require validation on the actual car. */
+#define S4_LIFT_UP_MG       1180 /* upward acceleration > 0.18 g */
+#define S4_LIFT_LOW_G_MG     650 /* unloading / near free fall */
+#define S4_SAFETY_UP_COS    866 /* cos(30 deg), scaled by 1000 */
+#define S4_SAFETY_CONFIRM     2
 
 /* ---- motion classes ------------------------------------------------ */
 #define S4_ACCEL_MG         120  /* forward accel for ACCEL/BRAKING */

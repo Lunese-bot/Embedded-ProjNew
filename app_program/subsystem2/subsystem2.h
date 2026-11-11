@@ -92,6 +92,10 @@ extern ER s2_send_cmd(motion_cmd_t * p_cmd); /* sets cmd->seq */
    MOTION_SAFE_STOP.  The motors stop within one period (10 ms). */
 extern ER s2_emergency_stop(void);
 
+/* Additional IMU end-of-run interlock: survives RESET, reboot to rearm. */
+extern void s2_latch_imu_stop(void);
+extern volatile uint32_t g_s2_imu_stop;
+
 /* ---------------------------------------------------------------------
  *  IF-M2: motion status, subsystem 2 -> anyone (VC, telemetry, IMU...)
  * --------------------------------------------------------------------- */
