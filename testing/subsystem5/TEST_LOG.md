@@ -33,8 +33,10 @@ Define a test here before running it. Test IDs never change.
 | S5-H01..H08 | packing on the PC, incl. all 65,536 combinations | min-bit, R1, R3 | auto (PC) | `cd testing/subsystem5/host_test && make` | 8 passed, 0 failed |
 | S5-U21 | latched stop path: full VC queue -> emergency stop called | NFR8, Version C gap "obstacle event dropped" | auto | private 1-message buffer, fake stop function (real motors not latched) | PASS |
 | S5-U22 | braking distance at top speed (400 mm/s) | Version C gap "stopping distance" | manual | 1. Drive straight at 400 mm/s. 2. Trigger stop. 3. Measure distance from stop command to rest, 5 runs. 4. Put the worst value in `S5_BRAKING_MM` (obstacle_logic.h) and rebuild: the build fails if 250 mm no longer covers it. | worst braking + 33 mm reaction + 50 mm margin <= 250 mm |
-| S5-U23 | stopping-distance budget | Version C gap "stopping distance" | auto (also checked at compile time) | `subsystem5_test.c`, prints latency/reaction/needed | PASS, needed 183 mm <= 250 mm |
+| S5-U23 | stopping-distance budget | Version C gap "stopping distance" | auto (also checked at compile time) | `subsystem5_test.c`, prints latency/reaction/needed | PASS, needed 230 mm <= 250 mm (60 ms monitoring period) |
 | S5-U24 | stop path on the robot | NFR8, R4 | manual | Integrated build: stop the VC reading `g_mbf_s5_evt` (or fill it), drive at an obstacle; check `s5: ... LOST -> emergency stop` and that the wheels stop; then MOTION_RESET | robot stops before the obstacle |
+| S5-U25 | monitoring ping bounded so S5 can run at priority 11 on core 0 | NFR2, scheduling | auto | `subsystem5_test.c`, sensor pointed at open space (no echo = worst case), longest of 10 pings | under 7000 us |
+| S5-U26 | monitoring filter: steady near readings count, a jump or no echo restarts the count | ghost echoes (false stops while driving) | auto | `subsystem5_test.c`, `s5_near_count_next()` | U26a-d PASS |
 
 *Method:* **auto** = `TEST_CHECK` in code, result printed on the console;
 **manual** = a person observes the result (LED, scope, meter, phone app…).

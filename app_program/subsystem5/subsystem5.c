@@ -85,8 +85,7 @@ ER subsystem5_init(void)
 
 ER subsystem5_start(void)
 {
-    /* No core affinity yet.  Pin the scan task (busy-waits on the echo)
-       to one core with TP_PRC1/TP_PRC2 once the team agrees core use. */
+    /* No core affinity (0 = any core), as agreed with the team. */
     g_tid_s5_avoid =
         app_start_task(s5_avoid_task, S5_PRI_AVOID, 0, "s5_avoid_task");
     if (g_tid_s5_avoid < E_OK)

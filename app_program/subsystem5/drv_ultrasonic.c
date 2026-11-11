@@ -6,10 +6,12 @@
  *      RP2040's 1 MHz TIMER (TIMERAWL, read without latching).
  *      distance_mm = echo_us * 343 m/s / 2 = echo_us * 343 / 2000.
  *
- *      TODO (Buddy 5): this busy-waits for the echo (up to ~12 ms).  It runs
- *      at a low priority so higher tasks still pre-empt it, but a GPIO edge
- *      interrupt (tk_def_int on IO_IRQ_BANK0) would free the CPU.  Measure
- *      the execution time (NFR2) before deciding.
+ *      The echo is busy-waited, bounded by max_mm: about 6 ms for the
+ *      1000 mm monitoring range, about 12 ms for the full 2000 mm range.
+ *      With S5_PING_NO_PREEMPT 1 task switching is paused meanwhile
+ *      (tk_dis_dsp); it is off by default.
+ *      Possible later change: a GPIO edge interrupt (IO_IRQ_BANK0) would
+ *      free the CPU completely.
  */
 
 #include "drv_ultrasonic.h"
@@ -19,8 +21,20 @@
 #define SOUND_MM_PER_MS   343UL  /* speed of sound, 343 m/s           */
 #define US_PER_MS_2WAY    2000UL /* 1000 us/ms x 2 (there and back)   */
 #define ECHO_MARGIN_US    200UL
-#define ECHO_MAX_US \
-    (((US_RANGE_MAX_MM * US_PER_MS_2WAY) / SOUND_MM_PER_MS) + ECHO_MARGIN_US)
+#define ECHO_MAX_US(max_mm) \
+    ((((uint32_t)(max_mm) * US_PER_MS_2WAY) / SOUND_MM_PER_MS) + ECHO_MARGIN_US)
+
+/* Raw numbers of the last ping, for the S5_DIAG log (us_last_raw). */
+static uint32_t g_raw_idle;     /* ECHO level before the trigger (0 = low) */
+static uint32_t g_raw_rise_us;  /* trigger end -> ECHO rising, 0 = none    */
+static uint32_t g_raw_width_us; /* ECHO high time, 0 = none                */
+
+void us_last_raw(uint32_t * p_idle, uint32_t * p_rise_us, uint32_t * p_width_us)
+{
+    *p_idle     = g_raw_idle;
+    *p_rise_us  = g_raw_rise_us;
+    *p_width_us = g_raw_width_us;
+}
 
 uint32_t us_now_us(void)
 {
@@ -50,18 +64,15 @@ ER us_init(void)
     return gpio_set_pin(S5_PIN_ECHO, GPIO_MODE_IN);
 }
 
-uint16_t us_read_mm(void)
+/* Time one echo.  Called with dispatching disabled: one exit path only
+   after the trigger, so tk_ena_dsp is never skipped.  Returns the echo
+   width in us, or 0 for no echo. */
+static uint32_t time_echo_us(uint32_t max_us)
 {
     uint32_t start_us;
-    uint32_t rise;
-    uint32_t width;
-
-    /* A previous echo still high means the sensor is stuck or wired
-       wrongly; report "no echo" rather than wait. */
-    if (0U != gpio_get_val(S5_PIN_ECHO))
-    {
-        return US_NO_ECHO;
-    }
+    uint32_t rise  = 0U;
+    uint32_t width = 0U;
+    bool     b_ok  = true;
 
     gpio_set_val(S5_PIN_TRIG, 1);
     busy_wait_us(TRIG_PULSE_US);
@@ -69,31 +80,78 @@ uint16_t us_read_mm(void)
 
     /* Wait for the rising edge */
     start_us = us_now_us();
-    while (0U == gpio_get_val(S5_PIN_ECHO))
+    while (b_ok && (0U == gpio_get_val(S5_PIN_ECHO)))
     {
         if ((uint32_t)(us_now_us() - start_us) > ECHO_START_TMO_US)
         {
-            return US_NO_ECHO;
+            b_ok = false;
         }
     }
-    rise = us_now_us();
 
     /* Time the high pulse */
-    while (0U != gpio_get_val(S5_PIN_ECHO))
+    if (b_ok)
     {
-        if ((uint32_t)(us_now_us() - rise) > ECHO_MAX_US)
+        rise           = us_now_us();
+        g_raw_rise_us  = (uint32_t)(rise - start_us);
+        while (b_ok && (0U != gpio_get_val(S5_PIN_ECHO)))
         {
-            return US_NO_ECHO; /* nothing in range */
+            if ((uint32_t)(us_now_us() - rise) > max_us)
+            {
+                b_ok = false; /* nothing in range */
+            }
         }
     }
-    width = us_now_us() - rise;
+    if (b_ok)
+    {
+        width = us_now_us() - rise;
+    }
+    g_raw_width_us = width;
+    return width;
+}
+
+uint16_t us_read_mm_max(uint16_t max_mm)
+{
+    uint32_t width;
+    bool     b_dsp_off;
+
+    if ((0U == max_mm) || (max_mm > US_RANGE_MAX_MM))
+    {
+        max_mm = US_RANGE_MAX_MM;
+    }
+
+    /* A previous echo still high means the sensor is stuck or wired
+       wrongly; report "no echo" rather than wait. */
+    g_raw_idle     = (uint32_t)gpio_get_val(S5_PIN_ECHO);
+    g_raw_rise_us  = 0U;
+    g_raw_width_us = 0U;
+    if (0U != g_raw_idle)
+    {
+        return US_NO_ECHO;
+    }
+
+    /* No task switch on this core while the pulse is timed */
+#if S5_PING_NO_PREEMPT
+    b_dsp_off = (E_OK == tk_dis_dsp());
+#else
+    b_dsp_off = false;
+#endif
+    width     = time_echo_us(ECHO_MAX_US(max_mm));
+    if (b_dsp_off)
+    {
+        (void)tk_ena_dsp();
+    }
 
     width = (width * SOUND_MM_PER_MS) / US_PER_MS_2WAY; /* -> mm */
-    if ((0 == width) || (width > US_RANGE_MAX_MM))
+    if ((width < US_MIN_MM) || (width > max_mm))
     {
         return US_NO_ECHO;
     }
     return (uint16_t)width;
+}
+
+uint16_t us_read_mm(void)
+{
+    return us_read_mm_max(US_RANGE_MAX_MM);
 }
 
 uint16_t us_read_median_mm(int32_t samples, int32_t gap_ms)

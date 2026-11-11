@@ -15,7 +15,7 @@
    is printed and treated as done after S5_BENCH_MOVE_MS.  Set to 0
    before integrating with the Vehicle Controller. */
 #ifndef S5_BENCH_MODE
-#define S5_BENCH_MODE 1
+#define S5_BENCH_MODE 0
 #endif
 #define S5_BENCH_MOVE_MS 500
 
@@ -24,6 +24,7 @@
 
 /* Timing (NFR2) */
 #define S5_PERIOD_MS        20   /* monitoring period              */
+#define S5_MONITOR_RANGE_MM 1000 /* monitoring ping range: ~6 ms max  */
 
 /* Servo motion limits.  A hobby servo told to jump 80 deg swings at full
    speed (~600 deg/s) and can throw the sensor off its mount.  The scan

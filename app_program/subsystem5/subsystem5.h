@@ -51,11 +51,13 @@
 #define S5_PIN_TRIG  17 /* output */
 
 /* ---------------------------------------------------------------------
- *  Tasks.  TEAM.md gives S5 the band 20-21.  The design review rates
- *  both tasks "High", so the team may move this band up later.
+ *  Tasks.  TEAM.md gives S5 the band 20-21 (unchanged).  The design review
+ *  rates both tasks "High", so the team may move this band up later; a
+ *  trial with priority 11 pinned to core 0 stopped the pings on the
+ *  integrated build, so it was reverted.
  * --------------------------------------------------------------------- */
 #define S5_PRI_AVOID 20 /* obstacle avoidance (event driven) */
-#define S5_PRI_SCAN  21 /* detection + scanning (20 ms)      */
+#define S5_PRI_SCAN  21 /* detection + scanning (60 ms)      */
 
 /* ---------------------------------------------------------------------
  *  Commands: Vehicle Controller -> S5, sent to g_mbf_s5_cmd

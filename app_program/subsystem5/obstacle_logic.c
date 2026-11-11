@@ -325,4 +325,25 @@ int32_t s5_fine_angles(const s5_profile_t * p_profile, int8_t * p_deg,
     return count;
 }
 
+int32_t s5_near_count_next(int32_t count, uint16_t last_mm, uint16_t cur_mm)
+{
+    int32_t diff = (int32_t)cur_mm - (int32_t)last_mm;
+    int32_t next;
+
+    if ((0U == cur_mm) || (cur_mm >= S5_DETECT_MM))
+    {
+        next = 0;
+    }
+    else if ((count > 0) && ((diff > S5_DETECT_TOL_AWAY_MM) ||
+                             (diff < -S5_DETECT_TOL_CLOSER_MM)))
+    {
+        next = 1; /* a different distance: start counting again */
+    }
+    else
+    {
+        next = count + 1;
+    }
+    return next;
+}
+
 /*** end of file ***/

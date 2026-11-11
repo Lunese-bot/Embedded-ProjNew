@@ -194,6 +194,56 @@ void subsystem5_test(void)
               (int32_t)S5_LATENCY_MS, (int32_t)S5_REACTION_MM,
               (int32_t)S5_STOP_NEEDED_MM, (int32_t)S5_DETECT_MM);
 
+    /* S5-U26: monitoring filter.  Steady near readings count up; a jump
+       (ghost echo) or no echo restarts the count. */
+    {
+        int32_t c = 0;
+
+        c = s5_near_count_next(c, 0, 200);
+        c = s5_near_count_next(c, 200, 190);
+        c = s5_near_count_next(c, 190, 185);
+        TEST_CHECK("S5-U26a", c == 3, "steady near readings count to 3");
+        c = s5_near_count_next(c, 185, 41);
+        TEST_CHECK("S5-U26b", c == 1, "a jump (ghost echo) restarts the count");
+        c = s5_near_count_next(c, 41, 0);
+        TEST_CHECK("S5-U26c", c == 0, "no echo clears the count");
+        c = s5_near_count_next(2, 100, 400);
+        TEST_CHECK("S5-U26d", c == 0, "reading beyond the detect range clears");
+        c = s5_near_count_next(0, 0, 240);
+        c = s5_near_count_next(c, 240, 205);
+        c = s5_near_count_next(c, 205, 170);
+        TEST_CHECK("S5-U26e", c == 3, "an approaching object (35 mm steps) counts");
+        c = s5_near_count_next(2, 100, 130);
+        TEST_CHECK("S5-U26f", c == 1, "a reading that jumps away restarts the count");
+        c = s5_near_count_next(2, 100, 112);
+        TEST_CHECK("S5-U26g", c == 3, "a small step away is sensor jitter, still counts");
+    }
+
+    /* S5-U25: a monitoring ping is short enough to run at high priority.
+       Point the sensor at open space (worst case: no echo). */
+    {
+        uint32_t t0;
+        uint32_t t_max = 0U;
+        uint32_t t_one;
+        int32_t  idx;
+
+        for (idx = 0; idx < 10; idx++)
+        {
+            t0    = us_now_us();
+            (void)us_read_mm_max(S5_MONITOR_RANGE_MM);
+            t_one = us_now_us() - t0;
+            if (t_one > t_max)
+            {
+                t_max = t_one;
+            }
+            tk_dly_tsk(S5_MONITOR_PERIOD_MS);
+        }
+        tm_printf((uint8_t *)"[TEST] S5-U25 info: longest monitoring ping "
+                  "%d us\n", (int32_t)t_max);
+        TEST_CHECK("S5-U25", t_max < 7000U,
+                   "monitoring ping (1000 mm range) takes under 7 ms");
+    }
+
     TEST_SUMMARY("subsystem5");
 }
 

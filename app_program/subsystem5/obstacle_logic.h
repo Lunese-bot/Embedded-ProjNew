@@ -16,6 +16,16 @@
 /* ---- Detection -------------------------------------------------- */
 #define S5_DETECT_MM      250 /* obstacle closer than this ...   */
 #define S5_DETECT_COUNT   3   /* ... this many pings in a row     */
+/* ... that agree.  A real obstacle only gets CLOSER as the robot drives at it
+   (up to about 40 mm per 60 ms ping at 0.6 m/s) and is steady when the robot
+   is stopped.  Noise jumps both ways, so a reading that moves AWAY must stay
+   within a much smaller step than one that moves closer. */
+#define S5_DETECT_TOL_CLOSER_MM 40
+#define S5_DETECT_TOL_AWAY_MM   15
+#define S5_MONITOR_PERIOD_MS 60 /* time between monitoring pings.  The HC-SR04
+                                   data sheet advises >= 60 ms: at 20 ms the
+                                   late echo of one ping looks like a close
+                                   object after the next trigger. */
 #define S5_HIT_RANGE_MM   500 /* during a scan: "part of it"      */
 #define S5_SCAN_MAX_DEG   60  /* scan no wider than this (= SERVO_MAX_DEG) */
 #define S5_CLUSTER_GAP_MM 150 /* jump that separates two objects  */
@@ -26,15 +36,15 @@
  *  The robot STOPS before it sweeps the servo, so sweep time is not part
  *  of the reaction distance (the report's first formula included it).
  *
- *  latency = S5_DETECT_COUNT pings x 20 ms      (3 x 20 = 60 ms)
+ *  latency = S5_DETECT_COUNT pings x 60 ms      (3 x 60 = 180 ms)
  *          + one echo at the 2 m range limit     (~12 ms)
- *          + one Motion Control period           (10 ms)        = 82 ms
- *  reaction at 400 mm/s (S2_MAX_SPEED_MM_S) = 400 x 0.082 ~= 33 mm
+ *          + one Motion Control period           (10 ms)        = 202 ms
+ *  reaction at 400 mm/s (S2_MAX_SPEED_MM_S) = 400 x 0.202 ~= 80 mm
  *
  *  S5_BRAKING_MM is an ESTIMATE: measure it (S5-U22) and update it.
  *  The build fails if the detect distance stops covering the total. */
 #define S5_TOP_SPEED_MM_S      400 /* = S2_MAX_SPEED_MM_S (subsystem2.h) */
-#define S5_LATENCY_MS          ((S5_DETECT_COUNT * 20) + 12 + 10)
+#define S5_LATENCY_MS          ((S5_DETECT_COUNT * S5_MONITOR_PERIOD_MS) + 12 + 10)
 #define S5_REACTION_MM         ((S5_TOP_SPEED_MM_S * S5_LATENCY_MS) / 1000)
 #define S5_BRAKING_MM          100 /* TODO measure at top speed (S5-U22) */
 #define S5_STOP_MARGIN_MM      50
@@ -87,6 +97,14 @@ extern int32_t s5_sin1000(int32_t deg);
    Returns TRUE and fills *p when an obstacle is found. */
 extern bool s5_build_profile(const s5_sample_t * p_samples, int32_t count,
                              s5_profile_t * p_profile);
+
+/* Monitoring filter: next count of consecutive near readings.
+   cur_mm = 0 (no echo) or >= S5_DETECT_MM -> 0.  A near reading that
+   is more than S5_DETECT_TOL_CLOSER_MM closer, or more than
+   S5_DETECT_TOL_AWAY_MM further, than the previous near one starts the count
+   again at 1 (noise jumps around, a real object does not). */
+extern int32_t s5_near_count_next(int32_t count, uint16_t last_mm,
+                                  uint16_t cur_mm);
 
 /* Pick the bypass side for a profile (also stored in p->bypass_side). */
 extern s5_side_t s5_choose_side(s5_profile_t * p_profile);

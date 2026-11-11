@@ -173,9 +173,19 @@ static void report_obstacle(uint16_t dist_mm)
 #endif
 }
 
+/* TEMP: progress lines to find why the pings stop.  Set to 0 to remove. */
+#ifndef S5_DIAG
+#define S5_DIAG 1
+#endif
+#if S5_DIAG
+#define DIAG(...) tm_printf((uint8_t *)__VA_ARGS__)
+#else
+#define DIAG(...) ((void)0)
+#endif
+
 /* One MONITOR period: ping straight ahead, count near readings.
    Returns the next mode (HOLD once an obstacle is reported). */
-static scan_mode_t monitor_step(int32_t * p_near_count)
+static scan_mode_t monitor_step(int32_t * p_near_count, uint16_t * p_last_mm)
 {
     SYSTIM      start_time;
     SYSTIM      end_time;
@@ -184,17 +194,27 @@ static scan_mode_t monitor_step(int32_t * p_near_count)
     scan_mode_t mode = MODE_MONITOR;
 
     tk_get_tim(&start_time);
-    dist_mm = us_read_mm();
+    dist_mm = us_read_mm_max(S5_MONITOR_RANGE_MM);
     s5_note_ping(dist_mm);
+#if S5_DIAG
+    { /* TEMP: raw timing of every 8th ping */
+        static int32_t raw_n = 0;
+        uint32_t       idle;
+        uint32_t       rise_us;
+        uint32_t       width_us;
 
-    if ((US_NO_ECHO != dist_mm) && (dist_mm < S5_DETECT_MM))
-    {
-        (*p_near_count)++;
+        raw_n++;
+        if (0 == (raw_n & 0x7))
+        {
+            us_last_raw(&idle, &rise_us, &width_us);
+            DIAG("s5: raw idle=%d rise=%d us width=%d us -> %d mm\n", (int)idle,
+                 (int)rise_us, (int)width_us, (int)dist_mm);
+        }
     }
-    else
-    {
-        *p_near_count = 0;
-    }
+#endif
+
+    *p_near_count = s5_near_count_next(*p_near_count, *p_last_mm, dist_mm);
+    *p_last_mm    = dist_mm;
 
     if (*p_near_count >= S5_DETECT_COUNT)
     {
@@ -208,30 +228,62 @@ static scan_mode_t monitor_step(int32_t * p_near_count)
            wrapping millisecond counters is a small signed value. */
         tk_get_tim(&end_time);
         used = (int32_t)(end_time.lo - start_time.lo);
-        if (used < S5_PERIOD_MS)
+        if (used < S5_MONITOR_PERIOD_MS)
         {
-            tk_dly_tsk(S5_PERIOD_MS - used);
+            tk_dly_tsk(S5_MONITOR_PERIOD_MS - used);
         }
     }
     return mode;
+}
+
+/* The controller answers a detection with START_AVOID or ABORT.  If it
+   answers neither (it drops the event, e.g. the dashboard's "ignore
+   obstacles" switch), the scan task would sleep in HOLD for ever and the
+   pings would stop.  After S5_HOLD_RELEASE_MS with the state still
+   DETECTED, resume monitoring.  During a bypass the state is not DETECTED,
+   so a real avoidance is never cut short. */
+#ifndef S5_HOLD_RELEASE_MS
+#define S5_HOLD_RELEASE_MS 2000
+#endif
+
+static void release_unanswered_hold(scan_mode_t * p_mode, int32_t * p_near)
+{
+    s5_status_t st;
+
+    if ((E_OK == s5_get_status(&st)) && ((uint8_t)S5_ST_DETECTED == st.state))
+    {
+        s5_set_state(S5_ST_MONITORING);
+        *p_near = 0;
+        *p_mode = MODE_MONITOR;
+        tm_printf((uint8_t *)"s5: no answer from controller, monitoring again\n");
+    }
 }
 
 void s5_scan_task(int32_t stacd, void * p_exinf)
 {
     scan_mode_t mode       = MODE_MONITOR;
     int32_t     near_count = 0;
+    uint16_t    last_mm    = 0U;
     UINT        flg;
+    int32_t     loops = 0; /* TEMP diagnostic, see S5_DIAG */
 
     (void)stacd;
     (void)p_exinf;
 
+    DIAG("s5: scan task starting, us_init\n");
     app_check(us_init(), "s5 us_init");
+    DIAG("s5: us_init done, servo_init\n");
     app_check(servo_init(), "s5 servo_init");
     tm_printf((uint8_t *)"s5: scan task %d up (bench mode %d)\n", tk_get_tid(),
               S5_BENCH_MODE);
 
     for (;;)
     {
+        loops++;
+        if (0 == (loops & 0x3F))
+        {
+            DIAG("s5: scan alive loops=%d mode=%d\n", loops, (int)mode);
+        }
         /* Requests from the avoid task come first, in any mode */
         if (E_OK == tk_wai_flg(g_flg_s5, S5_FLG_SCAN_REQ, TWF_ORW | TWF_BITCLR,
                                &flg, TMO_POL))
@@ -253,8 +305,13 @@ void s5_scan_task(int32_t stacd, void * p_exinf)
             if (MODE_HOLD == mode)
             {
                 /* sleep until the avoid task wants something */
-                tk_wai_flg(g_flg_s5, S5_FLG_SCAN_REQ | S5_FLG_RESUME, TWF_ORW,
-                           &flg, TMO_FEVR);
+                DIAG("s5: scan sleeping in HOLD\n");
+                if (E_TMOUT == tk_wai_flg(g_flg_s5,
+                                          S5_FLG_SCAN_REQ | S5_FLG_RESUME,
+                                          TWF_ORW, &flg, S5_HOLD_RELEASE_MS))
+                {
+                    release_unanswered_hold(&mode, &near_count);
+                }
             }
             /* MONITOR, but only while the controller allows it */
             else if (E_OK != tk_wai_flg(g_flg_s5, S5_FLG_ENABLED, TWF_ORW, &flg,
@@ -262,13 +319,14 @@ void s5_scan_task(int32_t stacd, void * p_exinf)
             {
                 near_count = 0;
                 servo_off();
+                DIAG("s5: scan sleeping, S5 disabled\n");
                 tk_wai_flg(g_flg_s5, S5_FLG_ENABLED | S5_FLG_SCAN_REQ, TWF_ORW,
                            &flg, TMO_FEVR);
                 point_and_wait(0); /* ramp back to centre, no jump */
             }
             else
             {
-                mode = monitor_step(&near_count);
+                mode = monitor_step(&near_count, &last_mm);
             }
         }
     }

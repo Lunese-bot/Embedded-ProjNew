@@ -399,10 +399,17 @@ static void avoid_obstacle(void)
 /* One command from the Vehicle Controller, while idle or monitoring */
 static void handle_command(const s5_cmd_t * p_cmd)
 {
+    UINT flg_abort;
+
     switch (p_cmd->type)
     {
         case S5_CMD_ENABLE:
             tk_set_flg(g_flg_s5, S5_FLG_ENABLED);
+            /* The scan task may be asleep in HOLD (an obstacle was reported,
+               then the controller disabled us).  ENABLED alone does not wake
+               it: RESUME does.  Without this, the state says MONITORING but
+               no pings are made. */
+            tk_set_flg(g_flg_s5, S5_FLG_RESUME);
             s5_set_state(S5_ST_MONITORING);
             break;
         case S5_CMD_DISABLE:
@@ -416,7 +423,14 @@ static void handle_command(const s5_cmd_t * p_cmd)
         case S5_CMD_ABORT:
             /* controller cancels a detection it will not act on:
                let the scan task monitor again */
-            s5_set_state(S5_ST_MONITORING); /* else "obs" stays DETECTED */
+            /* "obs" stays DETECTED otherwise.  But if the controller has
+               DISABLED us (stop, fault), the scan task is asleep: report
+               IDLE, not MONITORING, or the dashboard shows MONITORING
+               while no pings are made. */
+            s5_set_state((E_OK == tk_wai_flg(g_flg_s5, S5_FLG_ENABLED,
+                                             TWF_ORW, &flg_abort, TMO_POL))
+                             ? S5_ST_MONITORING
+                             : S5_ST_IDLE);
             tk_set_flg(g_flg_s5, S5_FLG_RESUME);
             break;
         default: /* stale MOTION_DONE: ignore */
