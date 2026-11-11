@@ -183,6 +183,10 @@ static void begin_segment(void)
 
 static void apply_command(const motion_cmd_t * p_cmd)
 {
+    if (0U != g_s2_imu_stop)
+    {
+        return; /* Includes RESET: pickup ends this run until reboot. */
+    }
     bool b_latched = ((MSTATE_SAFE_STOP == g_motion_ctx.state) ||
                       (MSTATE_FAULT == g_motion_ctx.state));
 
@@ -286,6 +290,11 @@ static void receive_commands(void)
            tk_rcv_mbf(g_mbf_motion_cmd, &cmd, TMO_POL))
     {
         apply_command(&cmd);
+    }
+    if ((0U != g_s2_imu_stop) &&
+        (MSTATE_SAFE_STOP != g_motion_ctx.state))
+    {
+        enter_latched(MSTATE_SAFE_STOP, MFAULT_NONE);
     }
 }
 
@@ -587,6 +596,11 @@ static bool stalled(uint32_t * p_stall_ms, int32_t duty, uint32_t ticks)
 
 static void drive_motor(void)
 {
+    if (0U != g_s2_imu_stop)
+    {
+        enter_latched(MSTATE_SAFE_STOP, MFAULT_NONE);
+        return;
+    }
     if (stalled(&g_motion_ctx.stall_ms_l, g_motion_ctx.duty_l,
                 g_motion_ctx.last_dt_l))
     {

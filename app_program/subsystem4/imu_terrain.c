@@ -248,15 +248,21 @@ static uint32_t hump_climbing(imu_terrain_t * p_terrain, bool b_rising,
 {
     uint32_t events = 0U;
 
-    if (b_level && (confirmed(p_terrain, IMU_ST_AT_PEAK)))
+    if (b_level)
     {
-        enter(p_terrain, IMU_ST_AT_PEAK);
-        events |= IMU_EV_HUMP_PEAK;
+        if (confirmed(p_terrain, IMU_ST_AT_PEAK))
+        {
+            enter(p_terrain, IMU_ST_AT_PEAK);
+            events |= IMU_EV_HUMP_PEAK;
+        }
     }
-    else if (b_down && (confirmed(p_terrain, IMU_ST_DESCENDING)))
+    else if (b_down)
     {
-        enter(p_terrain, IMU_ST_DESCENDING); /* sharp crest */
-        events |= IMU_EV_HUMP_PEAK;
+        if (confirmed(p_terrain, IMU_ST_DESCENDING))
+        {
+            enter(p_terrain, IMU_ST_DESCENDING); /* sharp crest */
+            events |= IMU_EV_HUMP_PEAK;
+        }
     }
     else if (b_rising)
     {
@@ -265,25 +271,34 @@ static uint32_t hump_climbing(imu_terrain_t * p_terrain, bool b_rising,
     }
     else
     {
-        /* between thresholds: keep waiting */
+        /* No candidate this sample: confirmations must be consecutive. */
+        p_terrain->pending = -1;
+        p_terrain->confirm = 0;
     }
     return events;
 }
 
 static void hump_at_peak(imu_terrain_t * p_terrain, bool b_rising, bool b_down)
 {
-    if (b_down && (confirmed(p_terrain, IMU_ST_DESCENDING)))
+    if (b_down)
     {
-        enter(p_terrain, IMU_ST_DESCENDING);
+        if (confirmed(p_terrain, IMU_ST_DESCENDING))
+        {
+            enter(p_terrain, IMU_ST_DESCENDING);
+        }
     }
-    else if (b_rising && (confirmed(p_terrain, IMU_ST_CLIMBING)))
+    else if (b_rising)
     {
-        /* plateau, then more climb */
-        enter(p_terrain, IMU_ST_CLIMBING);
+        if (confirmed(p_terrain, IMU_ST_CLIMBING))
+        {
+            /* plateau, then more climb */
+            enter(p_terrain, IMU_ST_CLIMBING);
+        }
     }
     else
     {
-        /* still on top */
+        p_terrain->pending = -1;
+        p_terrain->confirm = 0;
     }
 }
 
@@ -292,8 +307,12 @@ static uint32_t hump_descending(imu_terrain_t * p_terrain, bool b_rising,
 {
     uint32_t events = 0U;
 
-    if (b_level && (confirmed(p_terrain, IMU_ST_MONITORING)))
+    if (b_level)
     {
+        if (!confirmed(p_terrain, IMU_ST_MONITORING))
+        {
+            return events;
+        }
         p_terrain->st.last_peak_um = p_terrain->peak_um;
         if (p_terrain->peak_um >= p_terrain->cfg.hump_min_peak_um)
         {
@@ -311,13 +330,17 @@ static uint32_t hump_descending(imu_terrain_t * p_terrain, bool b_rising,
         enter(p_terrain, IMU_ST_MONITORING);
         hump_reset_height(p_terrain);
     }
-    else if (b_rising && (confirmed(p_terrain, IMU_ST_CLIMBING)))
+    else if (b_rising)
     {
-        enter(p_terrain, IMU_ST_CLIMBING); /* double hump */
+        if (confirmed(p_terrain, IMU_ST_CLIMBING))
+        {
+            enter(p_terrain, IMU_ST_CLIMBING); /* double hump */
+        }
     }
     else
     {
-        /* still descending */
+        p_terrain->pending = -1;
+        p_terrain->confirm = 0;
     }
     return events;
 }
@@ -371,6 +394,18 @@ static uint32_t hump_step(imu_terrain_t * p_terrain, int32_t pitch,
 
         default:
             break;
+    }
+
+    /* Publish the running maximum while crossing the hump. Completion
+       still controls last_peak_um, hump_count and HUMP_END. Only accept
+       a confirmed hump above the noise floor, not monitoring drift. */
+    if (((IMU_ST_CLIMBING == p_terrain->st.state) ||
+         (IMU_ST_AT_PEAK == p_terrain->st.state) ||
+         (IMU_ST_DESCENDING == p_terrain->st.state)) &&
+        (p_terrain->peak_um >= p_cfg->hump_min_peak_um) &&
+        (p_terrain->peak_um > p_terrain->st.max_peak_um))
+    {
+        p_terrain->st.max_peak_um = p_terrain->peak_um;
     }
 
     /* Bounded time in any hump state (NFR5) */
@@ -516,7 +551,9 @@ static void update_heading(imu_terrain_t *      p_terrain,
     int32_t heading;
     int32_t rate;
 
-    heading = imu_atan2_cdeg(p_sample->my, p_sample->mx);
+    /* The fixed magnetic field rotates clockwise in the body frame when
+       the car turns left. Negate its angle for vehicle heading (+CCW). */
+    heading = imu_wrap_cdeg(-imu_atan2_cdeg(p_sample->my, p_sample->mx));
     if (p_terrain->have_heading != 0U)
     {
         rate = imu_wrap_cdeg(heading - p_terrain->prev_heading) *
@@ -553,6 +590,40 @@ static void update_height(imu_terrain_t * p_terrain, int32_t speed_mm_s)
     }
 }
 
+/* Pickup detection uses raw, robot-frame specific force, even during
+   calibration. Do not subtract calibration bias: calibrating while inverted
+   must never redefine an upside-down robot as safe. A gentle level lift
+   is not observable from an accelerometer alone. */
+static uint32_t check_safety(imu_terrain_t * p_terrain,
+                             const imu_sample_t * p_sample)
+{
+    int32_t norm = (int32_t)imu_norm3(p_sample->ax_mg,
+                                     p_sample->ay_mg, p_sample->az_mg);
+    bool lifted = (p_sample->az_mg > S4_LIFT_UP_MG) ||
+                  (norm < S4_LIFT_LOW_G_MG);
+    bool overturned = (norm >= S4_LIFT_LOW_G_MG) &&
+                      ((int32_t)p_sample->az_mg * 1000 <
+                       norm * S4_SAFETY_UP_COS);
+
+    if (p_terrain->st.safety_stop != IMU_SAFETY_NONE)
+    {
+        return 0U;
+    }
+    p_terrain->lift_confirm = lifted ? p_terrain->lift_confirm + 1U : 0U;
+    p_terrain->overturn_confirm =
+        overturned ? p_terrain->overturn_confirm + 1U : 0U;
+    if (p_terrain->overturn_confirm >= S4_SAFETY_CONFIRM)
+    {
+        p_terrain->st.safety_stop = IMU_SAFETY_OVERTURN;
+    }
+    else if (p_terrain->lift_confirm >= S4_SAFETY_CONFIRM)
+    {
+        p_terrain->st.safety_stop = IMU_SAFETY_LIFT;
+    }
+    return (p_terrain->st.safety_stop != IMU_SAFETY_NONE)
+               ? IMU_EV_SAFETY_STOP : 0U;
+}
+
 uint32_t imu_terrain_update(imu_terrain_t *      p_terrain,
                             const imu_sample_t * p_sample, int32_t speed_mm_s)
 {
@@ -565,14 +636,15 @@ uint32_t imu_terrain_update(imu_terrain_t *      p_terrain,
     imu_motion_t motion;
 
     p_terrain->st.sample_count++;
+    events |= check_safety(p_terrain, p_sample);
 
     if (IMU_ST_ERROR == p_terrain->st.state)
     {
-        events = 0U;
+        /* Preserve the independent safety result. */
     }
     else if (IMU_ST_CALIBRATING == p_terrain->st.state)
     {
-        events = calibrate_step(p_terrain, p_sample);
+        events |= calibrate_step(p_terrain, p_sample);
     }
     else
     {

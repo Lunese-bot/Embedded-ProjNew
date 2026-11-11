@@ -575,6 +575,11 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
         n = kv(p_out, n, out_max, "humps", (int32_t)imu.hump_count);
         n = kv(p_out, n, out_max, "impacts", (int32_t)imu.impact_count);
         n = kv(p_out, n, out_max, "maxPeak", imu.max_peak_um);
+        n = kv(p_out, n, out_max, "safety", imu.safety_stop);
+        n = kv(p_out, n, out_max, "height", imu.hump_height_um);
+        n = kv(p_out, n, out_max, "ax", imu.ax_mg);
+        n = kv(p_out, n, out_max, "ay", imu.ay_mg);
+        n = kv(p_out, n, out_max, "az", imu.az_mg);
         n = put_str(p_out, n, out_max, "\"_\":0}");
     }
     else

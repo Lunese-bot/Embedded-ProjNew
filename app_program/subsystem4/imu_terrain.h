@@ -61,6 +61,11 @@ typedef enum
 #define IMU_EV_IMPACT        0x0040u /* sudden shock / collision */
 #define IMU_EV_TILT_LIMIT    0x0080u /* pitch or roll beyond safe limit */
 #define IMU_EV_MOTION_CHANGE 0x0100u /* motion class changed */
+#define IMU_EV_SAFETY_STOP   0x0200u /* pickup or overturn, latched */
+
+#define IMU_SAFETY_NONE      0u
+#define IMU_SAFETY_LIFT      1u
+#define IMU_SAFETY_OVERTURN  2u
 
 /* ---- inputs --------------------------------------------------------- */
 
@@ -118,11 +123,12 @@ typedef struct
 
     int32_t  hump_height_um; /* height above hump start, now */
     int32_t  last_peak_um;   /* peak of the last completed hump */
-    int32_t  max_peak_um;    /* highest hump this run */
+    int32_t  max_peak_um;    /* highest confirmed hump height, including climb */
     uint16_t hump_count;
     uint16_t impact_count;
     int32_t  last_impact_mg; /* size of the last impact */
     uint32_t sample_count;
+    uint8_t safety_stop; /* IMU_SAFETY_*; cleared only by reboot/init */
 } imu_status_t;
 
 /* Complete algorithm state (one instance, owned by the IMU task) */
@@ -152,6 +158,8 @@ typedef struct
     int32_t still_cnt;
     int32_t holdoff;
     uint8_t tilt_latched;
+    uint8_t lift_confirm;
+    uint8_t overturn_confirm;
     int32_t level_ax_mg; /* forward accel on level ground */
 } imu_terrain_t;
 

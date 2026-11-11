@@ -142,15 +142,29 @@ int32_t imu_selftest_turn(void)
     {
         return 0;
     }
-    /* Field vector (1000, 1000 * angle): for small angles atan2 of it
-       is about the angle, so the heading grows ~60 deg/s
+    /* For a left turn, the field rotates right in robot coordinates.
+       For small angles the vehicle heading grows ~60 deg/s
        (21 mrad per 20 ms).  30 samples stay below 40 deg. */
+    for (idx = 0; idx < 30; idx++)
+    {
+        hdg_mrad += 21;
+        feed(0, 0, 1000, 1000, (int16_t)-hdg_mrad, 1, SPEED_MM_S);
+    }
+    if (IMU_MOT_TURNING_LEFT != g_terrain.st.motion)
+    {
+        return 0;
+    }
+    if (!setup())
+    {
+        return 0;
+    }
+    hdg_mrad = 0;
     for (idx = 0; idx < 30; idx++)
     {
         hdg_mrad += 21;
         feed(0, 0, 1000, 1000, (int16_t)hdg_mrad, 1, SPEED_MM_S);
     }
-    return (IMU_MOT_TURNING_LEFT == g_terrain.st.motion);
+    return (IMU_MOT_TURNING_RIGHT == g_terrain.st.motion);
 }
 
 int32_t imu_selftest_cal_reject(void)
