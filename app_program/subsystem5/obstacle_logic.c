@@ -154,6 +154,69 @@ bool s5_build_profile(const s5_sample_t * p_samples, int32_t count,
     return true;
 }
 
+int32_t s5_merge_samples(const s5_sample_t * p_a, int32_t count_a,
+                         const s5_sample_t * p_b, int32_t count_b,
+                         s5_sample_t * p_out, int32_t max)
+{
+    int32_t     count = 0;
+    int32_t     idx;
+    int32_t     jdx;
+    bool        b_dup;
+    s5_sample_t tmp;
+
+    if ((NULL == p_out) || (max <= 0))
+    {
+        return 0;
+    }
+    if (NULL == p_a)
+    {
+        count_a = 0;
+    }
+    if (NULL == p_b)
+    {
+        count_b = 0;
+    }
+
+    /* 1. every fine sample */
+    for (idx = 0; (idx < count_b) && (count < max); idx++)
+    {
+        p_out[count] = p_b[idx];
+        count++;
+    }
+
+    /* 2. coarse samples at angles the fine scan did not visit */
+    for (idx = 0; (idx < count_a) && (count < max); idx++)
+    {
+        b_dup = false;
+        for (jdx = 0; jdx < count_b; jdx++)
+        {
+            if (p_b[jdx].deg == p_a[idx].deg)
+            {
+                b_dup = true;
+            }
+        }
+        if (!b_dup)
+        {
+            p_out[count] = p_a[idx];
+            count++;
+        }
+    }
+
+    /* 3. insertion sort by angle, most negative first */
+    for (idx = 1; idx < count; idx++)
+    {
+        tmp = p_out[idx];
+        jdx = idx - 1;
+        while ((jdx >= 0) && (p_out[jdx].deg > tmp.deg))
+        {
+            p_out[jdx + 1] = p_out[jdx];
+            jdx--;
+        }
+        p_out[jdx + 1] = tmp;
+    }
+    return count;
+}
+
 int32_t s5_lateral_needed_mm(const s5_profile_t * p_profile, s5_side_t side)
 {
     int32_t edge;
@@ -304,10 +367,12 @@ int32_t s5_coarse_angles(int8_t * p_deg, int32_t max)
 int32_t s5_fine_angles(const s5_profile_t * p_profile, int8_t * p_deg,
                        int32_t max)
 {
-    /* 5-degree steps from 20 deg beyond the right edge to 20 deg
-       beyond the left edge, clamped to the servo range */
-    int32_t angle = (int32_t)p_profile->right_edge_deg - 20;
-    int32_t high  = (int32_t)p_profile->left_edge_deg + 20;
+    /* 5-degree steps from S5_FINE_MARGIN_DEG beyond the right edge to
+       the same beyond the left edge, clamped to the servo range.  The
+       coarse samples outside this window are merged in afterwards
+       (s5_merge_samples), so the window only has to find the edges. */
+    int32_t angle = (int32_t)p_profile->right_edge_deg - S5_FINE_MARGIN_DEG;
+    int32_t high  = (int32_t)p_profile->left_edge_deg + S5_FINE_MARGIN_DEG;
     int32_t count = 0;
 
     if (angle < -S5_SCAN_MAX_DEG)

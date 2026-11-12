@@ -20,7 +20,12 @@
 
 #define SCAN_MAX_SAMPLES 40
 #define SCAN_READS       3 /* median of 3 per angle */
-#define SCAN_READ_GAP_MS 15
+#define SCAN_READ_GAP_MS 10 /* 1 m echoes are back within ~6 ms */
+/* Scan pings give up at 1 m (~6 ms busy-wait instead of ~12 ms for 2 m).
+   Bench 2026-11-12: full-range scan pings were often disturbed by other
+   tasks and thrown away (disturbed count +27..76 per scan).  Clearance
+   beyond 1 m does not change the decision (S5_MIN_CLEAR_MM is 300). */
+#define SCAN_RANGE_MM    1000
 
 typedef enum
 {
@@ -76,7 +81,8 @@ static int32_t sweep(const int8_t * p_deg, int32_t count, s5_sample_t * p_out)
     for (idx = 0; idx < count; idx++)
     {
         point_and_wait(p_deg[idx]);
-        dist_mm = us_read_median_mm(SCAN_READS, SCAN_READ_GAP_MS);
+        dist_mm = us_read_median_mm_max(SCAN_READS, SCAN_READ_GAP_MS,
+                                        SCAN_RANGE_MM);
         s5_note_ping(dist_mm);
         g_silent_in_scan =
             (US_NO_ECHO == dist_mm) ? (g_silent_in_scan + 1U) : 0U;
@@ -102,18 +108,24 @@ static void do_scan(void)
 {
     int8_t       ang[SCAN_MAX_SAMPLES];
     s5_sample_t  smp[SCAN_MAX_SAMPLES];
+    /* static: only the scan task runs this, and the 2 KB task stack
+       also has to hold tm_printf (~1 KB) */
+    static s5_sample_t csmp[SCAN_MAX_SAMPLES]; /* coarse samples, kept */
+    static s5_sample_t all[SCAN_MAX_SAMPLES];  /* coarse + fine, by angle */
     s5_profile_t prof;
     s5_profile_t coarse;
     int32_t      count;
+    int32_t      ccount;
+    uint32_t     disturbed_at_start = us_disturbed_pings();
     s5_evt_t     evt = { 0 };
 
     g_silent_in_scan = 0;
 
     /* 1. coarse */
     s5_set_state(S5_ST_COARSE_SCAN);
-    count = s5_coarse_angles(ang, SCAN_MAX_SAMPLES);
-    count = sweep(ang, count, smp);
-    if (!s5_build_profile(smp, count, &prof))
+    count  = s5_coarse_angles(ang, SCAN_MAX_SAMPLES);
+    ccount = sweep(ang, count, csmp);
+    if (!s5_build_profile(csmp, ccount, &prof))
     {
         tm_printf((uint8_t *)"s5: coarse scan found nothing\n");
     }
@@ -122,11 +134,17 @@ static void do_scan(void)
         print_profile("coarse", &prof);
         coarse = prof;
 
-        /* 2. fine, around the edges seen by the coarse scan */
+        /* 2. fine, around the edges seen by the coarse scan.  Built from
+           coarse + fine samples together: the fine window alone has no
+           samples beyond the edges when the obstacle fills it, which
+           read as "no clearance" on both sides (bench 2026-11-12:
+           clrL=0 clrR=0 side=0 after the coarse scan saw 1199/2000). */
         s5_set_state(S5_ST_FINE_SCAN);
         count = s5_fine_angles(&prof, ang, SCAN_MAX_SAMPLES);
         count = sweep(ang, count, smp);
-        if (s5_build_profile(smp, count, &prof))
+        count = s5_merge_samples(csmp, ccount, smp, count, all,
+                                 SCAN_MAX_SAMPLES);
+        if (s5_build_profile(all, count, &prof))
         {
             print_profile("fine", &prof);
         }
@@ -145,6 +163,9 @@ static void do_scan(void)
         evt.code = S5_FAULT_ECHO_TIMEOUT;
         s5_send_evt(&evt);
     }
+
+    tm_printf((uint8_t *)"s5: scan done, disturbed pings this scan %d\n",
+              (int)(us_disturbed_pings() - disturbed_at_start));
 
     point_and_wait(0);
     s5_store_profile(&prof);
@@ -183,6 +204,47 @@ static void report_obstacle(uint16_t dist_mm)
 #define DIAG(...) ((void)0)
 #endif
 
+/* Sensor health while monitoring.  A working HC-SR04 raises ECHO after
+   every trigger, even with nothing in range, so "no answer" is not the
+   same as "nothing ahead".  Line-follow run 2026-11-12: the sensor did
+   not answer for the whole run (rise=0 width=0) and the robot drove into
+   the box.  Now S5 reports a fault after S5_NO_ANSWER_COUNT silent pings
+   (~0.7 s) and the controller stops the mission. */
+#define S5_NO_ANSWER_COUNT 10
+
+static void check_sensor_answers(void)
+{
+    static uint32_t s_silent;
+    static bool     s_b_reported;
+    s5_evt_t        evt = { 0 };
+
+    if (us_last_answered())
+    {
+        if (s_b_reported)
+        {
+            tm_printf((uint8_t *)"s5: sensor answering again\n");
+            s5_set_fault(S5_FAULT_NONE);
+        }
+        s_silent     = 0U;
+        s_b_reported = false;
+    }
+    else
+    {
+        s_silent++;
+        if ((s_silent >= S5_NO_ANSWER_COUNT) && (!s_b_reported))
+        {
+            s_b_reported = true;
+            tm_printf((uint8_t *)"s5: SENSOR NOT ANSWERING (%d pings) - "
+                                 "check the ultrasonic wiring\n",
+                      (int)s_silent);
+            s5_set_fault(S5_FAULT_ECHO_TIMEOUT);
+            evt.type = S5_EVT_FAULT;
+            evt.code = S5_FAULT_ECHO_TIMEOUT;
+            (void)s5_send_critical(&evt);
+        }
+    }
+}
+
 /* One MONITOR period: ping straight ahead, count near readings.
    Returns the next mode (HOLD once an obstacle is reported). */
 static scan_mode_t monitor_step(int32_t * p_near_count, uint16_t * p_last_mm)
@@ -207,11 +269,14 @@ static scan_mode_t monitor_step(int32_t * p_near_count, uint16_t * p_last_mm)
         if (0 == (raw_n & 0x7))
         {
             us_last_raw(&idle, &rise_us, &width_us);
-            DIAG("s5: raw idle=%d rise=%d us width=%d us -> %d mm\n", (int)idle,
-                 (int)rise_us, (int)width_us, (int)dist_mm);
+            DIAG("s5: raw idle=%d rise=%d us width=%d us -> %d mm disturbed=%d glitches=%d\n",
+                 (int)idle, (int)rise_us, (int)width_us, (int)dist_mm,
+                 (int)us_disturbed_pings(), (int)us_glitch_pulses());
         }
     }
 #endif
+
+    check_sensor_answers();
 
     *p_near_count = s5_near_count_next(*p_near_count, *p_last_mm, dist_mm);
     *p_last_mm    = dist_mm;

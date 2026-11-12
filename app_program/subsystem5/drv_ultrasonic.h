@@ -29,6 +29,19 @@
 extern void us_last_raw(uint32_t * p_idle, uint32_t * p_rise_us,
                         uint32_t * p_width_us);
 
+/* Pings thrown away (and measured again) because another task or an interrupt
+   ran in the middle of the echo timing.  Diagnostics. */
+extern uint32_t us_disturbed_pings(void);
+
+/* ECHO pulses shorter than 150 us that were skipped as not being an echo
+   (trigger leaking onto ECHO, receiver hearing the burst).  Diagnostics. */
+extern uint32_t us_glitch_pulses(void);
+
+/* TRUE when the sensor answered the last ping (an echo, or ECHO high
+   until the end of the range).  FALSE = no answer at all or ECHO stuck
+   high: sensor unplugged, unpowered or a broken wire. */
+extern bool us_last_answered(void);
+
 /* Configure TRIG as output (low) and ECHO as input. */
 extern ER us_init(void);
 
@@ -44,6 +57,11 @@ extern uint16_t us_read_mm_max(uint16_t max_mm);
 /* Median of n (1..5) readings, us_gap_ms apart; ignores missing ones.
    Returns US_NO_ECHO when every reading was missing. */
 extern uint16_t us_read_median_mm(int32_t samples, int32_t gap_ms);
+
+/* Same, but each reading gives up beyond max_mm (shorter busy-wait, so
+   fewer pings are disturbed by other tasks).  Used by the scan. */
+extern uint16_t us_read_median_mm_max(int32_t samples, int32_t gap_ms,
+                                      uint16_t max_mm);
 
 /* Free-running 1 MHz hardware timer (RP2040 TIMER), microseconds. */
 extern uint32_t us_now_us(void);

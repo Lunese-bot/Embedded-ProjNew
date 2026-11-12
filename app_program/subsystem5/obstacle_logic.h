@@ -29,6 +29,11 @@
 #define S5_HIT_RANGE_MM   500 /* during a scan: "part of it"      */
 #define S5_SCAN_MAX_DEG   60  /* scan no wider than this (= SERVO_MAX_DEG) */
 #define S5_CLUSTER_GAP_MM 150 /* jump that separates two objects  */
+/* Fine scan: degrees past each coarse edge.  Was 20; 15 keeps a step
+   beyond the true edge (coarse edges can be 30 deg off) while cutting
+   the scan time.  Line-follow run 2026-11-12: the scan took ~8 s and hit
+   S5_SCAN_TMO_MS (fault 0x5003). */
+#define S5_FINE_MARGIN_DEG 15
 
 /* ---- Stopping distance (Tribunal 1, Version C) -------------------
  *  Required detect range >= reaction distance + braking + safety margin
@@ -97,6 +102,14 @@ extern int32_t s5_sin1000(int32_t deg);
    Returns TRUE and fills *p when an obstacle is found. */
 extern bool s5_build_profile(const s5_sample_t * p_samples, int32_t count,
                              s5_profile_t * p_profile);
+
+/* Merge the coarse scan (a) and the fine scan (b) into one list sorted by
+   angle (most negative first).  On equal angles the fine sample wins.
+   The fine scan only covers the obstacle and 20 deg past each edge; the
+   coarse samples outside that window keep the clearance on each side. */
+extern int32_t s5_merge_samples(const s5_sample_t * p_a, int32_t count_a,
+                                const s5_sample_t * p_b, int32_t count_b,
+                                s5_sample_t * p_out, int32_t max);
 
 /* Monitoring filter: next count of consecutive near readings.
    cur_mm = 0 (no echo) or >= S5_DETECT_MM -> 0.  A near reading that

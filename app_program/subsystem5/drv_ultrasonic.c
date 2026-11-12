@@ -21,6 +21,26 @@
 #define SOUND_MM_PER_MS   343UL  /* speed of sound, 343 m/s           */
 #define US_PER_MS_2WAY    2000UL /* 1000 us/ms x 2 (there and back)   */
 #define ECHO_MARGIN_US    200UL
+/* A tight polling loop reads the timer every ~1 us.  A gap this long means
+   something else (Wi-Fi task, interrupt) ran in the middle of the ping, so
+   the measurement is not trustworthy. */
+#define DISTURB_GAP_US    150UL
+/* An ECHO pulse shorter than this is not an echo: 30 mm (US_MIN_MM) is
+   175 us, so 150 us leaves a margin.  Such pulses are skipped and the
+   driver keeps waiting for the real echo. */
+#define GLITCH_MAX_US     150UL
+/* A real HC-SR04 sends its 8-cycle 40 kHz burst (~200 us) before it
+   raises ECHO.  Bench logs 2026-11-11/12: working sensor rise 198..323
+   us; every false reading (glitches, the fixed 239/249 mm) rose 4..7 us
+   after the trigger.  A pulse that starts sooner than this is skipped
+   like a glitch, so a faulty sensor reads "no answer", not a false
+   obstacle. */
+#define ECHO_RISE_MIN_US  100UL
+#define PING_RETRIES      2     /* extra tries after a disturbed ping   */
+#define RETRY_GAP_MS      12    /* let late echoes die away first: a 2 m
+                                   echo is back within ~12 ms.  Was 25;
+                                   the scan retries dozens of pings when
+                                   mission tasks preempt it */
 #define ECHO_MAX_US(max_mm) \
     ((((uint32_t)(max_mm) * US_PER_MS_2WAY) / SOUND_MM_PER_MS) + ECHO_MARGIN_US)
 
@@ -28,12 +48,37 @@
 static uint32_t g_raw_idle;     /* ECHO level before the trigger (0 = low) */
 static uint32_t g_raw_rise_us;  /* trigger end -> ECHO rising, 0 = none    */
 static uint32_t g_raw_width_us; /* ECHO high time, 0 = none                */
+/* The sensor answered the last ping: a real echo pulse, or ECHO still
+   high at the end of the range (nothing in range).  A working HC-SR04
+   always raises ECHO after a trigger, so FALSE means no sensor answer
+   (unplugged, no power, broken wire) or ECHO stuck high. */
+static bool     g_raw_answered;
 
 void us_last_raw(uint32_t * p_idle, uint32_t * p_rise_us, uint32_t * p_width_us)
 {
     *p_idle     = g_raw_idle;
     *p_rise_us  = g_raw_rise_us;
     *p_width_us = g_raw_width_us;
+}
+
+bool us_last_answered(void)
+{
+    return ((0U == g_raw_idle) && g_raw_answered) ? true : false;
+}
+
+static uint32_t g_gap_max_us;    /* longest gap between timer reads, last ping */
+static uint32_t g_disturbed_pings; /* pings thrown away because of a gap       */
+
+uint32_t us_disturbed_pings(void)
+{
+    return g_disturbed_pings;
+}
+
+static uint32_t g_glitches; /* ECHO pulses too short to be an echo, skipped */
+
+uint32_t us_glitch_pulses(void)
+{
+    return g_glitches;
 }
 
 uint32_t us_now_us(void)
@@ -74,44 +119,93 @@ static uint32_t time_echo_us(uint32_t max_us)
     uint32_t width = 0U;
     bool     b_ok  = true;
 
+    uint32_t prev_us;
+    uint32_t now_us;
+    uint32_t last_us = 0U; /* width of the last pulse seen, glitch or not */
+    bool     b_done  = false;
+
+    g_gap_max_us = 0U;
     gpio_set_val(S5_PIN_TRIG, 1);
     busy_wait_us(TRIG_PULSE_US);
     gpio_set_val(S5_PIN_TRIG, 0);
 
-    /* Wait for the rising edge */
     start_us = us_now_us();
-    while (b_ok && (0U == gpio_get_val(S5_PIN_ECHO)))
+    prev_us  = start_us;
+    while (b_ok && (!b_done))
     {
-        if ((uint32_t)(us_now_us() - start_us) > ECHO_START_TMO_US)
+        /* Wait for a rising edge (the start timeout counts from the trigger) */
+        while (b_ok && (0U == gpio_get_val(S5_PIN_ECHO)))
         {
-            b_ok = false;
-        }
-    }
-
-    /* Time the high pulse */
-    if (b_ok)
-    {
-        rise           = us_now_us();
-        g_raw_rise_us  = (uint32_t)(rise - start_us);
-        while (b_ok && (0U != gpio_get_val(S5_PIN_ECHO)))
-        {
-            if ((uint32_t)(us_now_us() - rise) > max_us)
+            now_us = us_now_us();
+            if ((uint32_t)(now_us - prev_us) > g_gap_max_us)
             {
-                b_ok = false; /* nothing in range */
+                g_gap_max_us = (uint32_t)(now_us - prev_us);
+            }
+            prev_us = now_us;
+            if ((uint32_t)(now_us - start_us) > ECHO_START_TMO_US)
+            {
+                b_ok = false;
+            }
+        }
+
+        /* Time the high pulse */
+        if (b_ok)
+        {
+            rise          = us_now_us();
+            g_raw_rise_us = (uint32_t)(rise - start_us);
+            prev_us       = rise;
+            while (b_ok && (0U != gpio_get_val(S5_PIN_ECHO)))
+            {
+                now_us = us_now_us();
+                if ((uint32_t)(now_us - prev_us) > g_gap_max_us)
+                {
+                    g_gap_max_us = (uint32_t)(now_us - prev_us);
+                }
+                prev_us = now_us;
+                if ((uint32_t)(now_us - rise) > max_us)
+                {
+                    b_ok = false; /* nothing in range */
+                }
+            }
+            if ((!b_ok) && (g_raw_rise_us >= ECHO_RISE_MIN_US))
+            {
+                g_raw_answered = true; /* still high at max range */
+            }
+        }
+        if (b_ok)
+        {
+            last_us = us_now_us() - rise;
+            if ((last_us < GLITCH_MAX_US) || (g_raw_rise_us < ECHO_RISE_MIN_US))
+            {
+                /* Too short to be an echo from 30 mm or more, or started
+                   too soon after the trigger: the trigger leaking onto
+                   ECHO, or a faulty sensor.  Count it and wait for the
+                   real echo behind it. */
+                g_glitches++;
+                prev_us = us_now_us();
+            }
+            else
+            {
+                width          = last_us;
+                b_done         = true;
+                g_raw_answered = true;
             }
         }
     }
-    if (b_ok)
-    {
-        width = us_now_us() - rise;
-    }
-    g_raw_width_us = width;
+    g_raw_width_us = last_us; /* log shows a glitch width even when no echo */
     return width;
 }
 
-uint16_t us_read_mm_max(uint16_t max_mm)
+/* One ping.  b_strict: a disturbed ping (another task ran in the middle)
+   is measured again, and dropped if still disturbed; used for monitoring,
+   where one ping decides.  Not strict: the disturbed width is kept and
+   only counted; the scan takes the median of 3 readings, which throws
+   out a single bad one, and retrying there made the scan overrun its
+   time limit (line-follow run 2026-11-12: 67 disturbed pings, ~8 s). */
+static uint16_t read_mm(uint16_t max_mm, bool b_strict)
 {
     uint32_t width;
+    uint32_t retries = 0U;
     bool     b_dsp_off;
 
     if ((0U == max_mm) || (max_mm > US_RANGE_MAX_MM))
@@ -124,6 +218,7 @@ uint16_t us_read_mm_max(uint16_t max_mm)
     g_raw_idle     = (uint32_t)gpio_get_val(S5_PIN_ECHO);
     g_raw_rise_us  = 0U;
     g_raw_width_us = 0U;
+    g_raw_answered = false;
     if (0U != g_raw_idle)
     {
         return US_NO_ECHO;
@@ -141,6 +236,35 @@ uint16_t us_read_mm_max(uint16_t max_mm)
         (void)tk_ena_dsp();
     }
 
+    /* Something ran in the middle of the ping (gap in the timer reads):
+       the width cannot be trusted, and a missed echo here is not "nothing
+       in front".  Count it and measure again after the late echoes died. */
+    if ((!b_strict) && (g_gap_max_us > DISTURB_GAP_US))
+    {
+        g_disturbed_pings++;
+        retries = PING_RETRIES; /* keep this width, no retry */
+        g_gap_max_us = 0U;
+    }
+    while ((g_gap_max_us > DISTURB_GAP_US) && (retries < PING_RETRIES))
+    {
+        g_disturbed_pings++;
+        retries++;
+        tk_dly_tsk(RETRY_GAP_MS);
+        if (0U != gpio_get_val(S5_PIN_ECHO))
+        {
+            return US_NO_ECHO;
+        }
+        g_raw_rise_us  = 0U;
+        g_raw_width_us = 0U;
+        g_raw_answered = false;
+        width          = time_echo_us(ECHO_MAX_US(max_mm));
+    }
+    if (g_gap_max_us > DISTURB_GAP_US)
+    {
+        g_disturbed_pings++;
+        return US_NO_ECHO; /* still disturbed: report nothing, not a guess */
+    }
+
     width = (width * SOUND_MM_PER_MS) / US_PER_MS_2WAY; /* -> mm */
     if ((width < US_MIN_MM) || (width > max_mm))
     {
@@ -149,12 +273,23 @@ uint16_t us_read_mm_max(uint16_t max_mm)
     return (uint16_t)width;
 }
 
+uint16_t us_read_mm_max(uint16_t max_mm)
+{
+    return read_mm(max_mm, true);
+}
+
 uint16_t us_read_mm(void)
 {
     return us_read_mm_max(US_RANGE_MAX_MM);
 }
 
 uint16_t us_read_median_mm(int32_t samples, int32_t gap_ms)
+{
+    return us_read_median_mm_max(samples, gap_ms, US_RANGE_MAX_MM);
+}
+
+uint16_t us_read_median_mm_max(int32_t samples, int32_t gap_ms,
+                               uint16_t max_mm)
 {
     uint16_t vals[5];
     int32_t  got = 0;
@@ -173,7 +308,7 @@ uint16_t us_read_median_mm(int32_t samples, int32_t gap_ms)
     }
     for (idx = 0; idx < samples; idx++)
     {
-        reading = us_read_mm();
+        reading = read_mm(max_mm, false);
         if (reading != US_NO_ECHO)
         {
             vals[got++] = reading;

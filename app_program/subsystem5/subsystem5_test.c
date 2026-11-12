@@ -219,6 +219,38 @@ void subsystem5_test(void)
         TEST_CHECK("S5-U26g", c == 3, "a small step away is sensor jitter, still counts");
     }
 
+    /* S5-U27: the fine scan is merged with the coarse scan, so the
+       clearance beyond each edge is kept.  Data from the bench run
+       2026-11-12: box on the right, fine window -50..-10 all hits. */
+    {
+        static const s5_sample_t coarse[] = {
+            { -60, 0 }, { -30, 129 }, { 0, 0 }, { 30, 1199 }, { 60, 0 }
+        };
+        static const s5_sample_t fine[] = {
+            { -50, 140 }, { -45, 133 }, { -40, 130 }, { -35, 128 },
+            { -30, 127 }, { -25, 128 }, { -20, 131 }, { -15, 136 },
+            { -10, 142 }
+        };
+        s5_sample_t all[20];
+
+        b_ok = s5_build_profile(fine, S5_ARRAY_LEN(fine), &profile);
+        TEST_CHECK("S5-U27a",
+                   b_ok && (S5_SIDE_NONE == profile.bypass_side),
+                   "fine window alone: no clearance seen (old behaviour)");
+        count = s5_merge_samples(coarse, S5_ARRAY_LEN(coarse), fine,
+                                 S5_ARRAY_LEN(fine), all, 20);
+        TEST_CHECK("S5-U27b",
+                   (13 == count) && (-60 == all[0].deg) &&
+                       (127 == all[5].mm) && (60 == all[12].deg),
+                   "merge: sorted by angle, fine wins on equal angles");
+        b_ok = s5_build_profile(all, count, &profile);
+        TEST_CHECK("S5-U27c",
+                   b_ok && (profile.clear_left_mm >= S5_MIN_CLEAR_MM) &&
+                       (profile.clear_right_mm >= S5_MIN_CLEAR_MM) &&
+                       (S5_SIDE_LEFT == profile.bypass_side),
+                   "merged: box on the right -> clearance both sides, go left");
+    }
+
     /* S5-U25: a monitoring ping is short enough to run at high priority.
        Point the sensor at open space (worst case: no echo). */
     {
