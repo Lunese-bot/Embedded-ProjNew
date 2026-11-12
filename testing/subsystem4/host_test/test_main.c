@@ -29,6 +29,7 @@ static int test_shallow_hump(int height_mm, int plateau, int ramp_mg)
     int stage, i;
 
     imu_terrain_default_cfg(&cfg);
+    cfg.hump_lever_mm = 0; /* whole robot on a ramp: summed height */
     imu_terrain_init(&terrain, &cfg);
     sample.az_mg = 1000;
     sample.mx = 300;
@@ -69,7 +70,9 @@ static int test_consecutive_transitions(void)
     int stage, i;
 
     imu_terrain_default_cfg(&cfg);
+    cfg.hump_lever_mm = 0; /* whole robot on a ramp: summed height */
     cfg.lpf_shift = 0; /* Isolate debounce from filter settling. */
+    cfg.hump_lpf_shift = 0;
     for (stage = 0; stage < 3; stage++) {
         imu_terrain_init(&terrain, &cfg);
         sample.ax_mg = 0;
@@ -78,6 +81,7 @@ static int test_consecutive_transitions(void)
             (void)imu_terrain_update(&terrain, &sample, 0);
         }
         terrain.st.state = from[stage];
+        terrain.peak_um = cfg.hump_min_peak_um; /* a real hump so far */
         for (i = 0; i < cfg.hump_confirm * 2; i++) {
             sample.ax_mg = (i % 2) ? 35 : (stage == 1 ? -70 : 0);
             (void)imu_terrain_update(&terrain, &sample, 150);
@@ -105,6 +109,7 @@ static int test_live_maximum(void)
     int32_t peak;
 
     imu_terrain_default_cfg(&cfg);
+    cfg.hump_lever_mm = 0; /* whole robot on a ramp: summed height */
     imu_terrain_init(&terrain, &cfg);
     sample.az_mg = 1000;
     sample.mx = 300;
@@ -133,10 +138,63 @@ static int test_live_maximum(void)
     return terrain.st.max_peak_um == peak;
 }
 
+static void feed_level(imu_terrain_t *terrain, int count, int speed)
+{
+    imu_sample_t sample = {0};
+    int i;
+
+    sample.az_mg = 1000;
+    for (i = 0; i < count; i++) {
+        (void)imu_terrain_update(terrain, &sample, speed);
+    }
+}
+
+/* 2026-11-11: course hump under the RIGHT REAR wheel only (10 mm high,
+   150 mm up, 5 mm top, 150 mm down), left wheel and front support on the
+   floor.  The robot tilts by asin(h / lever), mostly sideways (direction
+   55 deg from forward, as in the robot log).  Height must read 10 mm +-20 %. */
+#include <math.h>
+static int test_one_wheel_lever(void)
+{
+    imu_cfg_t cfg;
+    imu_terrain_t terrain;
+    imu_sample_t sample = {0};
+    double lever; const double dir = 55.0 * 3.14159265 / 180.0;
+    const int speed = 40; /* mm/s */
+    double s_mm = 0.0;
+    int i;
+
+    imu_terrain_default_cfg(&cfg);
+    if (cfg.hump_lever_mm <= 0) {
+        return 0;
+    }
+    lever = (double)cfg.hump_lever_mm;
+    imu_terrain_init(&terrain, &cfg);
+    feed_level(&terrain, cfg.cal_samples, 0);
+    feed_level(&terrain, 50, speed);
+    for (i = 0; i < 700; i++) {
+        double h = 0.0, t;
+        s_mm += speed * 0.020;
+        if (s_mm < 150.0)      h = 10.0 * s_mm / 150.0;
+        else if (s_mm < 155.0) h = 10.0;
+        else if (s_mm < 305.0) h = 10.0 * (305.0 - s_mm) / 150.0;
+        t = asin(h / lever);
+        sample.ax_mg = (int16_t)(1000.0 * sin(t) * cos(dir));
+        sample.ay_mg = (int16_t)(-1000.0 * sin(t) * sin(dir));
+        sample.az_mg = (int16_t)(1000.0 * cos(t));
+        (void)imu_terrain_update(&terrain, &sample, speed);
+    }
+    printf("[HEIGHT] one-wheel 10 mm hump: max %.2f mm, last %.2f mm, humps %d\n",
+           terrain.st.max_peak_um / 1000.0, terrain.st.last_peak_um / 1000.0,
+           (int)terrain.st.hump_count);
+    return (terrain.st.max_peak_um >= 8000) && (terrain.st.max_peak_um <= 12000);
+}
+
 static int test_pickup_safety(void)
 {
     /* Pickup, unloading, roll both ways, pitch both ways, inverted.
-       Detection must also work before calibration completes. */
+       Overturn and free fall must also work before calibration completes;
+       an upward lift needs the first second after power-on to learn 1 g. */
     const int16_t vectors[][3] = {
         {0, 0, 1250}, {0, 0, 400}, {0, 800, 600},
         {0, -800, 600}, {800, 0, 600}, {-800, 0, 600}, {0, 0, -1000}
@@ -144,27 +202,29 @@ static int test_pickup_safety(void)
     imu_cfg_t cfg;
     imu_terrain_t terrain;
     imu_sample_t sample = {0};
-    int v, i, vector;
+    int v, i, vector, min_n, max_n;
     uint32_t events;
 
     imu_terrain_default_cfg(&cfg);
+    cfg.hump_lever_mm = 0; /* whole robot on a ramp: summed height */
     for (v = 0; v < 14; v++) {
-        imu_terrain_init(&terrain, &cfg);
-        if (v >= 7) {
-            sample.ax_mg = sample.ay_mg = 0;
-            sample.az_mg = 1000;
-            for (i = 0; i < cfg.cal_samples; i++) {
-                (void)imu_terrain_update(&terrain, &sample, 0);
-            }
-        }
         vector = v % 7;
+        imu_terrain_init(&terrain, &cfg);
+        if (v >= 7 || vector == 0) {
+            feed_level(&terrain, cfg.cal_samples, 0);
+        }
         sample.ax_mg = vectors[vector][0];
         sample.ay_mg = vectors[vector][1];
         sample.az_mg = vectors[vector][2];
         events = 0U;
-        for (i = 0; i < S4_SAFETY_CONFIRM; i++) {
+        /* A 0.25 g push up is a lift within 60-200 ms; the others need
+           exactly their confirm count. */
+        min_n = vector == 0 ? 3 : (vector == 1 ? S4_LOW_G_CONFIRM
+                                               : S4_OVERTURN_CONFIRM);
+        max_n = vector == 0 ? 10 : min_n;
+        for (i = 0; i < max_n && !terrain.st.safety_stop; i++) {
             events |= imu_terrain_update(&terrain, &sample, 0);
-            if (i < S4_SAFETY_CONFIRM - 1 && terrain.st.safety_stop) {
+            if (i < min_n - 1 && terrain.st.safety_stop) {
                 return 0;
             }
         }
@@ -173,19 +233,107 @@ static int test_pickup_safety(void)
                 (vector < 2 ? IMU_SAFETY_LIFT : IMU_SAFETY_OVERTURN)) {
             return 0;
         }
-        /* Setting down, peak reset and recalibration cannot rearm it. */
-        sample.ax_mg = sample.ay_mg = 0;
-        sample.az_mg = 1000;
-        imu_terrain_reset_peaks(&terrain);
-        imu_terrain_recalibrate(&terrain);
-        for (i = 0; i < cfg.cal_samples + 10; i++) {
-            (void)imu_terrain_update(&terrain, &sample, 0);
-        }
+        /* Set down level and still: stays stopped just short of the
+           settle time, then clears by itself (no reboot, 2026-11-11). */
+        feed_level(&terrain, S4_SETTLE_SAMPLES - 1, 0);
         if (!terrain.st.safety_stop) {
+            return 0;
+        }
+        feed_level(&terrain, 1, 0);
+        if (terrain.st.safety_stop) {
             return 0;
         }
     }
     return 1;
+}
+
+/* A hump's jolts must not stop the robot, whatever the hump state says,
+   and a lift on the hump must still stop it (2026-11-11). */
+static int test_safety_hump(void)
+{
+    imu_cfg_t cfg;
+    imu_terrain_t terrain;
+    imu_sample_t sample = {0};
+    int i, rep;
+
+    imu_terrain_default_cfg(&cfg);
+    cfg.hump_lever_mm = 0; /* whole robot on a ramp: summed height */
+    imu_terrain_init(&terrain, &cfg);
+    feed_level(&terrain, cfg.cal_samples, 0);
+    /* 1. hitting the foot of a hump: 0.6 g up for 40 ms, then the same
+       back down (the robot does not keep rising), five times */
+    for (rep = 0; rep < 5; rep++) {
+        for (i = 0; i < 4; i++) {
+            sample.az_mg = (int16_t)(i < 2 ? 1600 : 400);
+            (void)imu_terrain_update(&terrain, &sample, 150);
+        }
+        feed_level(&terrain, 10, 150);
+        if (terrain.st.safety_stop) {
+            return 0;
+        }
+    }
+    /* 2. driving up a real 10 degree ramp at 150 mm/s: the robot gains
+       26 mm/s of upward speed in 100 ms (27 mg), then holds it */
+    sample.ax_mg = 174;
+    for (i = 0; i < 100; i++) {
+        sample.az_mg = (int16_t)(i < 5 ? 1012 : 985);
+        (void)imu_terrain_update(&terrain, &sample, 150);
+    }
+    if (terrain.st.safety_stop || terrain.st.state != IMU_ST_CLIMBING) {
+        return 0;
+    }
+    /* 3. picked up while on the ramp (hump state CLIMBING): 0.15 g up */
+    sample.az_mg = 1135;
+    for (i = 0; i < 15 && !terrain.st.safety_stop; i++) {
+        (void)imu_terrain_update(&terrain, &sample, 150);
+    }
+    return IMU_SAFETY_LIFT == terrain.st.safety_stop;
+}
+
+/* Speeding up and braking tilt the accelerometer's "pitch" but are not a
+   hump: no CLIMBING, and never left sitting in AT_PEAK (2026-11-11). */
+static int test_accel_not_hump(void)
+{
+    imu_cfg_t cfg;
+    imu_terrain_t terrain;
+    imu_sample_t sample = {0};
+    uint32_t events = 0U;
+    int i, rep;
+
+    imu_terrain_default_cfg(&cfg);
+    cfg.hump_lever_mm = 0; /* whole robot on a ramp: summed height */
+    imu_terrain_init(&terrain, &cfg);
+    feed_level(&terrain, cfg.cal_samples, 0);
+    sample.az_mg = 1000;
+    for (rep = 0; rep < 4; rep++) {
+        /* 0 -> 120 mm/s in 100 ms = 122 mg (7 deg), cruise, brake */
+        for (i = 0; i < 100; i++) {
+            sample.ax_mg = (int16_t)(i < 5 ? 122 : (i >= 60 && i < 65 ? -122 : 0));
+            events |= imu_terrain_update(&terrain, &sample,
+                                         (i < 60) ? 120 : 0);
+            if (terrain.st.state == IMU_ST_AT_PEAK) {
+                return 0;
+            }
+        }
+    }
+    if ((events & IMU_EV_HUMP_START) || terrain.st.hump_count != 0) {
+        return 0;
+    }
+    /* A longer push (0.4 s at 3.4 deg) does read as a climb, but with no
+       height gained it must drop back to MONITORING, not wait in AT_PEAK. */
+    sample.ax_mg = 60;
+    for (i = 0; i < 40; i++) {
+        (void)imu_terrain_update(&terrain, &sample, 20);
+    }
+    sample.ax_mg = 0;
+    for (i = 0; i < 60; i++) {
+        (void)imu_terrain_update(&terrain, &sample, 20);
+        if (terrain.st.state == IMU_ST_AT_PEAK) {
+            return 0;
+        }
+    }
+    return terrain.st.state == IMU_ST_MONITORING &&
+           terrain.st.hump_count == 0;
 }
 
 static int test_safety_noise(void)
@@ -195,17 +343,19 @@ static int test_safety_noise(void)
     imu_sample_t sample = {0};
     int i;
     imu_terrain_default_cfg(&cfg);
+    cfg.hump_lever_mm = 0; /* whole robot on a ramp: summed height */
     imu_terrain_init(&terrain, &cfg);
     sample.az_mg = 1000;
     for (i = 0; i < cfg.cal_samples; i++) {
         (void)imu_terrain_update(&terrain, &sample, 0);
     }
     /* Isolated jolts cannot accumulate; ordinary ramp/turn acceleration
-       must not trigger the additional stop. */
+       must not trigger the additional stop.  (The jolts go up and down:
+       a robot that stays on the floor averages 1 g.) */
     for (i = 0; i < 200; i++) {
         sample.ax_mg = (i % 2) ? 259 : -259;
         sample.ay_mg = (i % 2) ? 100 : -100;
-        sample.az_mg = i % 3 == 0 ? 1300 : 966;
+        sample.az_mg = i % 3 == 0 ? 1300 : 810;
         sample.my = (int16_t)(i * 5);
         (void)imu_terrain_update(&terrain, &sample, 150);
         if (terrain.st.safety_stop) {
@@ -213,6 +363,38 @@ static int test_safety_noise(void)
         }
     }
     return 1;
+}
+
+/* A sensor that reads 1.12 g at rest (the GY-511 does): after a lift the
+   stop must still clear once it is set down (2026-11-11). */
+static int test_settle_offset_sensor(void)
+{
+    imu_cfg_t cfg;
+    imu_terrain_t terrain;
+    imu_sample_t sample = {0};
+    int i;
+
+    imu_terrain_default_cfg(&cfg);
+    imu_terrain_init(&terrain, &cfg);
+    sample.az_mg = 1120;
+    for (i = 0; i < 100; i++) {
+        (void)imu_terrain_update(&terrain, &sample, 0);
+    }
+    if (terrain.st.safety_stop) {
+        return 0;
+    }
+    sample.az_mg = 1400; /* lifted */
+    for (i = 0; i < 15 && !terrain.st.safety_stop; i++) {
+        (void)imu_terrain_update(&terrain, &sample, 0);
+    }
+    if (IMU_SAFETY_LIFT != terrain.st.safety_stop) {
+        return 0;
+    }
+    sample.az_mg = 1120; /* set down */
+    for (i = 0; i < 200 && terrain.st.safety_stop; i++) {
+        (void)imu_terrain_update(&terrain, &sample, 0);
+    }
+    return IMU_SAFETY_NONE == terrain.st.safety_stop;
 }
 
 static void check(const char *id, int ok, const char *what)
@@ -237,6 +419,7 @@ static int test_one_wheel_hump(void)
     int stage, i;
 
     imu_terrain_default_cfg(&cfg);
+    cfg.hump_lever_mm = 0; /* whole robot on a ramp: summed height */
     imu_terrain_init(&terrain, &cfg);
 
     sample.az_mg = 1000;
@@ -291,6 +474,7 @@ static int test_flat_ground_no_hump(void)
     int i;
 
     imu_terrain_default_cfg(&cfg);
+    cfg.hump_lever_mm = 0; /* whole robot on a ramp: summed height */
     imu_terrain_init(&terrain, &cfg);
 
     sample.az_mg = 1000;
@@ -331,6 +515,7 @@ static int test_stationary_tilt_not_braking(void)
     int i;
 
     imu_terrain_default_cfg(&cfg);
+    cfg.hump_lever_mm = 0; /* whole robot on a ramp: summed height */
     imu_terrain_init(&terrain, &cfg);
 
     /* Calibrate on level ground */
@@ -376,6 +561,7 @@ static int32_t simulate_hump_speed_spike(int spike)
     int i;
 
     imu_terrain_default_cfg(&cfg);
+    cfg.hump_lever_mm = 0; /* whole robot on a ramp: summed height */
     imu_terrain_init(&terrain, &cfg);
 
     sample.az_mg = 1000;
@@ -467,7 +653,15 @@ int main(void)
     check("S4-U21", test_live_maximum(),
           "maximum updates during climb before hump completion");
     check("S4-U22", test_pickup_safety(),
-          "pickup/overturn stop survives calibration and setting down");
+          "pickup/overturn stop holds, then clears 1 s after setting down");
+    check("S4-U26", test_one_wheel_lever(),
+          "one-wheel 10 mm hump reads 10 mm +-20 % (lever height)");
+    check("S4-U25", test_accel_not_hump(),
+          "speeding up / braking is not a hump");
+    check("S4-U27", test_settle_offset_sensor(),
+          "stop clears on a sensor that reads 1.12 g at rest");
+    check("S4-U24", test_safety_hump(),
+          "hump jolts and short bumps do not stop; a real lift still does");
     check("S4-U23", test_safety_noise(),
           "normal ramps, turns and isolated jolts do not latch safety stop");
 

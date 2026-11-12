@@ -83,6 +83,26 @@ extern void s4_set_speed_mm_s(int32_t speed_mm_s); /* -1 = unknown */
 extern ER   s4_request_calibration(void); /* robot must be still, level */
 extern ER   s4_request_peak_reset(void);  /* new run: clear max hump */
 
+/* ---- IMU recorder (dashboard, 2026-11-11) ---------------------------
+ * The last S4_REC_N samples (20 ms apart), so the hump and lift
+ * thresholds can be set from what the robot really measured. */
+#define S4_REC_N 800 /* 16 s */
+typedef struct
+{
+    int16_t ax_mg; /* raw, robot axes (before bias removal and filter) */
+    int16_t ay_mg;
+    int16_t az_mg;
+    int16_t pitch_cdeg; /* what the algorithm computed */
+    int16_t speed_mm_s; /* wheel speed given to the algorithm */
+    int16_t lift_v;     /* upward speed estimate, mg x samples */
+    uint8_t state;      /* imu_state_t */
+    uint8_t safety;     /* IMU_SAFETY_* */
+} s4_rec_t;
+
+extern void     s4_rec_freeze(int32_t on); /* 1 = hold (auto-release 5 s) */
+extern uint32_t s4_rec_count(void);
+extern void     s4_rec_get(uint32_t k, s4_rec_t * p_out); /* 0 = oldest */
+
 /* ---- private to subsystem 4 (shared between its own .c files) ------ */
 #define S4_REQ_CALIBRATE  0x0001
 #define S4_REQ_PEAK_RESET 0x0002

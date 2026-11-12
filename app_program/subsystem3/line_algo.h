@@ -124,13 +124,38 @@ typedef struct
     int32_t  prev;     /* the previous valley (black) or peak (white) */
     uint8_t  b_prev;   /* 0 = no previous peak yet (first bar): use swing/2 */
     uint32_t mid_t_us; /* last time L was on this side of halfway */
+    uint32_t mid_pos;  /* wheel position (encoder counts) at that time */
+    /* Start of the current bar, found the same 50 % way as its end: the
+       last sample below halfway between the bar's own peak and the white
+       before it.  (The edge reported when the bar began had to use the
+       PREVIOUS bar's peak, or a guess for the first bar.)  When a bar
+       ends, bar_t_us / bar_pos say where it began: use them for its width. */
+    uint32_t bar_t_us;
+    uint32_t bar_pos;
+    int32_t  last_raw; /* the sample before this one */
+    uint32_t last_t_us;
+    uint32_t last_pos;
+    /* Weak print (2026-11-11): a change of level only counts once `hold`
+       samples in a row ask for it (0 or 1 = at once).  Set by the caller;
+       the edge is still placed at the 50 % point, so holding adds no shift. */
+    uint8_t  hold;
+    uint8_t  hold_cnt;
 } bc_edge_t;
 
 void bc_edge_reset(bc_edge_t * p_e, int32_t raw, uint32_t t_us);
+void bc_edge_reset_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                       uint32_t pos);
 
 /* Returns 1 when the level changed; *p_edge_us = when the edge happened. */
 uint8_t bc_edge_step(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
                      int32_t swing, int32_t floor, uint32_t * p_edge_us);
+
+/* Same, also tracking the wheel position `pos` (any unit that counts up
+   with distance, e.g. encoder counts): *p_edge_pos = where the edge was,
+   found the same 50 % way as its time. */
+uint8_t bc_edge_step_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                         uint32_t pos, int32_t swing, int32_t floor,
+                         uint32_t * p_edge_us, uint32_t * p_edge_pos);
 
 #endif /* LINE_ALGO_H */
 

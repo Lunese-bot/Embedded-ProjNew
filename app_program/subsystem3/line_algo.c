@@ -507,17 +507,41 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
 }
 
 /* ---- barcode edge finder (see line_algo.h) ---- */
-void bc_edge_reset(bc_edge_t * p_e, int32_t raw, uint32_t t_us)
+void bc_edge_reset_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                       uint32_t pos)
 {
     p_e->level    = 0U;
     p_e->ext      = raw;
     p_e->prev     = raw;
     p_e->b_prev   = 0U;
     p_e->mid_t_us = t_us;
+    p_e->mid_pos  = pos;
+    p_e->bar_t_us  = t_us;
+    p_e->bar_pos   = pos;
+    p_e->last_raw  = raw;
+    p_e->last_t_us = t_us;
+    p_e->last_pos  = pos;
+    p_e->hold      = 0U; /* the caller sets it again if it wants a hold */
+    p_e->hold_cnt  = 0U;
+}
+
+void bc_edge_reset(bc_edge_t * p_e, int32_t raw, uint32_t t_us)
+{
+    bc_edge_reset_pos(p_e, raw, t_us, 0U);
 }
 
 uint8_t bc_edge_step(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
                      int32_t swing, int32_t floor, uint32_t * p_edge_us)
+{
+    uint32_t edge_pos = 0U;
+
+    return bc_edge_step_pos(p_e, raw, t_us, 0U, swing, floor, p_edge_us,
+                            &edge_pos);
+}
+
+uint8_t bc_edge_step_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                         uint32_t pos, int32_t swing, int32_t floor,
+                         uint32_t * p_edge_us, uint32_t * p_edge_pos)
 {
     uint8_t next = p_e->level;
     int32_t mid;
@@ -529,28 +553,81 @@ uint8_t bc_edge_step(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
     {
         if (raw > p_e->ext) { p_e->ext = raw; }
         mid = (p_e->ext + p_e->prev) / 2;
-        if (raw >= mid) { p_e->mid_t_us = t_us; }
-        if ((raw < (p_e->ext - swing)) || (raw < floor)) { next = 0U; }
+        if (raw >= mid) { p_e->mid_t_us = t_us; p_e->mid_pos = pos; }
+        if ((raw >= p_e->ext) && (p_e->last_raw < mid))
+        {
+            /* still rising: the sample before this one was the last one
+               below halfway, so the bar starts there */
+            p_e->bar_t_us = p_e->last_t_us;
+            p_e->bar_pos  = p_e->last_pos;
+        }
+        {
+            /* the fall that ends a bar grows with the bar's height, so a
+               wobble on top of a dark bar does not end it */
+            int32_t need = ((p_e->ext - p_e->prev) * S3_BC_EDGE_FALL_PCT) / 100;
+            if (need < swing) { need = swing; }
+            if ((raw < (p_e->ext - need)) || (raw < floor)) { next = 0U; }
+        }
     }
     else
     {
         if (raw < p_e->ext) { p_e->ext = raw; }
         mid = (0U != p_e->b_prev) ? ((p_e->ext + p_e->prev) / 2)
                                   : (p_e->ext + (swing / 2));
-        if (raw <= mid) { p_e->mid_t_us = t_us; }
+        if (raw <= mid) { p_e->mid_t_us = t_us; p_e->mid_pos = pos; }
         if ((raw > (p_e->ext + swing)) && (raw > floor)) { next = 1U; }
     }
 
     if (next == p_e->level)
     {
+        p_e->hold_cnt = 0U;
+    }
+    else if (p_e->hold > 1U)
+    {
+        /* weak print: wait for `hold` samples in a row before believing it */
+        p_e->hold_cnt++;
+        if (p_e->hold_cnt < p_e->hold)
+        {
+            next = p_e->level;
+        }
+    }
+    else
+    {
+        /* change at once */
+    }
+
+    if (next == p_e->level)
+    {
+        p_e->last_raw  = raw;
+        p_e->last_t_us = t_us;
+        p_e->last_pos  = pos;
         return 0U;
     }
     *p_edge_us    = p_e->mid_t_us;
+    *p_edge_pos   = p_e->mid_pos;
+    if (0U != next)
+    {
+        /* a bar begins: it starts at the edge just found, or at the
+           sample before this one if that was still below halfway to this
+           sample; refined above as the bar's real peak becomes known */
+        p_e->bar_t_us = p_e->mid_t_us;
+        p_e->bar_pos  = p_e->mid_pos;
+        if (p_e->last_raw < ((raw + p_e->ext) / 2))
+        {
+            p_e->bar_t_us = p_e->last_t_us;
+            p_e->bar_pos  = p_e->last_pos;
+        }
+    }
+    p_e->hold_cnt = 0U;
     p_e->level    = next;
     p_e->prev     = p_e->ext;
     p_e->b_prev   = 1U;
     p_e->ext      = raw;
     p_e->mid_t_us = t_us;
+    p_e->mid_pos  = pos;
+    p_e->last_raw  = raw;
+    p_e->last_t_us = t_us;
+    p_e->last_pos  = pos;
     return 1U;
 }
 

@@ -80,6 +80,20 @@ code39_result_t code39_decode_ex(uint32_t const * p_widths, uint32_t count,
                                  bool * p_reversed);
 
 /*
+ * Partial read (2026-11-11): for a ONE-letter code whose element count is
+ * wrong because one end got distorted.  Accepts the letter when it and the
+ * '*' right next to it (before or after, with a narrow gap between) both
+ * decode cleanly.  Every match in the elements must agree on the letter and
+ * direction, or the read is rejected (CODE39_ERR_FRAME).  Only one letter
+ * is returned, so do not use it for multi-letter codes.
+ */
+code39_result_t code39_decode_partial(uint32_t const * p_widths,
+                                      uint32_t count,
+                                      code39_options_t const * p_options,
+                                      char * p_text, uint32_t text_size,
+                                      bool * p_reversed);
+
+/*
  * Encode one text (without the '*') into element widths, for tests.
  * Returns the number of widths written, 0 if it does not fit or a
  * character has no Code 39 pattern.

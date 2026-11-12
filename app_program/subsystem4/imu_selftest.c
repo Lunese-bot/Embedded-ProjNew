@@ -46,6 +46,7 @@ static int32_t setup(void)
     imu_cfg_t cfg;
 
     imu_terrain_default_cfg(&cfg);
+    cfg.hump_lever_mm = 0; /* whole robot on a ramp: summed height */
     imu_terrain_init(&g_terrain, &cfg);
     g_ev_all = 0U;
     feed(0, 0, 1000, 300, 0, cfg.cal_samples, 0);
@@ -173,6 +174,7 @@ int32_t imu_selftest_cal_reject(void)
     int32_t   idx;
 
     imu_terrain_default_cfg(&cfg);
+    cfg.hump_lever_mm = 0; /* whole robot on a ramp: summed height */
     imu_terrain_init(&g_terrain, &cfg);
     g_ev_all = 0U;
     for (idx = 0; idx < cfg.cal_samples; idx++)

@@ -39,6 +39,12 @@ int32_t web_debug_barcode(char * p_out, int32_t out_max);
    {"on":..,"off":..,"v":[..]} */
 int32_t web_debug_ltrace(char * p_out, int32_t out_max, int32_t live); /* live 0 = trace frozen at the last read */
 
+/* GET /u?p=<page>: the IMU recorder, WD_IMU_PAGE samples per page, oldest
+   first: {"n":total,"p":page,"d":[ax,ay,az,pitch,state,safety,speed,
+   liftv, ...]}.  Page 0 freezes the recorder, the last page releases it. */
+#define WD_IMU_PAGE 160
+int32_t web_debug_imutrace(char * p_out, int32_t out_max, int32_t page);
+
 #endif /* WEB_DEBUG_BRIDGE_H */
 
 /*** end of file ***/

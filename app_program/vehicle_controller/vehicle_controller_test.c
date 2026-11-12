@@ -113,6 +113,7 @@ void vehicle_controller_test(void)
                    has_move(VC_MOVE_STOP_CONFIRM),
                "junction requests a stop and waits for S2 confirmation");
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    advance(VC_JUNCTION_HOLD_MS); /* stands still, then acts */
     TEST_CHECK("VC-U06b",
                (VC_ST_EXECUTE_ACTION == g_t_sm.st.state) &&
                    has_move(VC_MOVE_TURN_LEFT),

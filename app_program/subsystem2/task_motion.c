@@ -185,7 +185,7 @@ static void apply_command(const motion_cmd_t * p_cmd)
 {
     if (0U != g_s2_imu_stop)
     {
-        return; /* Includes RESET: pickup ends this run until reboot. */
+        return; /* Includes RESET, until the robot is set down again. */
     }
     bool b_latched = ((MSTATE_SAFE_STOP == g_motion_ctx.state) ||
                       (MSTATE_FAULT == g_motion_ctx.state));
@@ -323,6 +323,11 @@ static void update_speed(float32_t dt_s)
     g_motion_ctx.last_dt_r = drv_encoder_delta(MOTOR_RIGHT);
     g_motion_ctx.ticks_l += g_motion_ctx.last_dt_l;
     g_motion_ctx.ticks_r += g_motion_ctx.last_dt_r;
+    /* both wheels' edge counts, read by S3 to measure barcode bars by
+       distance (one 32-bit store: no lock needed on the RP2040) */
+    g_s2_odo_ticks = g_motion_ctx.ticks_l + g_motion_ctx.ticks_r;
+    g_s2_ticks_l   = g_motion_ctx.ticks_l;
+    g_s2_ticks_r   = g_motion_ctx.ticks_r;
 
     delta_l = signed_mm(g_motion_ctx.last_dt_l, g_motion_ctx.duty_l,
                         g_motion_ctx.spd_l);
@@ -375,6 +380,9 @@ static int32_t slow_near_end(int32_t speed, float32_t remaining_mm,
    Start at the s2_config.h values; lost on reboot.  Read by the control
    task, written by the WiFi task: single aligned words, so no lock needed
    for bench use. */
+volatile uint32_t g_s2_odo_ticks   = 0U; /* subsystem2.h */
+volatile uint32_t g_s2_ticks_l     = 0U;
+volatile uint32_t g_s2_ticks_r     = 0U;
 volatile int32_t g_s2_dbg_trim_l   = S2_TRIM_L_PERMILLE;
 volatile int32_t g_s2_dbg_trim_r   = S2_TRIM_R_PERMILLE;
 volatile int32_t g_s2_dbg_straight = 1; /* 1 = hold DRIVE straight */

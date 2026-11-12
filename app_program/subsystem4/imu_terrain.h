@@ -61,7 +61,7 @@ typedef enum
 #define IMU_EV_IMPACT        0x0040u /* sudden shock / collision */
 #define IMU_EV_TILT_LIMIT    0x0080u /* pitch or roll beyond safe limit */
 #define IMU_EV_MOTION_CHANGE 0x0100u /* motion class changed */
-#define IMU_EV_SAFETY_STOP   0x0200u /* pickup or overturn, latched */
+#define IMU_EV_SAFETY_STOP   0x0200u /* pickup or overturn; clears when set down */
 
 #define IMU_SAFETY_NONE      0u
 #define IMU_SAFETY_LIFT      1u
@@ -91,9 +91,12 @@ typedef struct
     int32_t hump_enter_cdeg;    /* pitch to start climb / descent */
     int32_t hump_level_cdeg;    /* |pitch| below this = level */
     int32_t hump_confirm;       /* samples to confirm a transition */
+    int32_t hump_lpf_shift;     /* extra EMA on the pitch the states use */
     int32_t hump_timeout;       /* samples before a hump is aborted */
     int32_t hump_min_peak_um;   /* ignore "humps" lower than this */
     int32_t nominal_speed_mm_s; /* used when speed_mm_s < 0 */
+    int32_t hump_lever_mm;      /* >0: height = lever x sin(tilt); 0 = sum
+                                   of distance x sin(pitch) */
 
     int32_t impact_mg;       /* |a| - 1 g, raw (unfiltered) */
     int32_t impact_holdoff;  /* samples between impact events */
@@ -128,7 +131,7 @@ typedef struct
     uint16_t impact_count;
     int32_t  last_impact_mg; /* size of the last impact */
     uint32_t sample_count;
-    uint8_t safety_stop; /* IMU_SAFETY_*; cleared only by reboot/init */
+    uint8_t safety_stop; /* IMU_SAFETY_*; clears after set down level and still */
 } imu_status_t;
 
 /* Complete algorithm state (one instance, owned by the IMU task) */
@@ -158,8 +161,17 @@ typedef struct
     int32_t still_cnt;
     int32_t holdoff;
     uint8_t tilt_latched;
-    uint8_t lift_confirm;
+    uint8_t lift_confirm; /* samples in a row near free fall */
     uint8_t overturn_confirm;
+    uint8_t lift_warm;    /* samples seen while learning 1 g (power-on) */
+    int32_t lift_base;    /* slow average of |a|, x 2^S4_LIFT_BASE_SHIFT */
+    int32_t lift_v;       /* upward speed estimate, mg x samples */
+    int32_t f_hump_pitch; /* slow pitch filter, x 2^hump_lpf_shift */
+    int32_t f_hump_ax;    /* slow ax / ay for the lever height, same scale */
+    int32_t f_hump_ay;
+    int32_t travel_um;    /* wheel travel since the height was re-zeroed */
+    uint8_t hump_block;   /* tilt too big for a hump: wait for level ground */
+    uint8_t settle_cnt;   /* samples set down level and still */
     int32_t level_ax_mg; /* forward accel on level ground */
 } imu_terrain_t;
 

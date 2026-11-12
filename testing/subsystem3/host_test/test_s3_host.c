@@ -457,6 +457,11 @@ static uint32_t edge_runs(int32_t const * p_v, uint32_t n, int32_t swing,
         {
             if ((0u != was) || (k > 0u)) /* skip the leading white */
             {
+                if (0u != was) /* as task_line.c + task_barcode.c */
+                {
+                    if ((k > 0u) && (k <= w_max)) { p_w[k - 1u] += e.bar_t_us - start; }
+                    start = e.bar_t_us;
+                }
                 if (k < w_max) { p_w[k++] = edge - start; }
             }
             start = edge;
@@ -593,11 +598,244 @@ static void test_bc_edge(void)
     }
 }
 
+/* H-D: bars measured by wheel distance (S3_BC_USE_DIST) and the early end
+   of a read (S3_BC_EARLY_END) used by task_barcode.c. */
+static void test_bc_distance(void)
+{
+    static uint32_t w[200], wt[200], wp[200];
+    code39_options_t opt = { S3_BC_MIN_RATIO_X10, true, S3_BC_MAX_CHARS };
+    char     text[16];
+    bool     rev = false;
+    uint32_t n, i, k;
+    int      bad = 0;
+
+    /* H-D01/02: a driven pass over the big *Z* (narrow 6 mm, wide 19 mm).
+       The robot is at 120 mm/s on the first bar and slows to 60 mm/s over
+       0.3 s, as the controller does on BARCODE_START.  Sampled every 10 ms
+       like line_task; position in encoder counts (L + R, 0.1475 mm). */
+    {
+        static uint32_t edges_mm[200];
+        double   x = -30.0, v = 120.0, t_slow = -1.0;
+        uint32_t ne = 0u, t_us, pos, e_us = 0u, e_pos = 0u;
+        uint32_t s_us = 0u, s_pos = 0u;
+        uint32_t nt = 0u;
+        bc_edge_t e;
+        double   acc = 0.0;
+        code39_result_t r_t, r_d;
+        bool rev_t = false, rev_d = false;
+        char txt_t[16] = "", txt_d[16] = "";
+
+        n = code39_encode("Z", 6u, 19u, w, 200u);
+        for (i = 0u; i < n; i++) { acc += (double)w[i]; edges_mm[ne++] = (uint32_t)acc; }
+        bc_edge_reset_pos(&e, 200, 0u, 0u);
+        for (i = 0u; (i < 2000u) && (x < acc + 60.0); i++)
+        {
+            double tt = (double)i * 0.01;
+            uint32_t j = 0u, black;
+            while ((j < ne) && ((double)edges_mm[j] <= x)) { j++; }
+            black = ((x >= 0.0) && (j < ne) && (0u == (j % 2u))) ? 1u : 0u;
+            t_us = i * 10000u;
+            pos  = (uint32_t)((x + 30.0) / 0.1475);
+            if (0u != bc_edge_step_pos(&e, black ? 1200 : 200, t_us, pos,
+                                       S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR,
+                                       &e_us, &e_pos))
+            {
+                if ((0u == e.level) || (nt > 0u)) /* skip leading white */
+                {
+                    if (0u == e.level)
+                    {
+                        if (nt > 0u) { wt[nt - 1u] += e.bar_t_us - s_us; wp[nt - 1u] += e.bar_pos - s_pos; }
+                        s_us = e.bar_t_us; s_pos = e.bar_pos;
+                    }
+                    wt[nt] = e_us - s_us; wp[nt] = e_pos - s_pos; nt++;
+                }
+                s_us = e_us; s_pos = e_pos;
+            }
+            if ((t_slow < 0.0) && (x >= 0.0)) { t_slow = tt; }
+            if ((t_slow >= 0.0) && (v > 60.0)) { v -= 2.0; } /* 0.3 s ramp */
+            x += v * 0.01;
+        }
+        r_t = code39_decode_ex(wt, nt, &opt, txt_t, sizeof txt_t, &rev_t);
+        r_d = code39_decode_ex(wp, nt, &opt, txt_d, sizeof txt_d, &rev_d);
+        printf("        slowing pass: %u bars+spaces; by time %s (%d), by distance %s (%d)\n",
+               (unsigned)nt, txt_t, (int)r_t, txt_d, (int)r_d);
+        printf("        first bar: %u ms vs next wide bar %u ms; %u vs %u counts\n",
+               (unsigned)(wt[0] / 1000u), (unsigned)(wt[2] / 1000u),
+               (unsigned)wp[0], (unsigned)wp[2]);
+        CHECK("H-D01", (29u == nt) && (CODE39_OK == r_d) && (0 == strcmp(txt_d, "Z")),
+              "slowing on the first bar: distance widths still decode Z");
+        CHECK("H-D02", wp[0] * 10u < wp[2] * 13u && wp[2] * 10u < wp[0] * 13u,
+              "first bar (read while slowing) measures like the next same-width bar by distance");
+    }
+
+    /* H-E08: MY's driven pass of 2026-11-11 07:10: one bar whose top
+       wobbles 1794 -> 1425 -> 1969 (the L arm bouncing).  A fixed 300 fall
+       cut it in two; it must stay one bar. */
+    {
+        static const int32_t tr[] = { 190, 230, 227, 626, 1540, 1672, 1794,
+                                      1638, 1425, 1969, 1713, 235, 205, 210 };
+        bc_edge_t e; uint32_t ed = 0u; int32_t flips = 0; uint32_t bar_ms = 0u;
+        bc_edge_reset(&e, tr[0], 0u);
+        for (i = 0u; i < (uint32_t)(sizeof tr / sizeof tr[0]); i++)
+        {
+            if (0u != bc_edge_step(&e, tr[i], i * 10000u, S3_BC_EDGE_SWING,
+                                   S3_BC_EDGE_FLOOR, &ed))
+            {
+                flips++;
+                if (0u == e.level) { bar_ms = (ed - e.bar_t_us) / 1000u; }
+            }
+        }
+        printf("        wobbly bar: %d level changes, bar %u ms\n", (int)flips, (unsigned)bar_ms);
+        CHECK("H-E08", (2 == flips) && (bar_ms >= 60u) && (bar_ms <= 80u),
+              "real wobbly bar (top dips 370) stays ONE bar, full width");
+    }
+
+    /* H-E09: the white inside a wide space creeps up from 200 to 560 well
+       before the next bar (seen 2026-11-11 07:23: wide spaces read 29-40
+       counts and the bar after them 32-46, instead of ~55 and ~20).  The
+       creep makes the finder say "bar" early; the bar's start is then
+       re-found at half its real peak and the space gets the piece back. */
+    {
+        static const int32_t tr[] = {
+            200, 200, 1800, 1800, 1800, 200, 200, 200, 200,   /* bar, white  */
+            520, 540, 560, 560, 560, 560,                     /* creep       */
+            1800, 1800, 200, 200, 200 };                      /* 20 ms bar   */
+        uint32_t r[8]; uint32_t nr2;
+        nr2 = edge_runs(tr, (uint32_t)(sizeof tr / sizeof tr[0]),
+                        S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR, r, 8u);
+        printf("        creeping white: %u runs: %u %u %u ms\n", (unsigned)nr2,
+               (unsigned)(r[0] / 1000u), (unsigned)(r[1] / 1000u), (unsigned)(r[2] / 1000u));
+        CHECK("H-E09", (3u == nr2) && (30000u == r[0]) && (100000u == r[1]) &&
+                       (20000u == r[2]),
+              "white creeping up before a bar: space keeps its width, bar is not fattened");
+    }
+
+    /* H-C09: a sensor spot about as big as a narrow bar: every bar reads
+       4 units wide, every space 4 narrow (narrow 10, wide 30).  All 9
+       elements together cannot be split (bar 14 vs space 26), bars and
+       spaces separately can. */
+    bad = 0;
+    for (i = 0u; i < 26u; i++)
+    {
+        char one[2] = { (char)('A' + i), '\0' };
+        n = code39_encode(one, 10u, 30u, w, 200u);
+        for (k = 0u; k < n; k++) { w[k] = (0u == (k % 2u)) ? (w[k] + 4u) : (w[k] - 4u); }
+        if (!((CODE39_OK == code39_decode_ex(w, n, &opt, text, sizeof text, &rev)) &&
+              (text[0] == one[0]) && !rev)) { bad++; }
+        for (k = 0u; k < n; k++) { w[k] = (0u == (k % 2u)) ? (w[k] - 8u) : (w[k] + 8u); }
+        if (!((CODE39_OK == code39_decode_ex(w, n, &opt, text, sizeof text, &rev)) &&
+              (text[0] == one[0]) && !rev)) { bad++; }
+    }
+    CHECK("H-C09", 0 == bad,
+          "bars all read fat (or all thin) and spaces the opposite: A-Z still decode");
+
+    /* H-D03: early end.  For every two-letter code, the first 29 elements
+       (forwards or backwards) must NOT decode, or a read would stop before
+       its last letter. */
+    for (i = 0u; i < 26u; i++)
+    {
+        for (k = 0u; k < 26u; k++)
+        {
+            char two[3] = { (char)('A' + i), (char)('A' + k), '\0' };
+            n = code39_encode(two, 10u, 30u, w, 200u);
+            if (CODE39_OK == code39_decode_ex(w, 29u, &opt, text, sizeof text, &rev)) { bad++; }
+            reverse(w, n);
+            if (CODE39_OK == code39_decode_ex(w, 29u, &opt, text, sizeof text, &rev)) { bad++; }
+        }
+    }
+    CHECK("H-D03", 0 == bad,
+          "early end: no 2-letter code's first 29 bars decode (both directions)");
+
+    /* H-D04: and a one-letter code ends right at its stop '*' */
+    bad = 0;
+    for (i = 0u; i < 26u; i++)
+    {
+        char one[2] = { (char)('A' + i), '\0' };
+        n = code39_encode(one, 10u, 30u, w, 200u);
+        if (!((29u == n) &&
+              (CODE39_OK == code39_decode_ex(w, n, &opt, text, sizeof text, &rev)) &&
+              (text[0] == one[0]))) { bad++; }
+        reverse(w, n);
+        if (!((CODE39_OK == code39_decode_ex(w, n, &opt, text, sizeof text, &rev)) &&
+              (text[0] == one[0]) && rev)) { bad++; }
+    }
+    CHECK("H-D04", 0 == bad, "early end: every one-letter code decodes at 29 bars, both ways");
+}
+
+/* Partial read: one '*' and the letter next to it are enough (2026-11-11) */
+static void merge3(uint32_t * w, uint32_t * p_n, uint32_t at)
+{
+    uint32_t k;
+    w[at] = w[at] + w[at + 1u] + w[at + 2u]; /* a gap lost: 3 elements -> 1 */
+    for (k = at + 1u; (k + 2u) < *p_n; k++) { w[k] = w[k + 2u]; }
+    *p_n -= 2u;
+}
+
+static void test_partial(void)
+{
+    code39_options_t opt = { S3_BC_MIN_RATIO_X10, true, (uint8_t)S3_BC_MAX_CHARS };
+    uint32_t w[64];
+    uint32_t n;
+    uint32_t i;
+    uint32_t seed = 12345u;
+    char     text[8];
+    bool     rev;
+    int      bad = 0;
+    int      wrong = 0;
+    int      dir;
+
+    /* every letter, both directions, start '*' or stop '*' damaged */
+    for (i = 0u; i < 26u; i++)
+    {
+        char one[2] = { (char)('A' + i), '\0' };
+        for (dir = 0; dir < 4; dir++)
+        {
+            n = code39_encode(one, 10u, 30u, w, 64u);
+            merge3(w, &n, (dir % 2) ? 22u : 2u); /* stop or start '*' */
+            if (dir >= 2) { reverse(w, n); }
+            if (CODE39_OK == code39_decode_ex(w, n, &opt, text, sizeof text, &rev)) { bad++; }
+            if (!((CODE39_OK == code39_decode_partial(w, n, &opt, text, sizeof text, &rev)) &&
+                  (text[0] == one[0]) && (rev == (dir >= 2)))) { bad++; }
+        }
+    }
+    CHECK("H-P01", 0 == bad, "partial: one '*' damaged, every letter still read, both ways");
+
+    /* both '*' damaged: no letter */
+    bad = 0;
+    for (i = 0u; i < 26u; i++)
+    {
+        char one[2] = { (char)('A' + i), '\0' };
+        n = code39_encode(one, 10u, 30u, w, 64u);
+        merge3(w, &n, 22u);
+        merge3(w, &n, 2u);
+        if (CODE39_OK == code39_decode_partial(w, n, &opt, text, sizeof text, &rev)) { bad++; }
+    }
+    CHECK("H-P02", 0 == bad, "partial: both '*' damaged gives no letter");
+
+    /* random widths (noise, line, junction) must almost never give a letter */
+    wrong = 0;
+    for (i = 0u; i < 2000u; i++)
+    {
+        uint32_t k;
+        n = 15u + (i % 25u);
+        for (k = 0u; k < n; k++)
+        {
+            seed = (seed * 1103515245u) + 12345u;
+            w[k] = 5u + ((seed >> 16) % 60u);
+        }
+        if (CODE39_OK == code39_decode_partial(w, n, &opt, text, sizeof text, &rev)) { wrong++; }
+    }
+    printf("[INFO] partial: %d of 2000 random width lists gave a letter\n", wrong);
+    CHECK("H-P03", wrong <= 20, "partial: random widths give a letter at most 1 % of the time");
+}
+
 int main(void)
 {
     test_code39();
     test_line();
     test_bc_edge();
+    test_bc_distance();
+    test_partial();
     printf("[TEST] subsystem3-host SUMMARY %d passed, %d failed\n", g_pass, g_fail);
     return (0 == g_fail) ? 0 : 1;
 }

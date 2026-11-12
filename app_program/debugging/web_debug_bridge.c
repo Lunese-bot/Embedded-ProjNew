@@ -277,11 +277,12 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
         case '+': g_lt_steer_hold = (g_lt_steer_hold + 1) % 3; er = E_OK; break; /* next mode */
         case '`': g_lt_bc_edge = 1; er = E_OK; break; /* barcode: edge finder */
         case '|': g_lt_bc_edge = 0; er = E_OK; break; /* barcode: fixed cut-off */
-        case '@': g_lt_bc_swing = clamp_to(g_lt_bc_swing - 50, 50, 2000); er = E_OK; break;
-        case '^': g_lt_bc_swing = clamp_to(g_lt_bc_swing + 50, 50, 2000); er = E_OK; break;
-        case '$': /* floor steps 300 -> 400 -> 600 -> 800 -> 1000 -> 300 */
-            g_lt_bc_floor = (g_lt_bc_floor < 400) ? 400 : ((g_lt_bc_floor < 600) ? 600 :
-                            ((g_lt_bc_floor < 800) ? 800 : ((g_lt_bc_floor < 1000) ? 1000 : 300)));
+        /* steps of 50 down to 50, then steps of 5 down to 10 (weak print) */
+        case '@': g_lt_bc_swing = clamp_to(g_lt_bc_swing - ((g_lt_bc_swing > 50) ? 50 : 5), 10, 2000); er = E_OK; break;
+        case '^': g_lt_bc_swing = clamp_to(g_lt_bc_swing + ((g_lt_bc_swing >= 50) ? 50 : 5), 10, 2000); er = E_OK; break;
+        case '$': /* floor steps 0 (off) -> 300 -> 400 -> 600 -> 800 -> 1000 -> 0 */
+            g_lt_bc_floor = (g_lt_bc_floor < 300) ? 300 : ((g_lt_bc_floor < 400) ? 400 : ((g_lt_bc_floor < 600) ? 600 :
+                            ((g_lt_bc_floor < 800) ? 800 : ((g_lt_bc_floor < 1000) ? 1000 : 0))));
             er = E_OK; break;
         case '5': g_lt_junc_mode = 0; er = E_OK; break; /* junction detection off */
         case '6': g_lt_junc_mode = 1; er = E_OK; break; /* C + R */
@@ -549,6 +550,11 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
         n = put_str(p_out, n, out_max, "\",");
         n = kv(p_out, n, out_max, "bcN", (int32_t)l.bc_last_elems);
         n = kv(p_out, n, out_max, "bcErr", (int32_t)l.bc_last_err);
+        /* line_task timing (2026-11-11): loop runs, periods missed,
+           events lost because the S3 event buffer was full */
+        n = kv(p_out, n, out_max, "lWake", (int32_t)g_s3_line_wakeups);
+        n = kv(p_out, n, out_max, "lOver", (int32_t)g_s3_line_overruns);
+        n = kv(p_out, n, out_max, "lDrop", (int32_t)l.evt_dropped);
         n = put_str(p_out, n, out_max, "\"_\":0}");
     }
     else
@@ -645,6 +651,8 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
 int32_t web_debug_barcode(char * p_out, int32_t out_max)
 {
     static uint32_t  w[S3_BC_MAX_ELEMENTS]; /* static: small task stack */
+    static uint32_t  d[S3_BC_MAX_ELEMENTS]; /* same, by wheel distance */
+    uint32_t         unit = 0U;
     s3_line_status_t l;
     uint32_t         seq  = 0U;
     uint32_t         cnt  = 0U;
@@ -662,7 +670,9 @@ int32_t web_debug_barcode(char * p_out, int32_t out_max)
         for (k = 0U; k < cnt; k++)
         {
             w[k] = g_s3_bc_dbg_us[k];
+            d[k] = g_s3_bc_dbg_pos[k];
         }
+        unit = g_s3_bc_dbg_unit;
         if (seq == g_s3_bc_dbg_seq)
         {
             break;
@@ -683,6 +693,20 @@ int32_t web_debug_barcode(char * p_out, int32_t out_max)
     {
         /* Cast: one element is at most S3_BC_ELEMENT_MAX_MS, fits int32 */
         n = put_int(p_out, n, out_max, (int32_t)((w[k] + 50U) / 100U));
+        if ((k + 1U) < cnt)
+        {
+            n = put_str(p_out, n, out_max, ",");
+        }
+    }
+    /* d: the same elements in encoder counts (L + R, ~0.15 mm each);
+       u: 1 = the decoder used d, 0 = it used w */
+    n = put_str(p_out, n, out_max, "],");
+    n = kv(p_out, n, out_max, "u", (int32_t)unit);
+    n = put_str(p_out, n, out_max, "\"d\":[");
+    for (k = 0U; k < cnt; k++)
+    {
+        /* Cast: one element is a few thousand counts at most */
+        n = put_int(p_out, n, out_max, (int32_t)d[k]);
         if ((k + 1U) < cnt)
         {
             n = put_str(p_out, n, out_max, ",");
@@ -735,7 +759,87 @@ int32_t web_debug_ltrace(char * p_out, int32_t out_max, int32_t live)
             n = put_str(p_out, n, out_max, ",");
         }
     }
+    /* f: wheel counts (L + R) since the sample before; y: right - left */
+    n = put_str(p_out, n, out_max, "],\"f\":[");
+    for (k = 0U; k < count; k++)
+    {
+        n = put_int(p_out, n, out_max,
+                    frz ? (int32_t)g_s3_ltrace_frz_fwd[k]
+                        : (int32_t)g_s3_ltrace_fwd[(start + k) % S3_LTRACE_N]);
+        if ((k + 1U) < count)
+        {
+            n = put_str(p_out, n, out_max, ",");
+        }
+    }
+    n = put_str(p_out, n, out_max, "],\"y\":[");
+    for (k = 0U; k < count; k++)
+    {
+        n = put_int(p_out, n, out_max,
+                    frz ? (int32_t)g_s3_ltrace_frz_yaw[k]
+                        : (int32_t)g_s3_ltrace_yaw[(start + k) % S3_LTRACE_N]);
+        if ((k + 1U) < count)
+        {
+            n = put_str(p_out, n, out_max, ",");
+        }
+    }
     n = put_str(p_out, n, out_max, "]}");
+    return n;
+}
+
+int32_t web_debug_imutrace(char * p_out, int32_t out_max, int32_t page)
+{
+    s4_rec_t rec;
+    uint32_t count;
+    uint32_t first;
+    uint32_t last;
+    uint32_t k;
+    int32_t  n = 0;
+
+    if (page <= 0)
+    {
+        page = 0;
+        s4_rec_freeze(1);
+    }
+    count = s4_rec_count();
+    /* Cast: page is a single digit. */
+    first = (uint32_t)page * WD_IMU_PAGE;
+    last  = first + WD_IMU_PAGE;
+    if (last >= count)
+    {
+        last = count;
+    }
+    n = put_str(p_out, n, out_max, "{");
+    n = kv(p_out, n, out_max, "n", (int32_t)count);
+    n = kv(p_out, n, out_max, "p", page);
+    n = put_str(p_out, n, out_max, "\"d\":[");
+    for (k = first; k < last; k++)
+    {
+        s4_rec_get(k, &rec);
+        n = put_int(p_out, n, out_max, rec.ax_mg);
+        n = put_str(p_out, n, out_max, ",");
+        n = put_int(p_out, n, out_max, rec.ay_mg);
+        n = put_str(p_out, n, out_max, ",");
+        n = put_int(p_out, n, out_max, rec.az_mg);
+        n = put_str(p_out, n, out_max, ",");
+        n = put_int(p_out, n, out_max, rec.pitch_cdeg);
+        n = put_str(p_out, n, out_max, ",");
+        n = put_int(p_out, n, out_max, (int32_t)rec.state);
+        n = put_str(p_out, n, out_max, ",");
+        n = put_int(p_out, n, out_max, (int32_t)rec.safety);
+        n = put_str(p_out, n, out_max, ",");
+        n = put_int(p_out, n, out_max, rec.speed_mm_s);
+        n = put_str(p_out, n, out_max, ",");
+        n = put_int(p_out, n, out_max, rec.lift_v);
+        if ((k + 1U) < last)
+        {
+            n = put_str(p_out, n, out_max, ",");
+        }
+    }
+    n = put_str(p_out, n, out_max, "]}");
+    if (last >= count)
+    {
+        s4_rec_freeze(0); /* that was the last page */
+    }
     return n;
 }
 

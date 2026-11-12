@@ -23,6 +23,7 @@
 #include "drv_ir.h"
 #include "line_algo.h"
 #include "../debugging/live_tune.h"
+#include "../subsystem2/subsystem2.h" /* g_s2_odo_ticks: bar widths by distance */
 
 /* Line task state, private to this file */
 static line_params_t  g_params;
@@ -46,6 +47,21 @@ static int32_t        g_bc_edge_was_on = 1;
 #endif
 #endif
 static uint32_t       g_bc_run_start_us;
+static uint32_t       g_bc_run_start_pos; /* wheel counts when the run began */
+
+/* wheel position for barcode widths: S2's L + R encoder counts */
+uint32_t s3_bc_pos(void)
+{
+#if !S3_BC_USE_DIST
+    return 0U;
+#elif (1 == S3_BC_DIST_WHEEL)
+    return 2U * g_s2_ticks_l; /* x2: same scale as L + R */
+#elif (2 == S3_BC_DIST_WHEEL)
+    return 2U * g_s2_ticks_r;
+#else
+    return g_s2_odo_ticks;
+#endif
+}
 uint32_t              g_s3_line_overruns; /* periods missed (task too slow) */
 uint32_t              g_s3_line_read_errors;
 uint32_t              g_s3_line_wakeups; /* times the loop ran */
@@ -126,12 +142,17 @@ static void calibrate_step(const uint16_t p_raw[S3_IR_COUNT])
 /* bench trace of the barcode sensor (subsystem3.h) */
 volatile uint16_t g_s3_ltrace[S3_LTRACE_N];
 volatile uint32_t g_s3_ltrace_idx;
+volatile uint8_t  g_s3_ltrace_fwd[S3_LTRACE_N];
+volatile int8_t   g_s3_ltrace_yaw[S3_LTRACE_N];
+static uint32_t   g_tr_last_l; /* wheel counts at the previous sample */
+static uint32_t   g_tr_last_r;
 
 static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT],
                               const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us)
 {
     uint8_t     level;
     s3_bc_run_t run;
+    uint32_t    pos = s3_bc_pos();
 
 #if S3_BC_EDGE
     if ((0 != BC_EDGE_ON) != (0 != g_bc_edge_was_on))
@@ -139,20 +160,41 @@ static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT],
         /* mode switched on the dashboard: start clean on white */
         g_bc_edge_was_on  = (0 != BC_EDGE_ON) ? 1 : 0;
         g_bc_level        = 0U;
-        g_bc_run_start_us = t_us;
-        bc_edge_reset(&g_bc_edge, (int32_t)p_raw[S3_BC_SENSOR], t_us);
+        g_bc_run_start_us  = t_us;
+        g_bc_run_start_pos = pos;
+        bc_edge_reset_pos(&g_bc_edge, (int32_t)p_raw[S3_BC_SENSOR], t_us, pos);
     }
     if (0 != BC_EDGE_ON)
     {
-        uint32_t edge_us = t_us;
-        if (0U != bc_edge_step(&g_bc_edge, (int32_t)p_raw[S3_BC_SENSOR], t_us,
-                               BC_EDGE_SWING, BC_EDGE_FLOOR, &edge_us))
+        uint32_t edge_us  = t_us;
+        uint32_t edge_pos = pos;
+        /* weak print: with a small rise/fall, ask for several samples in
+           a row so single noisy readings cannot make a bar or a gap */
+        g_bc_edge.hold = (BC_EDGE_SWING <= S3_BC_WEAK_SWING_MAX)
+                             ? (uint8_t)S3_BC_WEAK_HOLD : 0U;
+        if (0U != bc_edge_step_pos(&g_bc_edge, (int32_t)p_raw[S3_BC_SENSOR],
+                                   t_us, pos, BC_EDGE_SWING, BC_EDGE_FLOOR,
+                                   &edge_us, &edge_pos))
         {
-            run.width_us = edge_us - g_bc_run_start_us; /* wraps correctly */
-            run.black    = g_bc_level;
+            run.lead_us  = 0U;
+            run.lead_pos = 0U;
+            if (0U != g_bc_level)
+            {
+                /* a bar ended: measure it from its own 50 % start, and
+                   report how much later than the first guess that is, so
+                   the space before it gets that piece */
+                run.lead_us  = g_bc_edge.bar_t_us - g_bc_run_start_us;
+                run.lead_pos = g_bc_edge.bar_pos - g_bc_run_start_pos;
+                g_bc_run_start_us  = g_bc_edge.bar_t_us;
+                g_bc_run_start_pos = g_bc_edge.bar_pos;
+            }
+            run.width_us  = edge_us - g_bc_run_start_us; /* wraps correctly */
+            run.width_pos = edge_pos - g_bc_run_start_pos;
+            run.black     = g_bc_level;
             (void)tk_snd_mbf(g_mbf_s3_bc_runs, &run, sizeof(run), TMO_POL);
-            g_bc_level        = g_bc_edge.level;
-            g_bc_run_start_us = edge_us;
+            g_bc_level         = g_bc_edge.level;
+            g_bc_run_start_us  = edge_us;
+            g_bc_run_start_pos = edge_pos;
         }
         return;
     }
@@ -174,12 +216,16 @@ static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT],
     }
     if (level != g_bc_level)
     {
-        run.width_us = t_us - g_bc_run_start_us; /* wraps correctly */
-        run.black    = g_bc_level;
+        run.lead_us   = 0U;
+        run.lead_pos  = 0U;
+        run.width_us  = t_us - g_bc_run_start_us; /* wraps correctly */
+        run.width_pos = pos - g_bc_run_start_pos;
+        run.black     = g_bc_level;
         (void)tk_snd_mbf(g_mbf_s3_bc_runs, &run, sizeof(run), TMO_POL);
 
-        g_bc_level        = level;
-        g_bc_run_start_us = t_us;
+        g_bc_level         = level;
+        g_bc_run_start_us  = t_us;
+        g_bc_run_start_pos = pos;
     }
 }
 
@@ -240,7 +286,27 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us)
                              : (uint8_t)S3_LINE_MASK;
 #endif
     g_tracker.l_raw = p_raw[S3_BC_SENSOR]; /* barcode-bar check */
-    evt = line_tracker_step(&g_tracker, &g_params, norm, g_b_s3_bc_scanning);
+    {
+        /* scanning, or just finished and still within the hold distance */
+        static bool     b_was   = false;
+        static bool     b_hold  = false;
+        static uint32_t end_pos = 0U;
+        bool            b_scan  = g_b_s3_bc_bars; /* not the first bar:
+                                   that may be a junction's side arm */
+
+        if (b_was && !b_scan && (S3_BC_AFTER_HOLD_COUNTS > 0u))
+        {
+            b_hold  = true;
+            end_pos = s3_bc_pos();
+        }
+        if (b_hold && ((s3_bc_pos() - end_pos) >= S3_BC_AFTER_HOLD_COUNTS))
+        {
+            b_hold = false;
+        }
+        b_was = b_scan;
+        evt   = line_tracker_step(&g_tracker, &g_params, norm,
+                                  b_scan || b_hold);
+    }
 #if S2_WEBDEBUG
     /* dashboard "Steering correction": 1 = hold straight while a barcode
        is being read, 2 = never steer (both wheels the same speed) */
@@ -267,7 +333,25 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us)
     }
 
     g_s3_black_mask_live = g_tracker.black_mask;
-    g_s3_ltrace[g_s3_ltrace_idx % S3_LTRACE_N] = p_raw[S3_BC_SENSOR];
+    {
+        /* Casts: per-sample wheel steps are a handful of counts; wrapped
+           differences of the up-counters are taken as signed. */
+        uint32_t slot = g_s3_ltrace_idx % S3_LTRACE_N;
+        uint32_t tl   = g_s2_ticks_l;
+        uint32_t tr   = g_s2_ticks_r;
+        int32_t  dl   = (int32_t)(tl - g_tr_last_l);
+        int32_t  dr   = (int32_t)(tr - g_tr_last_r);
+        int32_t  fwd  = dl + dr;
+        int32_t  yaw  = dr - dl;
+
+        g_tr_last_l = tl;
+        g_tr_last_r = tr;
+        fwd = (fwd > 255) ? 255 : ((fwd < 0) ? 0 : fwd);
+        yaw = (yaw > 127) ? 127 : ((yaw < -127) ? -127 : yaw);
+        g_s3_ltrace[slot]     = p_raw[S3_BC_SENSOR];
+        g_s3_ltrace_fwd[slot] = (uint8_t)fwd;
+        g_s3_ltrace_yaw[slot] = (int8_t)yaw;
+    }
     g_s3_ltrace_idx++;
     barcode_runs_step(norm, p_raw, t_us);
     publish_status(p_raw);
@@ -290,9 +374,10 @@ void line_task(int32_t stacd, void * p_exinf)
     app_check(ercd, "drv_ir_init");
 
     g_bc_level        = 0;
-    g_bc_run_start_us = drv_ir_time_us();
+    g_bc_run_start_us  = drv_ir_time_us();
+    g_bc_run_start_pos = s3_bc_pos();
 #if S3_BC_EDGE
-    bc_edge_reset(&g_bc_edge, 0, g_bc_run_start_us);
+    bc_edge_reset_pos(&g_bc_edge, 0, g_bc_run_start_us, g_bc_run_start_pos);
 #endif
 
     for (;;)

@@ -40,7 +40,7 @@
    1500 ms the retry re-armed barcode_task, which threw away every bar read
    so far (2026-11-08: cause of "too few elements").  8000 covers big *A*
    at 60 mm/s with margin; S3 still ends a read itself on its quiet zone. */
-#define VC_DECODE_MS         8000
+#define VC_DECODE_MS         12000 /* big print *A* is 291 mm = 8.1 s at 36 mm/s (60 % speed); was 8000 */
 /* Was 2.  A retry cannot work while driving forward: after a failed read the
    barcode is already behind the robot, so each "retry" only held the robot
    in DECODE_BARCODE (slow, junctions ignored) for another VC_DECODE_MS.
@@ -48,6 +48,12 @@
 #define VC_BARCODE_MAX_RETRY 0     /* then give up, keep following */
 #define VC_EXECUTE_MS        6000  /* EXECUTE_ACTION: advance + turn (was 4000) */
 #define VC_JUNCTION_STOP_MS  2000  /* wait for S2 to confirm zero speed */
+/* Stand still this long at a junction before the turn / drive-on, so the
+   stop is a clear, visible pause (2026-11-11).  0 = act as soon as S2
+   confirms zero speed. */
+#ifndef VC_JUNCTION_HOLD_MS
+#define VC_JUNCTION_HOLD_MS  1000
+#endif
 #define VC_JUNCTION_CLEAR_MM 60    /* straight distance to clear the crossing; TUNE */
 /* LEFT / RIGHT at a junction: drive this far first, so the AXLE (not the
    sensors) is over the crossing when the robot pivots.  See
@@ -100,6 +106,8 @@ typedef struct
     uint32_t             attempt_since_ms; /* LOST_LINE / DECODE timer */
     uint8_t              attempts;         /* LOST_LINE search attempts */
     uint8_t              retries;          /* barcode read retries */
+    uint32_t             junction_stop_ms; /* JUNCTION_STOP: when S2 confirmed the stop */
+    uint8_t              junction_stopped; /* JUNCTION_STOP: 1 = standing, holding */
     uint8_t              exec_phase;       /* EXECUTE_ACTION: 1 = advancing before the turn */
     int8_t               lost_side;        /* -1 left, +1 right, 0 unknown */
     navigation_command_t pending_nav;      /* decoded action for next junction */

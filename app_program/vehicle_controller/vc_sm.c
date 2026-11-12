@@ -243,6 +243,7 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
         case VC_ST_JUNCTION_STOP:
             /* Do not execute a turn yet. S2 reports MOTION_STOPPED only
                after both wheels have physically reached the stop threshold. */
+            p_sm->junction_stopped = 0u;
             move(p_out, VC_MOVE_STOP_CONFIRM, 0);
             break;
 
@@ -681,14 +682,28 @@ static void on_junction_stop(vc_sm_t * p_sm, const vc_event_t * p_event,
                              uint32_t now_ms, vc_actions_t * p_out)
 {
     (void)p_event;
-    if (VC_EV_MOTION_STOPPED == type)
+    if ((VC_EV_MOTION_STOPPED == type) && (0u == p_sm->junction_stopped))
     {
-        /* No mapping (including an unknown barcode) means continue straight. */
-        if (NAV_NONE == p_sm->pending_nav)
+        /* standing still: hold here for VC_JUNCTION_HOLD_MS, then act */
+        p_sm->junction_stopped = 1u;
+        p_sm->junction_stop_ms = now_ms;
+    }
+    if ((0u != p_sm->junction_stopped) &&
+        ((VC_EV_MOTION_STOPPED == type) || (VC_EV_TICK == type)))
+    {
+        const uint32_t hold_ms = (uint32_t)VC_JUNCTION_HOLD_MS;
+
+        if (elapsed(now_ms, p_sm->junction_stop_ms) >= hold_ms)
         {
-            p_sm->pending_nav = NAV_STRAIGHT;
+            /* No mapping (including an unknown barcode) means continue
+               straight. */
+            if (NAV_NONE == p_sm->pending_nav)
+            {
+                p_sm->pending_nav = NAV_STRAIGHT;
+            }
+            p_sm->junction_stopped = 0u;
+            enter(p_sm, VC_ST_EXECUTE_ACTION, now_ms, p_out);
         }
-        enter(p_sm, VC_ST_EXECUTE_ACTION, now_ms, p_out);
     }
     else if ((VC_EV_TICK == type) && (in_state >= VC_JUNCTION_STOP_MS))
     {

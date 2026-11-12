@@ -92,8 +92,10 @@ extern ER s2_send_cmd(motion_cmd_t * p_cmd); /* sets cmd->seq */
    MOTION_SAFE_STOP.  The motors stop within one period (10 ms). */
 extern ER s2_emergency_stop(void);
 
-/* Additional IMU end-of-run interlock: survives RESET, reboot to rearm. */
+/* IMU lift/overturn interlock: blocks every command, RESET included, while
+   set.  The IMU clears it once the robot is set down; then RESET / Start. */
 extern void s2_latch_imu_stop(void);
+extern void s2_clear_imu_stop(void);
 extern volatile uint32_t g_s2_imu_stop;
 
 /* ---------------------------------------------------------------------
@@ -145,6 +147,15 @@ extern ID g_mtx_motion; /* IF-M2, owned by S2 */
 
 /* Copy the latest status under the mutex.  E_OK, or the mutex error. */
 extern ER s2_get_status(motion_status_t * p_out);
+
+/* Left + right encoder edge counts since boot (always counts up, also
+   when reversing or turning).  One count ~= S2_MM_PER_TICK / 2 of vehicle
+   travel.  Updated every control period; S3 reads it without a lock to
+   measure barcode bars by distance. */
+extern volatile uint32_t g_s2_odo_ticks;
+/* the two wheels on their own (bench: is the robot twisting?) */
+extern volatile uint32_t g_s2_ticks_l;
+extern volatile uint32_t g_s2_ticks_r;
 
 /* ---------------------------------------------------------------------
  *  IF-M3: motion events, subsystem 2 -> Vehicle Controller.

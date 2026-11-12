@@ -47,9 +47,19 @@ void imu_terrain_default_cfg(imu_cfg_t * p_cfg)
     p_cfg->hump_enter_cdeg    = S4_HUMP_ENTER_CDEG;
     p_cfg->hump_level_cdeg    = S4_HUMP_LEVEL_CDEG;
     p_cfg->hump_confirm       = S4_HUMP_CONFIRM;
+    p_cfg->hump_lpf_shift     = S4_HUMP_LPF_SHIFT;
     p_cfg->hump_timeout       = S4_HUMP_TIMEOUT;
     p_cfg->hump_min_peak_um   = S4_HUMP_MIN_PEAK_UM;
     p_cfg->nominal_speed_mm_s = S4_NOMINAL_SPEED_MM_S;
+#if S4_HUMP_HEIGHT_TILT
+    /* Cast: small positive lengths in mm; the result is under B. */
+    p_cfg->hump_lever_mm = (int32_t)(
+        ((uint32_t)S4_AXLE_TO_FRONT_MM * (uint32_t)S4_TRACK_MM) /
+        imu_isqrt32(((uint32_t)S4_TRACK_MM * S4_TRACK_MM / 4U) +
+                    ((uint32_t)S4_AXLE_TO_FRONT_MM * S4_AXLE_TO_FRONT_MM)));
+#else
+    p_cfg->hump_lever_mm = 0;
+#endif
     p_cfg->impact_mg          = S4_IMPACT_MG;
     p_cfg->impact_holdoff     = S4_IMPACT_HOLDOFF;
     p_cfg->tilt_limit_cdeg    = S4_TILT_LIMIT_CDEG;
@@ -175,6 +185,11 @@ static uint32_t calibrate_step(imu_terrain_t *      p_terrain,
     p_terrain->f_acc[2] =
         ONE_G_MG * (int32_t)(1U << (uint32_t)p_terrain->cfg.lpf_shift);
     p_terrain->f_rate       = 0;
+    p_terrain->f_hump_pitch = 0;
+    p_terrain->f_hump_ax    = 0;
+    p_terrain->f_hump_ay    = 0;
+    p_terrain->travel_um    = 0;
+    p_terrain->hump_block   = 0U;
     p_terrain->have_heading = 0U;
 
     p_terrain->st.calibrated     = 1U;
@@ -216,14 +231,15 @@ static void hump_reset_height(imu_terrain_t * p_terrain)
 {
     p_terrain->st.hump_height_um = 0;
     p_terrain->peak_um           = 0;
+    p_terrain->travel_um         = 0;
 }
 
 static uint32_t hump_monitoring(imu_terrain_t * p_terrain, bool b_rising,
-                                bool b_level)
+                                bool b_flat)
 {
     uint32_t events = 0U;
 
-    if (b_level)
+    if (b_flat)
     {
         hump_reset_height(p_terrain); /* re-zero on flat ground */
     }
@@ -250,7 +266,22 @@ static uint32_t hump_climbing(imu_terrain_t * p_terrain, bool b_rising,
 
     if (b_level)
     {
-        if (confirmed(p_terrain, IMU_ST_AT_PEAK))
+        if (!confirmed(p_terrain, IMU_ST_AT_PEAK))
+        {
+            /* keep counting */
+        }
+        else if ((p_terrain->peak_um < p_terrain->cfg.hump_min_peak_um) ||
+                 ((p_terrain->cfg.hump_lever_mm > 0) &&
+                  (p_terrain->travel_um <
+                   (S4_HUMP_MIN_TRAVEL_MM * 1000))))
+        {
+            /* Level again without gaining height: it was a push from
+               the motors, not a hump.  Do not sit in AT_PEAK. */
+            enter(p_terrain, IMU_ST_MONITORING);
+            hump_reset_height(p_terrain);
+            events |= IMU_EV_HUMP_ABORT;
+        }
+        else
         {
             enter(p_terrain, IMU_ST_AT_PEAK);
             events |= IMU_EV_HUMP_PEAK;
@@ -278,9 +309,11 @@ static uint32_t hump_climbing(imu_terrain_t * p_terrain, bool b_rising,
     return events;
 }
 
-static void hump_at_peak(imu_terrain_t * p_terrain, bool b_rising, bool b_down)
+static void hump_at_peak(imu_terrain_t * p_terrain, bool b_rising, bool b_down,
+                         bool b_level)
 {
-    if (b_down)
+    if (b_down ||
+        ((p_terrain->cfg.hump_lever_mm > 0) && b_level))
     {
         if (confirmed(p_terrain, IMU_ST_DESCENDING))
         {
@@ -346,11 +379,16 @@ static uint32_t hump_descending(imu_terrain_t * p_terrain, bool b_rising,
 }
 
 
-static uint32_t hump_step(imu_terrain_t * p_terrain, int32_t pitch,
+static uint32_t hump_step(imu_terrain_t * p_terrain, int32_t pitch_now,
                           int32_t speed_mm_s)
 {
     const imu_cfg_t * p_cfg = &p_terrain->cfg;
     uint32_t          events = 0U;
+    /* The states follow the slow pitch (see S4_HUMP_LPF_SHIFT); only the
+       "flat ground, re-zero the height" test uses the quick one. */
+    int32_t pitch =
+        ema_step(&p_terrain->f_hump_pitch, pitch_now, p_cfg->hump_lpf_shift);
+    bool b_flat = (iabs32(pitch_now) < p_cfg->hump_level_cdeg);
 
     /* One-wheel hump: smaller pitch accompanied by sideways roll */
     bool b_one_wheel =
@@ -362,7 +400,7 @@ static uint32_t hump_step(imu_terrain_t * p_terrain, int32_t pitch,
         (b_one_wheel && (pitch > S4_ONE_WHEEL_PITCH_CDEG));
 
     bool b_down =
-        (pitch < -p_cfg->hump_enter_cdeg) ||
+        (pitch < -S4_HUMP_DOWN_CDEG) ||
         (b_one_wheel && (pitch < -S4_ONE_WHEEL_PITCH_CDEG));
 
     bool b_level =
@@ -374,10 +412,38 @@ static uint32_t hump_step(imu_terrain_t * p_terrain, int32_t pitch,
         p_terrain->peak_um = p_terrain->st.hump_height_um;
     }
 
+    if (p_cfg->hump_lever_mm > 0)
+    {
+        /* Lever mode: more tilt than any hump gives = being handled. */
+        if (p_terrain->st.hump_height_um > (S4_HUMP_MAX_PEAK_MM * 1000))
+        {
+            if (IMU_ST_MONITORING != p_terrain->st.state)
+            {
+                enter(p_terrain, IMU_ST_MONITORING);
+                events |= IMU_EV_HUMP_ABORT;
+            }
+            hump_reset_height(p_terrain);
+            p_terrain->hump_block = 1U;
+        }
+        else if (b_flat && b_level)
+        {
+            p_terrain->hump_block = 0U;
+        }
+        else
+        {
+            /* keep the block until level ground */
+        }
+        if (0U != p_terrain->hump_block)
+        {
+            hump_reset_height(p_terrain);
+            b_rising = false;
+        }
+    }
+
     switch (p_terrain->st.state)
     {
         case IMU_ST_MONITORING:
-            events |= hump_monitoring(p_terrain, b_rising, b_level);
+            events |= hump_monitoring(p_terrain, b_rising, b_flat);
             break;
 
         case IMU_ST_CLIMBING:
@@ -385,7 +451,10 @@ static uint32_t hump_step(imu_terrain_t * p_terrain, int32_t pitch,
             break;
 
         case IMU_ST_AT_PEAK:
-            hump_at_peak(p_terrain, b_rising, b_down);
+            /* Lever mode: one rear wheel on the hump never tips the nose
+               down, so the way down shows only as the tilt going back to
+               level; that also ends the hump (via DESCENDING). */
+            hump_at_peak(p_terrain, b_rising, b_down, b_level);
             break;
 
         case IMU_ST_DESCENDING:
@@ -398,8 +467,11 @@ static uint32_t hump_step(imu_terrain_t * p_terrain, int32_t pitch,
 
     /* Publish the running maximum while crossing the hump. Completion
        still controls last_peak_um, hump_count and HUMP_END. Only accept
-       a confirmed hump above the noise floor, not monitoring drift. */
-    if (((IMU_ST_CLIMBING == p_terrain->st.state) ||
+       a confirmed hump above the noise floor, not monitoring drift.
+       Lever mode publishes only when the hump completes, so a reading
+       that is later dropped (handling) never shows as the maximum. */
+    if ((0 == p_cfg->hump_lever_mm) &&
+        ((IMU_ST_CLIMBING == p_terrain->st.state) ||
          (IMU_ST_AT_PEAK == p_terrain->st.state) ||
          (IMU_ST_DESCENDING == p_terrain->st.state)) &&
         (p_terrain->peak_um >= p_cfg->hump_min_peak_um) &&
@@ -580,6 +652,34 @@ static void update_height(imu_terrain_t * p_terrain, int32_t speed_mm_s)
         return;
     }
 
+    if ((speed_mm_s > 0) && (p_terrain->travel_um < 100000000))
+    {
+        p_terrain->travel_um += speed_mm_s * p_terrain->cfg.period_ms;
+    }
+    if (p_terrain->cfg.hump_lever_mm > 0)
+    {
+        /* One wheel on the hump: the robot tilts by asin(h / lever), in
+           whatever direction, so use the size of the slow-filtered
+           sideways + forward tilt.  No adding up, so no drift. */
+        int32_t sx = ema_step(&p_terrain->f_hump_ax, p_terrain->st.ax_mg,
+                              p_terrain->cfg.hump_lpf_shift);
+        int32_t sy = ema_step(&p_terrain->f_hump_ay, p_terrain->st.ay_mg,
+                              p_terrain->cfg.hump_lpf_shift);
+        int32_t tilt_mg;
+
+        /* Cast: |sx|, |sy| are under 2000 mg, so the squares fit. */
+        tilt_mg = (int32_t)imu_isqrt32((uint32_t)(sx * sx) +
+                                       (uint32_t)(sy * sy));
+        norm    = (int32_t)imu_norm3(p_terrain->st.ax_mg, p_terrain->st.ay_mg,
+                                     p_terrain->st.az_mg);
+        if (norm > 0)
+        {
+            p_terrain->st.hump_height_um =
+                (p_terrain->cfg.hump_lever_mm * 1000 * tilt_mg) / norm;
+        }
+        return;
+    }
+
     ds_um = speed_mm_s * p_terrain->cfg.period_ms;
 
     norm  = (int32_t)imu_norm3(p_terrain->st.ax_mg, p_terrain->st.ay_mg,
@@ -592,33 +692,108 @@ static void update_height(imu_terrain_t * p_terrain, int32_t speed_mm_s)
 
 /* Pickup detection uses raw, robot-frame specific force, even during
    calibration. Do not subtract calibration bias: calibrating while inverted
-   must never redefine an upside-down robot as safe. A gentle level lift
-   is not observable from an accelerometer alone. */
+   must never redefine an upside-down robot as safe. A slow, gentle level
+   lift is not observable from an accelerometer alone. */
 static uint32_t check_safety(imu_terrain_t * p_terrain,
                              const imu_sample_t * p_sample)
 {
     int32_t norm = (int32_t)imu_norm3(p_sample->ax_mg,
                                      p_sample->ay_mg, p_sample->az_mg);
-    bool lifted = (p_sample->az_mg > S4_LIFT_UP_MG) ||
-                  (norm < S4_LIFT_LOW_G_MG);
+    int32_t base_scale = (int32_t)(1U << (uint32_t)S4_LIFT_BASE_SHIFT);
+    int32_t leak_scale = (int32_t)(1U << (uint32_t)S4_LIFT_LEAK_SHIFT);
+    int32_t up_mg;
+    bool    lifted  = false;
+    bool    low_g   = (norm < S4_LIFT_LOW_G_MG);
     bool overturned = (norm >= S4_LIFT_LOW_G_MG) &&
                       ((int32_t)p_sample->az_mg * 1000 <
                        norm * S4_SAFETY_UP_COS);
+    /* "1 g" as THIS sensor reads it (the GY-511 reads ~1.12 g at rest):
+       the learned average once warmed up, else the nominal 1000 mg.
+       2026-11-11: a fixed 1000 meant the stop could never clear. */
+    int32_t one_g   = (p_terrain->lift_warm >= S4_LIFT_WARMUP)
+                          ? (p_terrain->lift_base /
+                             (int32_t)(1U << (uint32_t)S4_LIFT_BASE_SHIFT))
+                          : 1000;
+    int32_t dev     = (norm > one_g) ? (norm - one_g) : (one_g - norm);
+    bool    settled = (dev < S4_SETTLE_MG) &&
+                   ((int32_t)p_sample->az_mg * 1000 >=
+                    norm * S4_SETTLE_UP_COS);
+
+    /* Upward speed: sum of (|a| - its slow average), with a leak. */
+    if (p_terrain->lift_warm < S4_LIFT_WARMUP)
+    {
+        /* power-on: learn what 1 g reads on this sensor (quick average) */
+        if (0U == p_terrain->lift_warm)
+        {
+            p_terrain->lift_base = norm * base_scale;
+        }
+        else
+        {
+            p_terrain->lift_base +=
+                ((norm * base_scale) - p_terrain->lift_base) / 8;
+        }
+        p_terrain->lift_warm++;
+        p_terrain->lift_v = 0;
+    }
+    else
+    {
+        up_mg = norm - (p_terrain->lift_base / base_scale);
+        p_terrain->lift_base += up_mg;
+        /* One sample of a sharp knock can read 1 g or more; it lasted far
+           less than the 20 ms it stands for.  Cap what a sample may add. */
+        if (up_mg > S4_LIFT_CLAMP_MG)
+        {
+            up_mg = S4_LIFT_CLAMP_MG;
+        }
+        else if (up_mg < -S4_LIFT_CLAMP_MG)
+        {
+            up_mg = -S4_LIFT_CLAMP_MG;
+        }
+        else
+        {
+            /* within the cap */
+        }
+        p_terrain->lift_v += up_mg - (p_terrain->lift_v / leak_scale);
+        lifted = (p_terrain->lift_v > S4_LIFT_VEL_MGS);
+    }
 
     if (p_terrain->st.safety_stop != IMU_SAFETY_NONE)
     {
+        /* Stopped: clear once set down level and still for a while.  The
+           motors stay off until Start / Reset (S2 keeps its own latch). */
+        p_terrain->settle_cnt =
+            settled ? (uint8_t)(p_terrain->settle_cnt + 1U) : 0U;
+        if (p_terrain->settle_cnt >= S4_SETTLE_SAMPLES)
+        {
+            p_terrain->st.safety_stop   = IMU_SAFETY_NONE;
+            p_terrain->settle_cnt       = 0U;
+            p_terrain->lift_confirm     = 0U;
+            p_terrain->overturn_confirm = 0U;
+            p_terrain->lift_v           = 0;
+        }
         return 0U;
     }
-    p_terrain->lift_confirm = lifted ? p_terrain->lift_confirm + 1U : 0U;
+
+    /* Cast: counts are capped well below 255. */
+    p_terrain->lift_confirm =
+        low_g ? (uint8_t)(p_terrain->lift_confirm + 1U) : 0U;
     p_terrain->overturn_confirm =
-        overturned ? p_terrain->overturn_confirm + 1U : 0U;
-    if (p_terrain->overturn_confirm >= S4_SAFETY_CONFIRM)
+        overturned ? (uint8_t)(p_terrain->overturn_confirm + 1U) : 0U;
+    if (p_terrain->overturn_confirm >= S4_OVERTURN_CONFIRM)
     {
         p_terrain->st.safety_stop = IMU_SAFETY_OVERTURN;
     }
-    else if (p_terrain->lift_confirm >= S4_SAFETY_CONFIRM)
+    else if (lifted || (p_terrain->lift_confirm >= S4_LOW_G_CONFIRM))
     {
         p_terrain->st.safety_stop = IMU_SAFETY_LIFT;
+    }
+    else
+    {
+        /* keep watching */
+    }
+    if (p_terrain->st.safety_stop != IMU_SAFETY_NONE)
+    {
+        p_terrain->settle_cnt = 0U;
     }
     return (p_terrain->st.safety_stop != IMU_SAFETY_NONE)
                ? IMU_EV_SAFETY_STOP : 0U;

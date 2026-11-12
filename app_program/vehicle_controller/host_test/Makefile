@@ -3,7 +3,7 @@
 # Not part of the firmware build (build_make only compiles one folder level).
 
 CC     ?= cc
-CFLAGS := -std=c99 -Wall -Wextra -Werror -DVC_HOST_TEST -DVC_BARCODE_RULES_TEST -I..
+CFLAGS := -std=c99 -Wall -Wextra -Werror -DVC_HOST_TEST -DVC_JUNCTION_HOLD_MS=0 -DVC_BARCODE_RULES_TEST -I..
 
 run: test_vc_sm
 	./test_vc_sm

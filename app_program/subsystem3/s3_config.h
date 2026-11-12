@@ -79,6 +79,16 @@
 #define S3_L_ADC_WHITE 195
 #define S3_L_ADC_BLACK 235
 
+/* L oversampling (added 2026-11-11, TCRT5000 notes): L is read this many
+   times back to back each S3_LINE_PERIOD_MS and the readings averaged.
+   A software stand-in for an analogue low-pass filter: it cuts ADC noise
+   (a few counts) without blurring bars, since all reads fall within a few
+   tens of us while a 3 mm bar lasts ~50 ms at 60 mm/s.  Matters most once
+   a slit aperture makes L's signal smaller.  1 = one read (old behaviour). */
+#ifndef S3_L_OVERSAMPLE
+#define S3_L_OVERSAMPLE 4
+#endif
+
 /* Barcode reading: dead band around the black threshold (0..1000 scale) so
    L does not flicker at a bar edge and split one bar into two.  L turns
    black at threshold + HYST and white again below threshold - HYST.
@@ -98,6 +108,21 @@
 #define S3_BC_EDGE       1
 #define S3_BC_EDGE_SWING 300
 #define S3_BC_EDGE_FLOOR 400
+/* A bar only ends once L has fallen this share (percent) of the bar's
+   height (its peak minus the white before it), and never less than
+   S3_BC_EDGE_SWING.  2026-11-11: a wide bar's top wobbled 1794 -> 1425
+   (the L arm bouncing); with the fixed 300 that ended the bar early, so
+   every bar measured ~3 mm and the rest of it was counted as white.
+   0 = fixed swing only (old behaviour). */
+/* Weak print (2026-11-11, MY): a sheet whose ink is nearly invisible to
+   infrared gave thick black 210-280, thin black 170-192, white 130-180.
+   When the dashboard rise/fall is set to WEAK_SWING_MAX or less, a change
+   of level must be seen WEAK_HOLD samples in a row (10 ms each). */
+#define S3_BC_WEAK_SWING_MAX 50
+#define S3_BC_WEAK_HOLD      3
+#ifndef S3_BC_EDGE_FALL_PCT
+#define S3_BC_EDGE_FALL_PCT 25 /* 2026-11-11 MY: try 25 (was 35) for shallow gaps */
+#endif
 
 /* Digital level the module outputs over BLACK tape.  TUNE: most TCRT5000
    style modules give 1 on black, some give 0. */
@@ -234,6 +259,13 @@
    below counts DATA letters; Code 39 start/stop '*' are additional. */
 #define S3_BC_LETTERS_ONLY 1
 #define S3_BC_MAX_LETTERS  10u
+/* Partial read (2026-11-11, MY): when the full read fails (usually a wrong
+   element count because one end is distorted), accept the letter if it and
+   the '*' right next to it both decode cleanly.  Only for ONE-letter codes,
+   which is all the rule table uses.  0 = both '*' needed (old behaviour). */
+#ifndef S3_BC_PARTIAL
+#define S3_BC_PARTIAL 1
+#endif
 #define S3_BC_MAX_CHARS    (S3_BC_MAX_LETTERS + 2u) /* incl. '*' markers */
 #define S3_BC_MAX_ELEMENTS ((S3_BC_MAX_CHARS * 10u) - 1u)
 #define S3_BC_TEXT_MAX     (S3_BC_MAX_LETTERS + 1u) /* incl. NUL */
@@ -247,6 +279,44 @@
 #define S3_BC_START_WHITE_MS 150  /* white needed before a bar can start a barcode */
 #define S3_BC_ELEMENT_MAX_MS 1500 /* longer black run = not a bar   */
 #define S3_BC_MIN_ELEMENTS   29u  /* "*A*" = 3 symbols x 10 - 1 */
+
+/* Measure bars and spaces by WHEEL DISTANCE (encoder counts) instead of
+   time.  The controller slows from cruise to VC_SPEED_SLOW_MMS while the
+   first bar is under the sensor, so in time that bar looks wider than it
+   is; in distance it does not.  The decoder tries distance first and
+   falls back to time when that fails or the wheels hardly moved (e.g. a
+   barcode slid under the robot by hand).  0 = time only (old behaviour). */
+#define S3_BC_USE_DIST       1
+/* Which wheel measures the distance: 0 = both (L + R), 1 = left only,
+   2 = right only.  2026-11-11: the barcode sensor sits ~5 mm from the
+   LEFT tyre, so when the robot twists a little the sensor moves with the
+   left wheel, not with the average of the two. */
+#define S3_BC_DIST_WHEEL     1
+/* Whole read must cover at least this many counts (L + R) for distance to
+   be tried.  One count ~0.15 mm of travel; "*A*" small print ~145 mm =
+   ~980 counts, so 200 (~30 mm) only rules out "wheels not turning". */
+#define S3_BC_DIST_MIN       200u
+/* End of the barcode BY DISTANCE (used once the wheels are seen turning
+   during a read): this much white after the last bar ends the read.
+   300 counts ~44 mm: more than any gap inside a barcode, even with one
+   bar missed (big print: 19 + 6 + 6 = 31 mm).  2026-11-11: the time rule
+   (0.8 s, or 5 x the widest element) was 29 mm at 36 mm/s and stretched
+   to 3.7 s after one merged gap.  If the robot stops on the white, the
+   read ends after S3_BC_QUIET_STOP_MS instead. */
+#define S3_BC_QUIET_COUNTS   300u
+/* After a read ends, keep treating C + R black as "a bar, not a junction"
+   for this much more travel.  The read now ends right at the stop '*'
+   (S3_BC_EARLY_END); if C and R are not exactly level with L they are
+   still over the last bars then, and a wide bar under both would be
+   reported as a JUNCTION.  270 counts ~40 mm.  0 = off. */
+#define S3_BC_AFTER_HOLD_COUNTS 270u
+#define S3_BC_QUIET_STOP_MS  3000
+
+/* End the read as soon as the bars seen so far decode with a '*' at both
+   ends, instead of waiting S3_BC_QUIET_MIN_MS of white.  Junctions are
+   not detected while a read is open, so this lets a junction right after
+   the barcode be seen.  0 = always wait for the quiet zone. */
+#define S3_BC_EARLY_END      1
 
 /* Smallest accepted wide:narrow ratio, x10 (15 = 1.5).  Code 39 is
    printed at 2.0..3.0. */

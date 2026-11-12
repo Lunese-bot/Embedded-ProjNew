@@ -27,16 +27,26 @@
 #include "code39.h"
 
 #define IDLE_POLL_MS 100   /* how often requests are checked when idle */
+#define DIST_POLL_MS 50    /* how often the white distance is checked */
+#define DIST_LIVE_MIN 10u  /* counts in this read that prove the wheels turn */
 #define S3_US_PER_MS 1000U /* run widths are in microseconds */
 
-static uint32_t        g_widths[S3_BC_MAX_ELEMENTS];
+static uint32_t        g_widths[S3_BC_MAX_ELEMENTS];     /* by time, us */
+static uint32_t        g_widths_pos[S3_BC_MAX_ELEMENTS]; /* by distance */
+static uint32_t        g_total_pos; /* distance covered by the stored ones */
+static uint32_t        g_last_run_pos; /* wheel counts when the last run came */
+static uint32_t        g_white_ms;     /* time polled since then */
 
 /* bench copy of the last read (subsystem3.h) */
 volatile uint32_t g_s3_bc_dbg_seq;
 volatile uint32_t g_s3_bc_dbg_n;
 volatile uint16_t g_s3_ltrace_frz[S3_LTRACE_N];
+volatile uint8_t  g_s3_ltrace_frz_fwd[S3_LTRACE_N];
+volatile int8_t   g_s3_ltrace_frz_yaw[S3_LTRACE_N];
 volatile uint32_t g_s3_ltrace_frz_n;
 volatile uint32_t g_s3_bc_dbg_us[S3_BC_MAX_ELEMENTS];
+volatile uint32_t g_s3_bc_dbg_pos[S3_BC_MAX_ELEMENTS];
+volatile uint32_t g_s3_bc_dbg_unit;
 static uint32_t        g_n_widths;
 static uint32_t        g_widest_us;
 static uint32_t        g_retries;
@@ -56,7 +66,9 @@ static void go_idle(void)
 {
     g_n_widths         = 0;
     g_widest_us        = 0;
+    g_total_pos        = 0;
     g_b_s3_bc_scanning = false;
+    g_b_s3_bc_bars     = false;
     set_state(BARCODE_STATE_IDLE);
 }
 
@@ -99,6 +111,23 @@ static void handle_requests(void)
     }
 }
 
+/* Wheel counts now (0 when distance is not used) */
+static uint32_t pos_now(void)
+{
+    return s3_bc_pos();
+}
+
+/* The wheels were seen turning during this read: its end is judged by
+   distance (S3_BC_QUIET_COUNTS), not by time. */
+static bool dist_live(void)
+{
+#if S3_BC_USE_DIST
+    return (g_total_pos >= DIST_LIVE_MIN);
+#else
+    return false;
+#endif
+}
+
 /* Quiet zone: S3_BC_QUIET_FACTOR x widest element, at least the minimum */
 static uint32_t quiet_us(void)
 {
@@ -120,6 +149,10 @@ static TMO wait_timeout(void)
     {
         tmo = IDLE_POLL_MS;
     }
+    else if ((1U == (g_n_widths % 2U)) && dist_live())
+    {
+        tmo = DIST_POLL_MS; /* keep checking how far the white goes on */
+    }
     else if (1U == (g_n_widths % 2U))
     {
         /* Cast: the quiet zone is a few hundred ms, well inside TMO. */
@@ -132,37 +165,100 @@ static TMO wait_timeout(void)
     return tmo;
 }
 
-static void decode(void)
-{
-    s3_event_t      evt = { 0 };
-    code39_options_t opt;
-    code39_result_t  res;
-    bool             b_reversed = false;
+/* Decode the stored elements: by wheel distance first (independent of
+   speed changes), then by time.  *p_unit = 1 if distance gave the result
+   (or the error, when both failed and distance was tried), 0 = time. */
+uint32_t g_s3_bc_partial; /* reads accepted by the one-'*' rule */
 
-    set_state(BARCODE_STATE_DECODE);
+static code39_result_t try_decode(uint8_t * p_text, uint32_t text_size,
+                                  bool * p_reversed, uint32_t * p_unit)
+{
+    code39_options_t opt;
+    code39_result_t  res = CODE39_ERR_LENGTH;
+    code39_result_t  res_t;
+
     opt.min_ratio_x10 = S3_BC_MIN_RATIO_X10;
     opt.letters_only  = (S3_BC_LETTERS_ONLY != 0);
     opt.max_chars     = (uint8_t)S3_BC_MAX_CHARS;
+    *p_unit           = 0U;
 
     if (g_n_widths < S3_BC_MIN_ELEMENTS)
     {
-        res = CODE39_ERR_LENGTH;
+        return CODE39_ERR_LENGTH;
     }
-    else
+#if S3_BC_USE_DIST
+    if (g_total_pos >= S3_BC_DIST_MIN)
     {
+        *p_unit = 1U;
         /* Cast: the text buffer holds plain characters. */
-        res = code39_decode_ex(g_widths, g_n_widths, &opt,
-                               (char *)evt.text, sizeof(evt.text),
-                               &b_reversed);
+        res = code39_decode_ex(g_widths_pos, g_n_widths, &opt,
+                               (char *)p_text, text_size, p_reversed);
+        if (CODE39_OK == res)
+        {
+            return res;
+        }
     }
+#endif
+    /* Cast: the text buffer holds plain characters. */
+    res_t = code39_decode_ex(g_widths, g_n_widths, &opt, (char *)p_text,
+                             text_size, p_reversed);
+    if ((CODE39_OK == res_t) || (0U == *p_unit))
+    {
+        *p_unit = 0U;
+        res     = res_t;
+    }
+#if S3_BC_PARTIAL
+    if (CODE39_OK != res)
+    {
+        /* one end distorted: accept the letter next to a clean '*' */
+        uint32_t unit_full = *p_unit;
+#if S3_BC_USE_DIST
+        if (g_total_pos >= S3_BC_DIST_MIN)
+        {
+            if (CODE39_OK == code39_decode_partial(g_widths_pos, g_n_widths,
+                                                   &opt, (char *)p_text,
+                                                   text_size, p_reversed))
+            {
+                *p_unit = 1U;
+                g_s3_bc_partial++;
+                return CODE39_OK;
+            }
+        }
+#endif
+        if (CODE39_OK == code39_decode_partial(g_widths, g_n_widths, &opt,
+                                               (char *)p_text, text_size,
+                                               p_reversed))
+        {
+            *p_unit = 0U;
+            g_s3_bc_partial++;
+            return CODE39_OK;
+        }
+        *p_unit   = unit_full;
+        p_text[0] = 0U;
+    }
+#endif
+    return res; /* both failed: report the distance error */
+}
+
+static void decode(void)
+{
+    s3_event_t      evt = { 0 };
+    code39_result_t res;
+    bool            b_reversed = false;
+    uint32_t        unit       = 0U;
+
+    set_state(BARCODE_STATE_DECODE);
+    res = try_decode(evt.text, sizeof(evt.text), &b_reversed, &unit);
 
     {
         uint32_t k;
         for (k = 0U; (k < g_n_widths) && (k < S3_BC_MAX_ELEMENTS); k++)
         {
-            g_s3_bc_dbg_us[k] = g_widths[k];
+            g_s3_bc_dbg_us[k]  = g_widths[k];
+            g_s3_bc_dbg_pos[k] = g_widths_pos[k];
         }
-        g_s3_bc_dbg_n = k;
+        g_s3_bc_dbg_n    = k;
+        g_s3_bc_dbg_unit = unit;
 
         /* freeze the L trace now, while the bars are still in the ring */
         {
@@ -172,6 +268,10 @@ static void decode(void)
             for (k = 0U; k < count; k++)
             {
                 g_s3_ltrace_frz[k] = g_s3_ltrace[(start + k) % S3_LTRACE_N];
+                g_s3_ltrace_frz_fwd[k] =
+                    g_s3_ltrace_fwd[(start + k) % S3_LTRACE_N];
+                g_s3_ltrace_frz_yaw[k] =
+                    g_s3_ltrace_yaw[(start + k) % S3_LTRACE_N];
             }
             g_s3_ltrace_frz_n = count;
         }
@@ -214,6 +314,27 @@ static void decode(void)
     go_idle();
 }
 
+/* S3_BC_EARLY_END: a bar has just ended and the elements so far make a
+   whole number of characters (10 n - 1).  If they decode with '*' at both
+   ends, the barcode is complete; a longer barcode would still be missing
+   its stop '*' here, so it does not decode and the read goes on. */
+static bool early_end_ok(void)
+{
+#if S3_BC_EARLY_END
+    uint8_t  text[S3_BC_TEXT_MAX];
+    bool     b_rev = false;
+    uint32_t unit  = 0U;
+
+    if ((g_n_widths < S3_BC_MIN_ELEMENTS) || (9U != (g_n_widths % 10U)))
+    {
+        return false;
+    }
+    return (CODE39_OK == try_decode(text, sizeof(text), &b_rev, &unit));
+#else
+    return false;
+#endif
+}
+
 static void on_run(const s3_bc_run_t * p_run)
 {
     s3_event_t evt = { 0 };
@@ -245,14 +366,30 @@ static void on_run(const s3_bc_run_t * p_run)
                 abort_read(); /* not a barcode bar */
             }
             else if ((0U == p_run->black) && (g_n_widths > 0U) &&
-                     (p_run->width_us >= quiet_us()))
+                     (dist_live()
+                          ? (p_run->width_pos >= S3_BC_QUIET_COUNTS)
+                          : (p_run->width_us >= quiet_us())))
             {
                 decode(); /* trailing quiet zone */
             }
             else if (g_n_widths < S3_BC_MAX_ELEMENTS)
             {
-                g_widths[g_n_widths] = p_run->width_us;
+                if ((0U != p_run->black) && (g_n_widths > 0U))
+                {
+                    /* the bar began later than first guessed: that piece
+                       belongs to the space before it */
+                    g_widths[g_n_widths - 1U]     += p_run->lead_us;
+                    g_widths_pos[g_n_widths - 1U] += p_run->lead_pos;
+                    g_total_pos += p_run->lead_pos;
+                }
+                g_widths[g_n_widths]     = p_run->width_us;
+                g_widths_pos[g_n_widths] = p_run->width_pos;
+                g_total_pos += p_run->width_pos;
                 g_n_widths++;
+                if (g_n_widths >= 2U)
+                {
+                    g_b_s3_bc_bars = true; /* bar + space: a barcode */
+                }
                 if (p_run->width_us > g_widest_us)
                 {
                     g_widest_us = p_run->width_us;
@@ -260,6 +397,14 @@ static void on_run(const s3_bc_run_t * p_run)
                 if (g_n_widths >= S3_BC_MAX_ELEMENTS)
                 {
                     decode();
+                }
+                else if (early_end_ok())
+                {
+                    decode(); /* stop '*' seen: no need to wait */
+                }
+                else
+                {
+                    /* keep reading */
                 }
             }
             break;
@@ -290,7 +435,18 @@ void barcode_task(int32_t stacd, void * p_exinf)
         {
             if (BARCODE_STATE_READ == g_state)
             {
-                if (1U == (g_n_widths % 2U))
+                if ((1U == (g_n_widths % 2U)) && dist_live())
+                {
+                    /* white: has it gone on far enough (or has the robot
+                       stood still long enough) to be the end? */
+                    g_white_ms += DIST_POLL_MS;
+                    if (((pos_now() - g_last_run_pos) >= S3_BC_QUIET_COUNTS) ||
+                        (g_white_ms >= (uint32_t)S3_BC_QUIET_STOP_MS))
+                    {
+                        decode();
+                    }
+                }
+                else if (1U == (g_n_widths % 2U))
                 {
                     decode(); /* quiet zone reached */
                 }
@@ -308,6 +464,8 @@ void barcode_task(int32_t stacd, void * p_exinf)
         }
         else if (g_b_enabled)
         {
+            g_last_run_pos = pos_now();
+            g_white_ms     = 0U;
             on_run(&run);
         }
         else
