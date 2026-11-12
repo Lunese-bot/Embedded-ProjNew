@@ -25,6 +25,7 @@
 
 #include "subsystem3.h"
 #include "code39.h"
+#include "code39_geom.h"
 
 #define IDLE_POLL_MS 100   /* how often requests are checked when idle */
 #define DIST_POLL_MS 50    /* how often the white distance is checked */
@@ -47,6 +48,15 @@ volatile uint32_t g_s3_ltrace_frz_n;
 volatile uint32_t g_s3_bc_dbg_us[S3_BC_MAX_ELEMENTS];
 volatile uint32_t g_s3_bc_dbg_pos[S3_BC_MAX_ELEMENTS];
 volatile uint32_t g_s3_bc_dbg_unit;
+volatile uint8_t  g_s3_bc_geom_res = 255U;
+volatile char     g_s3_bc_geom_best;
+volatile uint16_t g_s3_bc_geom_err_x100;
+volatile uint16_t g_s3_bc_geom_margin_x100;
+volatile uint8_t  g_s3_bc_geom_fit;
+volatile uint32_t g_s3_bc_geom_ok;
+volatile uint16_t g_s3_bc_geom_ms;
+static uint32_t   g_read_start_idx; /* g_s3_ltrace_idx at BARCODE_START */
+static uint32_t   g_frz_idx;        /* g_s3_ltrace_idx when frozen */
 static uint32_t        g_n_widths;
 static uint32_t        g_widest_us;
 static uint32_t        g_retries;
@@ -240,6 +250,72 @@ static code39_result_t try_decode(uint8_t * p_text, uint32_t text_size,
     return res; /* both failed: report the distance error */
 }
 
+#if S3_BC_GEOM
+static void geom_yield(void)
+{
+    (void)tk_dly_tsk(1); /* let lower-priority tasks run meanwhile */
+}
+
+/* S3_BC_GEOM: the element list did not decode; look for the wide bars of
+   one letter in the frozen L trace, from just before this read's first
+   bar.  true = a letter was found (p_text, *p_reversed filled). */
+static bool shape_read(uint8_t * p_text, uint32_t text_size,
+                       bool * p_reversed)
+{
+    c39g_info_t   info;
+    c39g_result_t r;
+    uint32_t      count = g_s3_ltrace_frz_n;
+    uint32_t      back  = (g_frz_idx - g_read_start_idx) + S3_BC_GEOM_LEAD;
+    uint32_t      off   = (back < count) ? (count - back) : 0U;
+    bool          b_dist = false;
+    SYSTIM        t0;
+    SYSTIM        t1;
+
+    tk_get_tim(&t0);
+    /* the bars are over: let line_task look for junctions again (its
+       after-read hold still covers the last bars) while this runs */
+    g_b_s3_bc_bars = false;
+#if S3_BC_USE_DIST
+    {
+        int32_t  dist = 0;
+        uint32_t k;
+        for (k = off; k < count; k++)
+        {
+            dist += (int32_t)g_s3_ltrace_frz_fwd[k] -
+                    (int32_t)g_s3_ltrace_frz_yaw[k];
+        }
+        /* Cast: S3_BC_DIST_MIN is a small count */
+        b_dist = (dist >= (int32_t)S3_BC_DIST_MIN);
+    }
+#endif
+    /* Casts: the frozen copy is written only by this task, so reading it
+       as plain (non-volatile) memory during the call is safe. */
+    r = c39g_decode((const uint16_t *)&g_s3_ltrace_frz[off],
+                    (const uint8_t *)&g_s3_ltrace_frz_fwd[off],
+                    (const int8_t *)&g_s3_ltrace_frz_yaw[off], count - off,
+                    b_dist, geom_yield, &info);
+    tk_get_tim(&t1);
+    /* Cast: well under a minute */
+    g_s3_bc_geom_ms = (uint16_t)(t1.lo - t0.lo);
+    /* Cast: c39g_result_t values fit 8 bits */
+    g_s3_bc_geom_res          = (uint8_t)r;
+    g_s3_bc_geom_best         = info.best;
+    g_s3_bc_geom_err_x100     = info.err_x100;
+    g_s3_bc_geom_margin_x100  = info.margin_x100;
+    g_s3_bc_geom_fit          = info.fit_x100;
+    if ((C39G_OK == r) && (text_size >= 2U))
+    {
+        /* Cast: 'A'..'Z' */
+        p_text[0]   = (uint8_t)info.letter;
+        p_text[1]   = 0U;
+        *p_reversed = info.b_reversed;
+        g_s3_bc_geom_ok++;
+        return true;
+    }
+    return false;
+}
+#endif
+
 static void decode(void)
 {
     s3_event_t      evt = { 0 };
@@ -264,6 +340,7 @@ static void decode(void)
         {
             uint32_t idx   = g_s3_ltrace_idx;
             uint32_t count = (idx < S3_LTRACE_N) ? idx : S3_LTRACE_N;
+            g_frz_idx      = idx;
             uint32_t start = idx - count;
             for (k = 0U; k < count; k++)
             {
@@ -275,6 +352,15 @@ static void decode(void)
             }
             g_s3_ltrace_frz_n = count;
         }
+        g_s3_bc_geom_res = 255U; /* not tried */
+#if S3_BC_GEOM
+        if ((CODE39_OK != res) && (g_n_widths >= S3_BC_GEOM_MIN_ELEMENTS) &&
+            shape_read(evt.text, sizeof(evt.text), &b_reversed))
+        {
+            res              = CODE39_OK;
+            g_s3_bc_dbg_unit = 2U; /* shape read */
+        }
+#endif
         g_s3_bc_dbg_seq++;
     }
 
@@ -350,6 +436,7 @@ static void on_run(const s3_bc_run_t * p_run)
             {
                 set_state(BARCODE_STATE_DETECT);
                 g_b_s3_bc_scanning = true;
+                g_read_start_idx   = g_s3_ltrace_idx;
                 g_n_widths         = 0;
                 g_widest_us        = 0;
                 evt.type           = S3_EVT_BARCODE_START;

@@ -183,8 +183,8 @@ static void junction_advance(void)
 #if VC_JUNCTION_ADVANCE_MM > 0
     CHECK("S6-H45", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
           has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_ADVANCE_MM, 1) &&
-          !has_move(VC_MOVE_TURN_LEFT, VC_TURN_DEG, 1) &&
-          !has_move(VC_MOVE_TURN_RIGHT, VC_TURN_DEG, 1),
+          !has_move(VC_MOVE_TURN_LEFT, VC_TURN_CMD_DEG, 1) &&
+          !has_move(VC_MOVE_TURN_RIGHT, VC_TURN_CMD_DEG, 1),
           "turn at a junction starts with the advance, no turn yet");
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
 #endif
@@ -216,7 +216,7 @@ static void test_barcode(void)
     CHECK("S6-H13",
           (VC_ST_JUNCTION_STOP == g_sm.st.state) &&
               has_move(VC_MOVE_STOP_CONFIRM, 0, 1) &&
-              !has_move(VC_MOVE_TURN_RIGHT, VC_TURN_DEG, 1),
+              !has_move(VC_MOVE_TURN_RIGHT, VC_TURN_CMD_DEG, 1),
           "junction issues STOP and waits; no turn is issued yet");
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     CHECK("S6-H13b",
@@ -236,7 +236,7 @@ static void test_barcode(void)
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     junction_advance();
     CHECK("S6-H13d", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          has_move(VC_MOVE_TURN_LEFT, VC_TURN_DEG, 1),
+          has_move(VC_MOVE_TURN_LEFT, VC_TURN_CMD_DEG, 1),
           "configured full-string rule executes only after stop confirmation");
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
 
@@ -249,7 +249,7 @@ static void test_barcode(void)
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     junction_advance();
     CHECK("S6-H13f", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          has_move(VC_MOVE_TURN_RIGHT, VC_TURN_DEG, 1),
+          has_move(VC_MOVE_TURN_RIGHT, VC_TURN_CMD_DEG, 1),
           "junction after it: stop, then turn RIGHT");
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
     CHECK("S6-H13g", (VC_ST_FOLLOW_LINE == g_sm.st.state) && (NAV_NONE == g_sm.pending_nav),
@@ -313,6 +313,81 @@ static void test_barcode(void)
 }
 
 /* review 2026-11-10: junction reached while still in DECODE_BARCODE */
+/* Junction turn ends on the line (VC_TURN_END_ON_LINE) */
+static void line_at(uint32_t odo)
+{
+    feed(VC_SRC_LINE, VC_EV_LINE_FOUND, 0, (int32_t)odo);
+}
+
+static void test_turn_on_line(void)
+{
+#if VC_TURN_END_ON_LINE
+    const uint32_t odo0 = 100000u;
+    const uint32_t gate = VC_PIVOT_COUNTS(VC_TURN_GATE_DEG);
+
+    CHECK("S6-H50", (gate > 400u) && (gate < 520u) &&
+          (VC_PIVOT_COUNTS(90) > 650u) && (VC_PIVOT_COUNTS(90) < 740u),
+          "pivot counts: 60 deg ~461, 90 deg ~692 (track 130, 692 ticks/rev)");
+
+    start_mission();
+    feed(VC_SRC_VC, VC_EV_TICK, 0, (int32_t)odo0);
+    feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_LEFT, 0);
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    junction_advance();
+    CHECK("S6-H52", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+          has_move(VC_MOVE_TURN_LEFT, VC_TURN_MAX_DEG, 1) &&
+          (gate == g_sm.turn_gate),
+          "LEFT asks S2 for the max angle and watches for the line");
+    line_at(odo0 + 10u); /* sensors still on the crossing as the turn starts */
+    CHECK("S6-H51", VC_ST_EXECUTE_ACTION == g_sm.st.state,
+          "line seen at the start of the turn ends nothing");
+    line_at(g_sm.turn_odo0 + gate / 2u);
+    CHECK("S6-H53", VC_ST_EXECUTE_ACTION == g_sm.st.state,
+          "line before the gate (the arm it came from) is ignored");
+    line_at(g_sm.turn_odo0 + gate + 5u);
+    CHECK("S6-H54", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+          (NAV_NONE == g_sm.pending_nav) && (0u == g_sm.turn_gate) &&
+          has_move(VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS, 1),
+          "line after the gate ends the turn: follow the new arm");
+
+    /* no line by the max angle: S2's MANOEUVRE_DONE ends it as before */
+    feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_RIGHT, 0);
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    junction_advance();
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    CHECK("S6-H55", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+          (0u == g_sm.turn_gate),
+          "no line seen: turn ends at the max angle, follow as before");
+
+    /* U-turn: the side arm at ~90 deg must not end it */
+    feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_U_TURN, 0);
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    CHECK("S6-H56", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+          has_move(VC_MOVE_U_TURN, 0, 0) &&
+          (VC_PIVOT_COUNTS(VC_UTURN_GATE_DEG) == g_sm.turn_gate),
+          "U-turn watches with the 150 deg gate");
+    line_at(g_sm.turn_odo0 + VC_PIVOT_COUNTS(90));
+    CHECK("S6-H57", VC_ST_EXECUTE_ACTION == g_sm.st.state,
+          "U-turn: side arm at 90 deg ignored");
+    line_at(g_sm.turn_odo0 + VC_PIVOT_COUNTS(170));
+    CHECK("S6-H58", VC_ST_FOLLOW_LINE == g_sm.st.state,
+          "U-turn: line at 170 deg ends it");
+
+    /* STRAIGHT: no watch, LINE_FOUND does not cut the clearing drive */
+    feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_STRAIGHT, 0);
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    line_at(g_sm.odo + 5000u);
+    CHECK("S6-H59", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+          (0u == g_sm.turn_gate),
+          "STRAIGHT: line events do not end the clearing drive");
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+#endif
+}
+
 static void test_junction_in_decode(void)
 {
     start_mission();
@@ -472,6 +547,7 @@ int main(void)
     test_arbitration();
     test_barcode();
     test_junction_in_decode();
+    test_turn_on_line();
     test_line_loss();
     test_obstacle();
     test_terrain();

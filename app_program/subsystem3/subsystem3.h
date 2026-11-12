@@ -73,9 +73,21 @@ extern volatile uint32_t g_s3_bc_dbg_seq;
 extern volatile uint32_t g_s3_bc_dbg_n;
 extern volatile uint32_t g_s3_bc_dbg_us[S3_BC_MAX_ELEMENTS];
 /* the same elements measured by wheel distance (encoder counts, L + R),
-   and which one the decoder used: 1 = distance, 0 = time */
+   and which one the decoder used: 1 = distance, 0 = time, 2 = shape read
+   (S3_BC_GEOM, code39_geom.c) */
 extern volatile uint32_t g_s3_bc_dbg_pos[S3_BC_MAX_ELEMENTS];
 extern volatile uint32_t g_s3_bc_dbg_unit;
+/* Shape read of the same attempt (written before g_s3_bc_dbg_seq goes
+   up): result c39g_result_t (0 = letter found, 255 = not tried), best
+   letter (also when refused), worst wide-bar error and margin over the
+   next letter in 1/100, share of the trace explained in %. */
+extern volatile uint8_t  g_s3_bc_geom_res;
+extern volatile char     g_s3_bc_geom_best;
+extern volatile uint16_t g_s3_bc_geom_err_x100;
+extern volatile uint16_t g_s3_bc_geom_margin_x100;
+extern volatile uint8_t  g_s3_bc_geom_fit;
+extern volatile uint32_t g_s3_bc_geom_ok; /* letters found by it */
+extern volatile uint16_t g_s3_bc_geom_ms; /* how long it took */
 /* Wheel position used for barcode widths (S3_BC_DIST_WHEEL), in counts of
    about 0.15 mm; 0 when S3_BC_USE_DIST is off.  task_line.c */
 extern uint32_t s3_bc_pos(void);

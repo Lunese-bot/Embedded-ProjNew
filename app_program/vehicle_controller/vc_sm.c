@@ -165,10 +165,22 @@ static void search_step(const vc_sm_t * p_sm, vc_actions_t * p_out)
     request(p_out, VC_SRC_LINE, VC_REQ_LINE_SEARCH, (int32_t)p_sm->attempts);
 }
 
+/* Start a junction turn and, with VC_TURN_END_ON_LINE, watch for the new
+   arm once the robot has turned gate_deg (on_execute_action). */
+static void start_turn(vc_sm_t * p_sm, vc_move_t move_cmd, int32_t value,
+                       uint32_t gate_deg, vc_actions_t * p_out)
+{
+    move(p_out, move_cmd, value);
+    p_sm->turn_odo0 = p_sm->odo;
+    p_sm->turn_gate = (0 != VC_TURN_END_ON_LINE) ? VC_PIVOT_COUNTS(gate_deg)
+                                                 : 0u;
+}
+
 static void enter_execute(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
 {
     (void)now_ms;
     p_sm->exec_phase = 0u;
+    p_sm->turn_gate  = 0u;
     switch (p_sm->pending_nav)
     {
         case NAV_LEFT:
@@ -182,14 +194,14 @@ static void enter_execute(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
             }
             else
             {
-                move(p_out,
-                     (NAV_LEFT == p_sm->pending_nav) ? VC_MOVE_TURN_LEFT
-                                                     : VC_MOVE_TURN_RIGHT,
-                     VC_TURN_DEG);
+                start_turn(p_sm,
+                           (NAV_LEFT == p_sm->pending_nav) ? VC_MOVE_TURN_LEFT
+                                                           : VC_MOVE_TURN_RIGHT,
+                           VC_TURN_CMD_DEG, VC_TURN_GATE_DEG, p_out);
             }
             break;
         case NAV_U_TURN:
-            move(p_out, VC_MOVE_U_TURN, 0);
+            start_turn(p_sm, VC_MOVE_U_TURN, 0, VC_UTURN_GATE_DEG, p_out);
             break;
         case NAV_STRAIGHT:
         case NAV_NONE:
@@ -733,13 +745,25 @@ static void on_execute_action(vc_sm_t * p_sm, const vc_event_t * p_event,
     {
         /* the advance is done: the axle is over the crossing, now turn */
         p_sm->exec_phase = 0u;
-        move(p_out,
-             (NAV_LEFT == p_sm->pending_nav) ? VC_MOVE_TURN_LEFT
-                                             : VC_MOVE_TURN_RIGHT,
-             VC_TURN_DEG);
+        start_turn(p_sm,
+                   (NAV_LEFT == p_sm->pending_nav) ? VC_MOVE_TURN_LEFT
+                                                   : VC_MOVE_TURN_RIGHT,
+                   VC_TURN_CMD_DEG, VC_TURN_GATE_DEG, p_out);
+    }
+    else if ((VC_EV_LINE_FOUND == type) && (0u == p_sm->exec_phase) &&
+             (0u != p_sm->turn_gate) &&
+             ((p_sm->odo - p_sm->turn_odo0) >= p_sm->turn_gate))
+    {
+        /* past the gate and C or R is on the new arm: the turn is done,
+           line following takes over (its FORWARD replaces S2's turn) */
+        p_sm->turn_gate   = 0u;
+        p_sm->pending_nav = NAV_NONE;
+        p_sm->pending_barcode[0] = '\0';
+        enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
     }
     else if (VC_EV_MANOEUVRE_DONE == type)
     {
+        p_sm->turn_gate   = 0u;
         p_sm->pending_nav = NAV_NONE;
         p_sm->pending_barcode[0] = '\0';
         enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
@@ -802,6 +826,13 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
     if (VC_EV_TICK != type)
     {
         p_sm->st.events_handled++;
+    }
+    /* S2 odometer (L + R counts) rides in p2 of TICK and of the LINE_FOUND
+       sent during a junction turn; 0 = not given */
+    if (((VC_EV_TICK == type) || (VC_EV_LINE_FOUND == type)) &&
+        (0 != p_event->p2))
+    {
+        p_sm->odo = (uint32_t)p_event->p2; /* Cast: counts, sent as int32 */
     }
 
     /* a hump may also be crossed while reading a barcode or turning:

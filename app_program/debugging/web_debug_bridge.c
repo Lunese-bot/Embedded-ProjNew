@@ -653,6 +653,12 @@ int32_t web_debug_barcode(char * p_out, int32_t out_max)
     static uint32_t  w[S3_BC_MAX_ELEMENTS]; /* static: small task stack */
     static uint32_t  d[S3_BC_MAX_ELEMENTS]; /* same, by wheel distance */
     uint32_t         unit = 0U;
+    int32_t          g_res = 255; /* shape read (S3_BC_GEOM) */
+    int32_t          g_best = 0;
+    int32_t          g_err  = 0;
+    int32_t          g_mrg  = 0;
+    int32_t          g_fit  = 0;
+    int32_t          g_ms   = 0;
     s3_line_status_t l;
     uint32_t         seq  = 0U;
     uint32_t         cnt  = 0U;
@@ -672,7 +678,13 @@ int32_t web_debug_barcode(char * p_out, int32_t out_max)
             w[k] = g_s3_bc_dbg_us[k];
             d[k] = g_s3_bc_dbg_pos[k];
         }
-        unit = g_s3_bc_dbg_unit;
+        unit   = g_s3_bc_dbg_unit;
+        g_res  = (int32_t)g_s3_bc_geom_res;
+        g_best = (int32_t)g_s3_bc_geom_best;
+        g_err  = (int32_t)g_s3_bc_geom_err_x100;
+        g_mrg  = (int32_t)g_s3_bc_geom_margin_x100;
+        g_fit  = (int32_t)g_s3_bc_geom_fit;
+        g_ms   = (int32_t)g_s3_bc_geom_ms;
         if (seq == g_s3_bc_dbg_seq)
         {
             break;
@@ -699,9 +711,16 @@ int32_t web_debug_barcode(char * p_out, int32_t out_max)
         }
     }
     /* d: the same elements in encoder counts (L + R, ~0.15 mm each);
-       u: 1 = the decoder used d, 0 = it used w */
+       u: 1 = the decoder used d, 0 = it used w, 2 = shape read;
+       gr..gf: the shape read (subsystem3.h g_s3_bc_geom_*) */
     n = put_str(p_out, n, out_max, "],");
     n = kv(p_out, n, out_max, "u", (int32_t)unit);
+    n = kv(p_out, n, out_max, "gr", g_res);
+    n = kv(p_out, n, out_max, "gb", g_best);
+    n = kv(p_out, n, out_max, "ge", g_err);
+    n = kv(p_out, n, out_max, "gm", g_mrg);
+    n = kv(p_out, n, out_max, "gf", g_fit);
+    n = kv(p_out, n, out_max, "gt", g_ms);
     n = put_str(p_out, n, out_max, "\"d\":[");
     for (k = 0U; k < cnt; k++)
     {

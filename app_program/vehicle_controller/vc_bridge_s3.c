@@ -32,12 +32,14 @@
 #include "../debugging/live_tune.h"
 #include "vc_sm.h"
 #include "../subsystem3/subsystem3.h"
+#include "../subsystem2/subsystem2.h" /* g_s2_odo_ticks */
 
 #ifdef S3_PRI_LINE /* S3's real interface is present */
 
 #define S3_FC_CAL_FAILED 0x3002
 
 static uint32_t g_last_seq;
+static uint32_t g_exec_seq; /* last S3 sample reported during a junction turn */
 static bool     g_b_ready_pending;
 
 #if S2_WEBDEBUG
@@ -257,6 +259,20 @@ bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
              (0u != (line_st.black_mask & (S3_MASK_C | S3_MASK_R))))
     {
         make(p_event, VC_EV_LINE_FOUND, 0, 0, line_st.time_ms);
+        b_event = true;
+    }
+    /* 1c. Junction turn (EXECUTE_ACTION, VC_TURN_END_ON_LINE): C or R on
+       black, once per new S3 sample, with S2's odometer in p2 so the
+       controller can tell how far it has turned. */
+    else if ((VC_ST_EXECUTE_ACTION == state) &&
+             (E_OK == s3_get_line_status(&line_st)) &&
+             (line_st.seq != g_exec_seq) &&
+             (0u != (line_st.black_mask & (S3_MASK_C | S3_MASK_R))))
+    {
+        g_exec_seq = line_st.seq;
+        /* Cast: the odometer is sent as int32 and read back as uint32 */
+        make(p_event, VC_EV_LINE_FOUND, 0, (int32_t)g_s2_odo_ticks,
+             line_st.time_ms);
         b_event = true;
     }
     /* 2. steering, once per new S3 sample, only while S3 owns motion */

@@ -121,7 +121,7 @@
 #define S3_BC_WEAK_SWING_MAX 50
 #define S3_BC_WEAK_HOLD      3
 #ifndef S3_BC_EDGE_FALL_PCT
-#define S3_BC_EDGE_FALL_PCT 25 /* 2026-11-11 MY: try 25 (was 35) for shallow gaps */
+#define S3_BC_EDGE_FALL_PCT 35 /* 2026-11-12 MY: back to 35, matches the 2026-11-11 Z read */
 #endif
 
 /* Digital level the module outputs over BLACK tape.  TUNE: most TCRT5000
@@ -266,6 +266,22 @@
 #ifndef S3_BC_PARTIAL
 #define S3_BC_PARTIAL 1
 #endif
+/* Shape read (2026-11-12): when the full and the partial read both fail,
+   look for the 6 wide bars of "*X*" in the raw L trace (code39_geom.c).
+   It finds the letter even when a thin gap was missed or a bar split,
+   and refuses when two letters fit about equally.  Takes about 0.3 s
+   on the Pico (dashboard shows it; the robot keeps driving slowly).
+   Replayed on the 76 saved dashboard passes: read the 11-11 08:46 Z and
+   the 07:29 A (that one the robot missed), nothing wrong.
+   0 = off (old behaviour). */
+#ifndef S3_BC_GEOM
+#define S3_BC_GEOM 1
+#endif
+/* only for reads with at least this many bars + spaces (6 wide bars and
+   the gaps between them); 1-3 element "reads" are lines and junctions */
+#define S3_BC_GEOM_MIN_ELEMENTS 11u
+/* trace samples (10 ms) before the first bar that the shape read uses */
+#define S3_BC_GEOM_LEAD 50u
 #define S3_BC_MAX_CHARS    (S3_BC_MAX_LETTERS + 2u) /* incl. '*' markers */
 #define S3_BC_MAX_ELEMENTS ((S3_BC_MAX_CHARS * 10u) - 1u)
 #define S3_BC_TEXT_MAX     (S3_BC_MAX_LETTERS + 1u) /* incl. NUL */

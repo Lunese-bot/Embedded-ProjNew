@@ -22,6 +22,7 @@
 #include "vc_sm.h"
 #include "vc_ports.h"
 #include "vc_bridge.h"
+#include "../subsystem2/subsystem2.h" /* g_s2_odo_ticks for TICK p2 */
 
 static vc_sm_t      g_vc_sm; /* the live controller */
 static vc_actions_t g_vc_actions;
@@ -188,6 +189,8 @@ void vehicle_ctrl_task(int32_t stacd, void * p_exinf)
         {
             last_tick    = now;
             tick.time_ms = now;
+            /* Cast: odometer counts, read back as uint32 (junction turns) */
+            tick.p2      = (int32_t)g_s2_odo_ticks;
             handle(&tick, now, false);
         }
 

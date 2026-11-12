@@ -14,6 +14,7 @@
 #define VC_SM_H
 
 #include "vc_types.h"
+#include "../subsystem2/s2_config.h" /* track and tick size for VC_PIVOT_COUNTS */
 
 /* ---------------------------------------------------------------------
  *  Tuning.  Preliminary values: validate on the track (NFR2, NFR5,
@@ -28,6 +29,29 @@
 #define VC_CURVE_SLOW_PERMILLE 600 /* tuned 2026-11-04: U-turn works at 60 % */
 #define VC_CURVE_MIN_MMS       60
 #define VC_TURN_DEG         90  /* barcode LEFT / RIGHT */
+/* Junction turns end on the line (2026-11-12, idea from Group 7's code).
+   The turn ignores the line until it has turned VC_TURN_GATE_DEG (U-turn:
+   VC_UTURN_GATE_DEG), then ends on the first C or R black reading, so a
+   wrong S2_TRACK_MM or wheel slip no longer leaves the robot beside the new
+   arm.  LEFT / RIGHT ask S2 for VC_TURN_MAX_DEG; if no line is seen by then
+   the turn ends there as before.  The angle comes from S2's odometer
+   (g_s2_odo_ticks, L + R counts), sent in TICK and LINE_FOUND events (p2).
+   0 = old fixed VC_TURN_DEG turn.  TUNE the gates on the track. */
+#ifndef VC_TURN_END_ON_LINE
+#define VC_TURN_END_ON_LINE 1
+#endif
+#define VC_TURN_GATE_DEG  60  /* LEFT / RIGHT: line ignored before this */
+#define VC_UTURN_GATE_DEG 150 /* U-turn: skips the side arm at 90 */
+#define VC_TURN_MAX_DEG   135 /* LEFT / RIGHT: turn ends here if no line */
+#if VC_TURN_END_ON_LINE
+#define VC_TURN_CMD_DEG VC_TURN_MAX_DEG
+#else
+#define VC_TURN_CMD_DEG VC_TURN_DEG
+#endif
+/* L + R odometer counts for a pivot of `deg` degrees: the two wheels roll
+   pi x S2_TRACK_MM x deg / 180 mm between them.  90 deg = ~692 counts. */
+#define VC_PIVOT_COUNTS(deg) \
+    ((uint32_t)((S2_PI * S2_TRACK_MM * (float)(deg)) / (180.0f * S2_MM_PER_TICK)))
 #define VC_SEARCH_TURN_DEG  30  /* LOST_LINE attempt 1 (attempt 2: x2) */
 #define VC_SEARCH_BACK_MM   50  /* LOST_LINE attempt 3: reverse */
 
@@ -109,6 +133,9 @@ typedef struct
     uint32_t             junction_stop_ms; /* JUNCTION_STOP: when S2 confirmed the stop */
     uint8_t              junction_stopped; /* JUNCTION_STOP: 1 = standing, holding */
     uint8_t              exec_phase;       /* EXECUTE_ACTION: 1 = advancing before the turn */
+    uint32_t             odo;              /* last S2 odometer (L + R counts) seen in an event */
+    uint32_t             turn_odo0;        /* odometer when the junction turn began */
+    uint32_t             turn_gate;        /* counts before the line may end the turn, 0 = not watching */
     int8_t               lost_side;        /* -1 left, +1 right, 0 unknown */
     navigation_command_t pending_nav;      /* decoded action for next junction */
     char                 pending_barcode[16]; /* full decoded barcode text */

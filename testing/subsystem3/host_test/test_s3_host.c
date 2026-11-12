@@ -12,7 +12,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 #include "code39.h"
+#include "code39_geom.h"
 #include "line_algo.h"
 
 static int g_pass;
@@ -829,6 +831,188 @@ static void test_partial(void)
     CHECK("H-P03", wrong <= 20, "partial: random widths give a letter at most 1 % of the time");
 }
 
+/* ---- shape read (code39_geom.c) on synthetic L traces ---------------- */
+static uint32_t g_gseed = 4242u;
+static int grnd(int m)
+{
+    g_gseed = (g_gseed * 1103515245u) + 12345u;
+    return (int)((g_gseed >> 16) % (uint32_t)m);
+}
+
+/* L trace of "*X*" passing under the sensor: module 18 trace units,
+   5 units per 10 ms sample, edges blurred by sigma modules, white 230,
+   black 2130, +-noise.  fill_gap > 0: that narrow space of the letter is
+   printed grey at fill (0..1) of black; 1 = the two bars run together.
+   Returns samples. */
+static uint32_t gtrace(int letter, double ratio, int rev, double sigma,
+                       int noise, int fill_gap, double fill, uint16_t * p_l,
+                       uint8_t * p_f, int8_t * p_y)
+{
+    static const char * const pat[27] = {
+        "100001001", "001001001", "101001000", "000011001", "100011000",
+        "001011000", "000001101", "100001100", "001001100", "000011100",
+        "100000011", "001000011", "101000010", "000010011", "100010010",
+        "001010010", "000000111", "100000110", "001000110", "000010110",
+        "110000001", "011000001", "111000000", "010010001", "110010000",
+        "011010000", "010010100" };
+    double   w[29], s[16], e[16], g[16], x = 0.0;
+    int      bar[29], n = 0, nb = 0, k, i;
+    uint32_t ns, j;
+
+    for (k = 0; k < 3; k++)
+    {
+        const char * p = pat[(1 == k) ? letter : 26];
+        for (i = 0; i < 9; i++)
+        {
+            w[n]   = ('1' == p[i]) ? ratio : 1.0;
+            bar[n] = (0 == (i % 2));
+            if ((1 == k) && (i == fill_gap) && ('0' == p[i]) && !bar[n])
+            {
+                bar[n] = 2; /* black space: joins its two bars */
+            }
+            n++;
+        }
+        if (k < 2) { w[n] = 1.0; bar[n] = 0; n++; }
+    }
+    for (k = 0; k < n; k++)
+    {
+        int m = rev ? (n - 1 - k) : k;
+        if (bar[m])
+        {
+            s[nb] = x; e[nb] = x + w[m]; g[nb] = (2 == bar[m]) ? fill : 1.0; nb++;
+        }
+        x += w[m];
+    }
+    ns = (uint32_t)((x + 30.0) * 18.0 / 5.0);
+    for (j = 0u; j < ns; j++)
+    {
+        double p = ((double)j * 5.0 / 18.0) - 15.0, m = 0.0;
+        int    v;
+        for (k = 0; k < nb; k++)
+        {
+            m += g[k] * 0.5 * (erf((p - s[k]) / (sigma * sqrt(2.0))) -
+                               erf((p - e[k]) / (sigma * sqrt(2.0))));
+        }
+        m = (m > 1.0) ? 1.0 : m;
+        v = 230 + (int)(1900.0 * m) + grnd((2 * noise) + 1) - noise;
+        p_l[j] = (uint16_t)((v < 0) ? 0 : v);
+        p_f[j] = 5u;
+        p_y[j] = 0;
+    }
+    return ns;
+}
+
+static void test_geom(void)
+{
+    static uint16_t l[C39G_MAX_SAMPLES];
+    static uint8_t  f[C39G_MAX_SAMPLES];
+    static int8_t   y[C39G_MAX_SAMPLES];
+    static const double sig[2] = { 0.25, 0.45 };
+    static const double rat[2] = { 2.5, 3.0 };
+    c39g_info_t info;
+    uint32_t    n;
+    int         ok = 0, wrong = 0, total = 0, a, b, X, rev, t;
+
+    for (a = 0; a < 2; a++)
+    {
+        for (b = 0; b < 2; b++)
+        {
+            for (X = 0; X < 26; X++)
+            {
+                for (rev = 0; rev < 2; rev++)
+                {
+                    n = gtrace(X, rat[b], rev, sig[a], 40, -1, 0.0, l, f, y);
+                    total++;
+                    if (C39G_OK == c39g_decode(l, f, y, n, true, NULL, &info))
+                    {
+                        if ((info.letter == (char)('A' + X)) &&
+                            (info.b_reversed == (rev != 0))) { ok++; }
+                        else { wrong++; }
+                    }
+                }
+            }
+        }
+    }
+    printf("[INFO] shape: %d of %d clean letters read, %d wrong\n", ok, total, wrong);
+    CHECK("H-G01", (total == ok) && (0 == wrong),
+          "shape: A-Z both ways, ratio 2.5/3.0, blur 0.25/0.45 module all read");
+
+    /* a thin gap that only dips part of the way to white: the edge
+       finder can miss it (wrong element count); the shape read should
+       still get the letter.  Then the same gap fully black. */
+    {
+        static const double fills[2] = { 0.6, 1.0 };
+        int fi;
+        for (fi = 0; fi < 2; fi++)
+        {
+            ok = 0; wrong = 0; total = 0;
+            for (X = 0; X < 26; X++)
+            {
+                for (t = 1; t < 9; t += 2) /* each narrow space of the letter */
+                {
+                    n = gtrace(X, 3.0, X % 2, 0.3, 40, t, fills[fi], l, f, y);
+                    total++;
+                    if (C39G_OK == c39g_decode(l, f, y, n, true, NULL, &info))
+                    {
+                        if (info.letter == (char)('A' + X)) { ok++; }
+                        else
+                        {
+                            wrong++;
+                            printf("[INFO]   %c gap %d -> %c err %u margin %u fit %u\n",
+                                   'A' + X, t, info.letter, info.err_x100,
+                                   info.margin_x100, info.fit_x100);
+                        }
+                    }
+                }
+            }
+            printf("[INFO] shape: one gap %d %% filled in: %d of %d read, %d wrong\n",
+                   (int)(fills[fi] * 100.0), ok, total, wrong);
+            if (0 == fi)
+            {
+                CHECK("H-G02", (0 == wrong) && ((ok * 10) >= (total * 4)),
+                      "shape: a shallow thin gap (60 % grey): 40 % still read, none wrong");
+            }
+            else
+            {
+                /* 2026-11-12: 1 of 104 (Z with its 3rd gap black really
+                   looks more like Q).  Real misses are blur, not ink. */
+                CHECK("H-G03", (wrong * 50) <= total,
+                      "shape: a thin gap printed black: at most 2 % wrong");
+            }
+        }
+    }
+
+    n = gtrace(25, 3.0, 0, 0.3, 40, -1, 0.0, l, f, y);
+    CHECK("H-G04", (C39G_OK == c39g_decode(l, NULL, NULL, n, false, NULL, &info)) &&
+                       ('Z' == info.letter),
+          "shape: works by time (no wheel data)");
+
+    for (t = 0; t < 400; t++) { l[t] = (uint16_t)(220 + grnd(30)); f[t] = 5u; y[t] = 0; }
+    CHECK("H-G05", C39G_FEW == c39g_decode(l, f, y, 400u, true, NULL, &info),
+          "shape: plain white gives no letter");
+
+    wrong = 0;
+    for (t = 0; t < 3000; t++)
+    {
+        int black = 0;
+        uint32_t next = (uint32_t)(5 + grnd(40)), j;
+        for (j = 0u; j < 400u; j++)
+        {
+            if (j >= next)
+            {
+                black = !black;
+                next  = j + 2u + (uint32_t)grnd(black ? (3 + (t % 25)) : (3 + (t % 17)));
+            }
+            l[j] = (uint16_t)(230 + (black ? 1900 : 0) + grnd(81) - 40);
+            f[j] = 5u;
+            y[j] = 0;
+        }
+        if (C39G_OK == c39g_decode(l, f, y, 400u, true, NULL, &info)) { wrong++; }
+    }
+    printf("[INFO] shape: %d of 3000 random bar patterns gave a letter\n", wrong);
+    CHECK("H-G06", wrong <= 3, "shape: random bars give a letter at most 0.1 % of the time");
+}
+
 int main(void)
 {
     test_code39();
@@ -836,6 +1020,7 @@ int main(void)
     test_bc_edge();
     test_bc_distance();
     test_partial();
+    test_geom();
     printf("[TEST] subsystem3-host SUMMARY %d passed, %d failed\n", g_pass, g_fail);
     return (0 == g_fail) ? 0 : 1;
 }
