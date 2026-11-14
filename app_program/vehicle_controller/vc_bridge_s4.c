@@ -9,13 +9,15 @@
  *        HUMP_START    -> VC_EV_HUMP_START
  *        HUMP_END      -> VC_EV_HUMP_CLEARED, p1 = peak height (um)
  *        HUMP_ABORT    -> VC_EV_HUMP_CLEARED, p1 = 0
- *        IMPACT        -> VC_EV_IMPACT           (critical: safe stop)
  *        TILT_LIMIT    -> fault 0x4003 at S4's own severity
- *        SAFETY_STOP   -> critical fault 0x4005, cannot be ignored
+ *        SAFETY_STOP   LIFT     -> VC_EV_LIFTED (ends the run: MISSION_COMPLETE,
+ *                                  motors stopped; cannot be ignored)
+ *                      OVERTURN -> critical fault 0x4005, cannot be ignored
+ *        (collision / impact detection was removed: professor's IMU change)
  *        FAULT         -> recoverable fault 0x4001 (S4 retrying, bounded)
  *        FAULT_FATAL   -> NON-CRITICAL fault 0x4002: the IMU is not needed to
  *                         follow the line, so the run continues without
- *                         hump data or impact detection.  TEAM DECISION:
+ *                         hump data.  TEAM DECISION:
  *                         change to VC_FAULT_CRITICAL for a safe stop.
  *        HUMP_PEAK, MOTION, RECOVERED -> not needed by the controller
  *
@@ -89,8 +91,16 @@ static bool map_imu_event(const imu_event_msg_t * p_msg, vc_event_t * p_event)
     switch (p_msg->type)
     {
         case IMU_EVT_SAFETY_STOP:
-            make(p_event, VC_EV_FAULT, VC_FAULT_CRITICAL, S4_FC_SAFETY,
-                 p_msg->time_ms);
+            if (IMU_SAFETY_LIFT == (uint32_t)p_msg->value)
+            {
+                make(p_event, VC_EV_LIFTED, p_msg->value, S4_FC_SAFETY,
+                     p_msg->time_ms);
+            }
+            else
+            {
+                make(p_event, VC_EV_FAULT, VC_FAULT_CRITICAL, S4_FC_SAFETY,
+                     p_msg->time_ms);
+            }
             break;
         case IMU_EVT_CAL_DONE:
             make(p_event, VC_EV_READY, 0, 0, p_msg->time_ms);
@@ -107,9 +117,6 @@ static bool map_imu_event(const imu_event_msg_t * p_msg, vc_event_t * p_event)
             break;
         case IMU_EVT_HUMP_ABORT:
             make(p_event, VC_EV_HUMP_CLEARED, 0, 0, p_msg->time_ms);
-            break;
-        case IMU_EVT_IMPACT:
-            make(p_event, VC_EV_IMPACT, p_msg->value, 0, p_msg->time_ms);
             break;
         case IMU_EVT_TILT_LIMIT:
             make(p_event, VC_EV_FAULT, severity(p_msg->severity), S4_FC_TILT,

@@ -11,6 +11,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "../vc_sm.h"
+#include "../vc_barcode_rules.h"
+#include "../vc_barcode_config.h"
 
 static vc_sm_t      g_sm;
 static vc_actions_t g_actions;
@@ -536,11 +538,12 @@ static void test_faults(void)
     feed(VC_SRC_LINE, VC_EV_FAULT, VC_FAULT_RECOVERABLE, 0x3001);
     CHECK("S6-H28", VC_ST_LOST_LINE == g_sm.st.state,
           "recoverable line fault -> LOST_LINE");
-    feed(VC_SRC_IMU, VC_EV_IMPACT, 0, 0);
+    feed(VC_SRC_IMU, VC_EV_FAULT, VC_FAULT_CRITICAL, 0x4005); /* overturn */
     CHECK("S6-H29",
           (VC_ST_FAULT == g_sm.st.state) && has_move(VC_MOVE_SAFE_STOP, 0, 0) &&
-              has_request(VC_SRC_NONE, VC_REQ_STOP_ALL),
-          "impact -> FAULT, stop all");
+              has_request(VC_SRC_NONE, VC_REQ_STOP_ALL) &&
+              (0x4005 == g_sm.st.last_fault_code),
+          "overturn (critical 0x4005) -> FAULT, stop all");
     feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_FORWARD, 100);
     CHECK("S6-H30", 0 == g_actions.n, "FAULT: no motion accepted");
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
@@ -564,6 +567,174 @@ static void test_faults(void)
           (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
               has_move(VC_MOVE_STOP, 0, 0),
           "end of course -> MISSION_COMPLETE");
+}
+
+
+/* lift ends the run (professor's IMU change; collision detection removed) */
+#define LIFT_CODE 0x4005
+static void feed_lift(void)
+{
+    feed(VC_SRC_IMU, VC_EV_LIFTED, 1, LIFT_CODE);
+}
+
+static int32_t any_move(void)
+{
+    int32_t found = 0;
+
+    for (int32_t idx = 0; idx < g_actions.n; idx++)
+    {
+        if (VC_ACT_MOVE == g_actions.a[idx].kind)
+        {
+            found = 1;
+        }
+    }
+    return found;
+}
+
+static int32_t lift_ends_run_in(vc_state_t target)
+{
+    start_mission();
+    switch (target)
+    {
+        case VC_ST_DECODE_BARCODE:
+            feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
+            break;
+        case VC_ST_JUNCTION_STOP:
+            feed_barcode("TESTLEFT");
+            feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+            break;
+        case VC_ST_LOST_LINE:
+            feed(VC_SRC_LINE, VC_EV_LINE_LOST, 0, 0);
+            break;
+        case VC_ST_AVOID_OBSTACLE:
+            feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
+            break;
+        case VC_ST_TERRAIN_CHECK:
+            feed(VC_SRC_IMU, VC_EV_HUMP_START, 0, 0);
+            break;
+        default:
+            break;
+    }
+    if (target != g_sm.st.state)
+    {
+        return 0;
+    }
+    feed_lift();
+    return (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
+           has_move(VC_MOVE_STOP, 0, 0) &&
+           has_request(VC_SRC_NONE, VC_REQ_STOP_ALL) &&
+           (NAV_NONE == g_sm.pending_nav);
+}
+
+static void test_lift(void)
+{
+    start_mission();
+    CHECK("VC-L01", VC_ST_FOLLOW_LINE == g_sm.st.state, "mission running");
+    feed_lift();
+    CHECK("VC-L02",
+          (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
+              has_move(VC_MOVE_STOP, 0, 0) &&
+              has_request(VC_SRC_NONE, VC_REQ_STOP_ALL) &&
+              (VC_FC_NONE == g_sm.st.last_fault_code),
+          "lift in FOLLOW_LINE -> MISSION_COMPLETE, stop all, no fault");
+    CHECK("VC-L03", lift_ends_run_in(VC_ST_DECODE_BARCODE),
+          "lift while reading a barcode ends the run");
+    CHECK("VC-L04", lift_ends_run_in(VC_ST_JUNCTION_STOP),
+          "lift at a junction ends the run, pending turn dropped");
+    CHECK("VC-L05", lift_ends_run_in(VC_ST_LOST_LINE),
+          "lift while searching for the line ends the run");
+    CHECK("VC-L06", lift_ends_run_in(VC_ST_AVOID_OBSTACLE),
+          "lift while avoiding an obstacle ends the run");
+    CHECK("VC-L07", lift_ends_run_in(VC_ST_TERRAIN_CHECK),
+          "lift on a hump ends the run");
+
+    /* after the lift: motors stay off until Reset then Start */
+    start_mission();
+    feed_lift();
+    feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_FORWARD, 100);
+    CHECK("VC-L08", !any_move(), "after lift: set-down line follow request refused");
+    feed(VC_SRC_LINE, VC_EV_LINE_FOUND, 0, 0);
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
+    feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
+    feed(VC_SRC_IMU, VC_EV_HUMP_START, 0, 0);
+    advance(5000u);
+    CHECK("VC-L09", VC_ST_MISSION_COMPLETE == g_sm.st.state,
+          "after lift: line, junction, obstacle, hump events and time change nothing");
+    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    CHECK("VC-L10", (VC_ST_MISSION_COMPLETE == g_sm.st.state) && !any_move(),
+          "after lift: Start alone does not restart (Reset first)");
+    feed_lift();
+    CHECK("VC-L11", (VC_ST_MISSION_COMPLETE == g_sm.st.state) && (0 == g_actions.n),
+          "second lift while complete: no change, no action");
+    feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
+    CHECK("VC-L12", (VC_ST_IDLE == g_sm.st.state) && has_move(VC_MOVE_RESET, 0, 0),
+          "Reset after lift -> IDLE, motion latch cleared");
+    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    CHECK("VC-L13", VC_ST_MISSION_START == g_sm.st.state,
+          "Start after Reset begins a new mission");
+
+    /* lift outside a running mission */
+    g_now_ms = 0u;
+    vc_sm_init(&g_sm, g_now_ms);
+    feed_lift();
+    CHECK("VC-L14",
+          (VC_ST_IDLE == g_sm.st.state) && !any_move() &&
+              (LIFT_CODE == g_sm.st.last_fault_code) &&
+              (VC_FAULT_CRITICAL == g_sm.st.last_fault_sev),
+          "lift in IDLE: reported critical 0x4005, nothing starts");
+    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    feed_lift();
+    CHECK("VC-L15",
+          (VC_ST_FAULT == g_sm.st.state) &&
+              (LIFT_CODE == g_sm.st.last_fault_code),
+          "lift during self check (mission not running) -> FAULT 0x4005");
+    feed_lift();
+    CHECK("VC-L16", (VC_ST_FAULT == g_sm.st.state) && (0 == g_actions.n),
+          "lift while already in FAULT: stays FAULT, no action");
+}
+
+/* letter configuration (vc_barcode_config.h) */
+static void test_letter_config(void)
+{
+    static const navigation_command_t expect[VC_BARCODE_LETTER_COUNT] = {
+#define VC_EXPECT(letter, nav) nav,
+        VC_BARCODE_LETTER_TABLE(VC_EXPECT)
+#undef VC_EXPECT
+    };
+    int32_t all_match = 1;
+    int32_t not_none = 0;
+    char    text[2] = { 'A', '\0' };
+
+    for (uint32_t i = 0u; i < VC_BARCODE_LETTER_COUNT; i++)
+    {
+        text[0] = (char)('A' + (int)i);
+        if (vc_barcode_lookup(text) != expect[i])
+        {
+            all_match = 0;
+        }
+        if (NAV_NONE != expect[i])
+        {
+            not_none++;
+        }
+    }
+    CHECK("VC-C01", all_match,
+          "every letter A..Z returns the value set in vc_barcode_config.h");
+    CHECK("VC-C02",
+          (NAV_RIGHT == vc_barcode_lookup("Z")) && (1 == not_none),
+          "as shipped: Z = RIGHT, every other letter NONE");
+    CHECK("VC-C03",
+          (NAV_NONE == vc_barcode_lookup("")) &&
+              (NAV_NONE == vc_barcode_lookup("z")) &&
+              (NAV_NONE == vc_barcode_lookup("AA")) &&
+              (NAV_NONE == vc_barcode_lookup("ZZ")) &&
+              (NAV_NONE == vc_barcode_lookup("1")) &&
+              (NAV_NONE == vc_barcode_lookup((const char *)0)),
+          "empty, lower case, longer and unlisted text return NONE");
+    start_mission();
+    feed_barcode("Z");
+    CHECK("VC-C04", NAV_RIGHT == g_sm.pending_nav,
+          "decoded Z becomes a pending RIGHT turn");
 }
 
 /* line search pattern and ownership */
@@ -598,6 +769,8 @@ int main(void)
     test_obstacle();
     test_terrain();
     test_faults();
+    test_lift();
+    test_letter_config();
     test_line_search();
 
     printf("[TEST] vehicle_controller host SUMMARY %d passed, %d failed\n", g_passed,

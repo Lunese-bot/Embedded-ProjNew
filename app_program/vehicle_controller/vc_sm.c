@@ -13,8 +13,8 @@
  *                    --junction--------> JUNCTION_STOP --S2 stopped->
  * EXECUTE_ACTION --manoeuvre_done--> FOLLOW_LINE
  *                    --hump_start------> TERRAIN_CHECK  --cleared-> FOLLOW_LINE
- *                    --end_of_course---> MISSION_COMPLETE
- *        any active state --critical fault / impact / stop--> FAULT --reset-->
+ *                    --end_of_course / lifted---> MISSION_COMPLETE
+ *        any active state --critical fault / stop--> FAULT --reset-->
  * IDLE
  *
  *      Line-loss is ignored in DECODE_BARCODE, EXECUTE_ACTION, TERRAIN_CHECK
@@ -44,7 +44,7 @@ static const char * const g_event_names[VC_EV_COUNT] = {
     "WIFI_UP",       "MANOEUVRE_DONE", "MOTION_STOPPED",  "LINE_LOST",
     "LINE_FOUND",    "JUNCTION",       "BARCODE_START",  "BARCODE_DECODED",
     "BARCODE_FAILED", "END_OF_COURSE", "HUMP_START",     "HUMP_CLEARED",
-    "IMPACT",        "OBSTACLE",       "AVOID_DONE",     "AVOID_FAILED",
+    "LIFTED",        "OBSTACLE",       "AVOID_DONE",     "AVOID_FAILED",
     "TICK"
 };
 
@@ -227,9 +227,10 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
     switch (next)
     {
         case VC_ST_IDLE:
-            if (VC_ST_FAULT == prev)
+            if ((VC_ST_FAULT == prev) || (VC_ST_MISSION_COMPLETE == prev))
             {
-                move(p_out, VC_MOVE_RESET, 0); /* clear S2's latch */
+                /* clear S2's latch (a lift latches it too) */
+                move(p_out, VC_MOVE_RESET, 0);
             }
             move(p_out, VC_MOVE_STOP, 0);
             break;
@@ -443,10 +444,32 @@ static bool handle_common(vc_sm_t * p_sm, const vc_event_t * p_event,
             b_handled = true;
             break;
 
-        case VC_EV_IMPACT:
-            if (b_active)
+        case VC_EV_LIFTED:
+            /* Lift = the end of the run (professor).  A lift while the
+               mission is running goes to MISSION_COMPLETE with motors
+               stopped; it stays there until Reset (then Start).  Before the
+               mission has started (IDLE, MISSION_START) it is reported as a
+               critical fault and starts nothing.  After the run has ended
+               (FAULT, MISSION_COMPLETE) the robot is already stopped. */
+            if (b_active && (VC_ST_MISSION_START != state))
             {
-                go_fault(p_sm, src, VC_FC_IMPACT, now_ms, p_out);
+                p_sm->pending_nav        = NAV_NONE;
+                p_sm->pending_barcode[0] = '\0';
+                enter(p_sm, VC_ST_MISSION_COMPLETE, now_ms, p_out);
+            }
+            else if (b_active)
+            {
+                go_fault(p_sm, src, (uint32_t)p_event->p2, now_ms, p_out);
+            }
+            else if ((VC_ST_FAULT != state) &&
+                     (VC_ST_MISSION_COMPLETE != state))
+            {
+                report(p_sm, p_out, src, VC_FAULT_CRITICAL,
+                       (uint32_t)p_event->p2);
+            }
+            else
+            {
+                /* already stopped: nothing to do */
             }
             b_handled = true;
             break;

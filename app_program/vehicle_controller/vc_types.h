@@ -97,7 +97,10 @@ typedef enum
     /* S4 IMU */
     VC_EV_HUMP_START,   /* hump_detected */
     VC_EV_HUMP_CLEARED, /* p1 = peak height (um), 0 = aborted */
-    VC_EV_IMPACT,       /* collision: critical */
+    VC_EV_LIFTED,       /* robot lifted (S4). p1 = IMU_SAFETY_LIFT, p2 = fault
+                           code to report if no mission is running.  During a
+                           mission this ends the run: MISSION_COMPLETE, motors
+                           stopped.  (Collision detection was removed.) */
 
     /* S5 obstacle */
     VC_EV_OBSTACLE,     /* p1 = distance (mm) */
@@ -126,7 +129,7 @@ typedef enum
 #define VC_FC_SELF_CHECK    0x0002 /* required subsystem not ready */
 #define VC_FC_LINE_RECOVERY 0x0003 /* line not found within limits */
 #define VC_FC_AVOID_FAILED  0x0004
-#define VC_FC_IMPACT        0x0005
+/* 0x0005 was IMPACT: removed (professor's IMU change), do not reuse */
 #define VC_FC_STATE_TIMEOUT 0x0006 /* a state took too long */
 #define VC_FC_BARCODE       0x0007 /* barcode retries used up (non-critical) */
 #define VC_FC_JUNCTION_STOP 0x0008 /* S2 did not confirm stop at junction */

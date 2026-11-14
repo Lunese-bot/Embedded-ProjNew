@@ -9,7 +9,7 @@ run: test_vc_sm test_vc_s3
 	./test_vc_sm
 	./test_vc_s3
 
-test_vc_sm: test_vc_sm.c ../vc_sm.c ../vc_barcode_rules.c ../vc_sm.h ../vc_types.h ../../robot_types.h host_types.h
+test_vc_sm: test_vc_sm.c ../vc_sm.c ../vc_barcode_rules.c ../vc_barcode_config.h ../vc_sm.h ../vc_types.h ../../robot_types.h host_types.h
 	$(CC) $(CFLAGS) -o $@ test_vc_sm.c ../vc_sm.c ../vc_barcode_rules.c
 
 test_vc_s3: test_vc_s3.c ../vc_bridge_s3.c ../vc_bridge.h ../vc_sm.h ../vc_types.h host_types.h ../../subsystem3/subsystem3.h
