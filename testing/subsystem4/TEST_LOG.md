@@ -140,3 +140,20 @@ Hardware acceptance (pending):
    Both motors must remain off. Reboot upright to start the next run.
 5. Try a slow level pickup. Record any misses and false positives from
    normal track bumps; tune thresholds using the accelerometer readings.
+
+### 2026-11-14 notes: professor's IMU change and latch correction (added; old rows above are unchanged)
+
+Source: professor's message, screenshot `/mnt/project-files/requirements/IMU_change_professor_screenshot.png`.
+
+- **Collision detection removed.** Tests S4-U08 (impact spike) and S4-M03 (collision detection) are
+  **superseded**: they test a feature the professor removed. Their old results stand as history
+  but no longer count toward acceptance. `S4_IMPACT_MG` (row in the calibration record) is
+  obsolete once the code is removed.
+- **Lift / overturn is the only IMU stop.** In the demo a lift is the end of the run.
+- **Correction to the 2026-11-11 entry ("Reboot on the floor to begin a new run", acceptance step 4
+  "Reboot upright to start the next run").** Owner decision 2026-11-14: after set-down the motors
+  stay off until an explicit Start or Reset; no reboot is required. The code agrees: the S4 safety
+  stop clears after set-down level and still (`imu_terrain.c`), and S2 keeps its own latch until
+  Start/Reset. The 2026-11-11 wording described an earlier design (inferred). No robot result for
+  this exists yet: hardware acceptance above is still pending.
+- Letter-to-direction meanings are a separate matter (S3/VC configuration file); only Z = right is known.

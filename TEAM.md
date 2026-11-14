@@ -181,7 +181,7 @@ sends to it or waits on it. Agree on the data format before coding.
 | IF-31 | S3 → anyone | shared data under mutex (owned by S3) | `s3_get_line_status()`, `g_mtx_s3_status` | `s3_line_status_t` | |
 | IF-32 | S3 → VC | message buffer (owned by S3) | `g_mbf_s3_events` | `s3_event_t`: line lost/found, junction, barcode start/decoded/failed | |
 | IF-33 | VC → S3 | event flag (owned by S3) | `s3_request()`, `g_flg_s3_req` | `S3_REQ_CALIBRATE`, `_RESET_LINE`, `_BC_ENABLE/DISABLE/REARM` | |
-| IF-S4-1 | S4 → VC | message buffer (owned by S4) | `g_mbf_imu_evt` | `imu_event_msg_t`: hump, impact, tilt, faults (FR8 severity) | |
+| IF-S4-1 | S4 → VC | message buffer (owned by S4) | `g_mbf_imu_evt` | `imu_event_msg_t`: hump, lift/overturn stop, tilt, faults (FR8 severity); no collision event (professor's change 2026-11-14) | |
 | IF-S4-2 | S4 → anyone | shared data under mutex (owned by S4) | `s4_get_status()` | `imu_status_t` | |
 | IF-S4-3 | S2 → S4 | function (owned by S4) | `s4_set_speed_mm_s()` | measured speed every 10 ms, for hump height | |
 | IF-S4-4 | VC → S4 | event flag (owned by S4) | `s4_request_calibration()`, `s4_request_peak_reset()` | requests | |

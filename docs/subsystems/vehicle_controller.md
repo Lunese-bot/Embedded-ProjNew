@@ -55,7 +55,9 @@ the firmware.
   (NFR5). Limits and speeds are first guesses to tune on the track.
 - **Faults** follow FR8: CRITICAL → FAULT (S2 safe stop first, NFR8);
   RECOVERABLE → bounded recovery; NON_CRITICAL (e.g. WiFi down) → reported,
-  navigation continues. FAULT and MISSION_COMPLETE wait for a reset.
+  navigation continues. MISSION_COMPLETE waits for Start or Reset; FAULT waits for Reset.
+  A lift during a mission (`VC_EV_LIFTED`) goes to MISSION_COMPLETE with no fault code; Start or
+  Reset restarts the run (Reset also clears S2's latch). An overturn is FAULT 0x4005 and needs Reset.
 - **Command arbitration** (design review 8.3): a subsystem asks to move with
   `VC_EV_MOVE_REQUEST`. The controller forwards it only if that subsystem owns
   motion in the current state: S3 in FOLLOW_LINE / DECODE / TERRAIN (speed
@@ -73,7 +75,7 @@ that folder still holds the zip's example, so VC builds either way.
 | S1 WiFi/MQTT | `vc_post_event(VC_SRC_COMMS, VC_EV_CMD_START / CMD_STOP / CMD_RESET / WIFI_DOWN / WIFI_UP …)` | fault reports + 200 ms status via `vc_port_report()` / `vc_port_telemetry()` | **stub**: prints, waits for S1's telemetry buffer |
 | S2 Motion | `g_flg_motion`: CMD_DONE → manoeuvre done, FAULT / CMD_TIMEOUT → critical | `s2_cmd_drive/turn/drive_dist/stop/reset`, `s2_emergency_stop` | **bound** (`vc_bridge_s2.c`) |
 | S3 Line + barcode | `g_mbf_s3_events` (lost/found/junction/barcode); steering read from `s3_get_line_status()` every 10 ms | `s3_request(BC_ENABLE / BC_REARM / BC_DISABLE)` | **bound** (`vc_bridge_s3.c`) |
-| S4 IMU | `g_mbf_imu_evt` (calibrated, hump start/end, impact, faults) | `s4_request_calibration()` + `s4_request_peak_reset()` at mission start | **bound** (`vc_bridge_s4.c`) |
+| S4 IMU | `g_mbf_imu_evt` (calibrated, hump start/end, lift/overturn stop, faults; no impact/collision event) | `s4_request_calibration()` + `s4_request_peak_reset()` at mission start | **bound** (`vc_bridge_s4.c`) |
 | S5 Obstacle | `g_mbf_s5_evt` (obstacle, motion requests, line reacquired, failed) | `g_mbf_s5_cmd`: ENABLE / START_AVOID / MOTION_DONE / ABORT / DISABLE | **bound** (`vc_bridge_s5.c`) |
 
 Any subsystem can also read the mission state with `vc_get_status()` or wait
@@ -100,7 +102,7 @@ on `g_flg_vc_state` (one bit per state, plus `VC_FLG_RUNNING`).
   "receiver owns it" rule in TEAM.md, but the adapters handle it, so nothing
   needs to move.
 - **Team decision:** an IMU that dies for good (`IMU_EVT_FAULT_FATAL`) is
-  treated as non-critical (the run continues without hump data or impact
+  treated as non-critical (the run continues without hump data or lift/overturn
   detection). One line in `vc_bridge_s4.c` makes it a safe stop instead.
 
 ## TEAM.md rows to add

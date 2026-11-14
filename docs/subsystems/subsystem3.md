@@ -73,7 +73,11 @@ the controller passes it to motion control.
 - **Barcode symbology.** Code 39 is assumed (the usual choice for this kind
   of course). The barcode-to-command map (`L`/`R`/`S`/`U`) is a placeholder
   in `s3_config.h`. Replace it with the course's real codes.
-- **Which sensor reads barcodes.** The pin table gives IR_L (GP06) to the
+  Letter meanings are not defined by the course (owner, 2026-11-14): they live in a
+  configuration file mapping letter -> junction direction. Only Z = right is known;
+  A..Y have no known meaning.
+- **Which sensor reads barcodes.** The pin table gives IR_L (GP28, moved from GP06 on
+  2026-11-05) to the
   barcode, but FR2 says barcodes are on the right of the track. The
   default is IR_L; change `S3_BC_SENSOR` if it is IR_R.
 - **Line sensors.** The position uses C and R (`S3_LINE_MASK`), because L is
@@ -83,7 +87,7 @@ the controller passes it to motion control.
   (`CNF_TIMER_PERIOD` is 10 ms). That works if the robot slows down over
   the barcode, which is what `BARCODE_START` is for. Better options later:
   measure widths in encoder ticks from subsystem 2, or use a GPIO edge
-  interrupt on GP06.
+  interrupt on GP28.
 - **Sensor polarity and gains.** `S3_IR_BLACK_LEVEL`, `S3_KP_NUM`/`S3_KD_NUM`
   and the debounce counts are first guesses marked `TUNE`.
 - **ADC mode** (`S3_IR_USE_ADC=1`) needs `DEVCONF_ADC_PIN_INIT_0/1 = TRUE`

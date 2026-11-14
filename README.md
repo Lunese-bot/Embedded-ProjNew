@@ -122,8 +122,9 @@ screen /dev/ttyACM0 115200            # Linux
 ```
 
 On Windows, use PuTTY or the VS Code *Serial Monitor* on the new COM port.
-You should see the task reports. Connect an LED with a 330 Ω resistor from
-**GP19** to GND to see subsystem 1's LED blink.
+You should see the task reports. (An earlier version said an LED on **GP19** blinks for
+subsystem 1. No LED code was found in `app_program/subsystem1/`, and TEAM.md lists GP19 as
+free, so that instruction was removed; check the pin table in TEAM.md for current pin use.)
 
 **2.5 Write your own code**
 

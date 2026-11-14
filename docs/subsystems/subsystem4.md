@@ -27,13 +27,28 @@ Copy the folders over the repo with the same paths. They replace the example
 
 | ID | From → To | Mechanism | Object / call | Data |
 |---|---|---|---|---|
-| IF-S4-1 | S4 → Vehicle Controller | message buffer (owned by S4) | `g_mbf_imu_evt` | `imu_event_msg_t`: hump start/peak/end with height, impact, tilt limit, motion change, fault / fatal fault / recovered, with FR8 severity |
+| IF-S4-1 | S4 → Vehicle Controller | message buffer (owned by S4) | `g_mbf_imu_evt` | `imu_event_msg_t`: hump start/peak/end with height, tilt limit, lift/overturn safety stop, motion change, fault / fatal fault / recovered, with FR8 severity. (Collision/impact events are removed, see below.) |
 | IF-S4-2 | S4 → anyone (VC, telemetry) | shared data under mutex (owned by S4) | `s4_get_status()` | `imu_status_t`: pitch, roll, heading, turn rate, state, motion, current / last / max hump height, counts |
 | IF-S4-3 | Motion control (S2) → S4 | function call | `s4_set_speed_mm_s()` | wheel speed in mm/s, used to turn pitch into height (-1 = unknown) |
 | IF-S4-4 | VC / MQTT → S4 | event flag (owned by S4) | `s4_request_calibration()`, `s4_request_peak_reset()` | requests |
 
-S4 never commands the motors. Impact and tilt events are tagged CRITICAL; the Vehicle
-Controller decides on Safe Stop (FR8, review 8.3).
+S4 never commands the motors, except through the lift/overturn interlock below. Tilt and
+lift/overturn events are tagged CRITICAL; the Vehicle Controller decides on Safe Stop (FR8, review 8.3).
+
+**Collision detection is removed (professor's change, 2026-11-14).** The IMU no longer detects
+impacts; no event, fault code or dashboard counter reports a collision, and a hard jolt does not
+stop the mission. Source: professor's message, screenshot at
+`/mnt/project-files/requirements/IMU_change_professor_screenshot.png`.
+
+**Lift / overturn stop (replaces collision detection).** The IMU detects that the robot has been
+lifted off the floor or overturned (`IMU_SAFETY_LIFT` / `IMU_SAFETY_OVERTURN`). Motors stop
+immediately. In the demo a lift is the **end of the run**: during a mission it ends in
+MISSION_COMPLETE with no fault code (the robot follows the line forever and has no other stop).
+Only an overturn, or a lift before the mission starts or during self check, raises the critical
+fault 0x4005. After set-down the motors stay off until an explicit Start or Reset (owner decision,
+2026-11-14); an overturn needs Reset. No reboot is needed. Physical limit: an accelerometer cannot
+see a very slow, level lift (see `testing/subsystem4/TEST_LOG.md`, 2026-11-11 entry).
+
 
 How hump height works: on a slope the forward accelerometer axis reads g·sin(pitch).
 Each 20 ms the robot moves speed × 20 ms, so it climbs that distance × ax/|a|. Summing
@@ -72,7 +87,7 @@ subsystem 2.
 ```
 [HOST] S4-U06 PASS  integer atan2 / sqrt
 [HOST] S4-U07 PASS  30 mm hump
-[HOST] S4-U08 PASS  impact detection
+[HOST] S4-U08 PASS  impact detection   (superseded: collision detection removed, 2026-11-14)
 [HOST] S4-U09 PASS  turn detection
 [HOST] S4-U10 PASS  calibration rejects motion
 height sweep (15 deg ramps, 150 mm/s): 10 mm -> 9.4, 30 mm -> 29.4, 80 mm -> 79.8

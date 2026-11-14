@@ -90,7 +90,7 @@ past test runs.
    or restructured were compiled on a PC in their old and new forms and fed
    identical input:
    * IMU terrain algorithm (S4): 200,000 synthetic samples with humps,
-     impacts, turns and sensor faults. The full status and event stream
+     impacts (since removed), turns and sensor faults. The full status and event stream
      were identical, and so were the self-test results.
    * Vehicle Controller state machine (VC): 2,000,000 random events
      covering every state. The status and action stream were identical.
