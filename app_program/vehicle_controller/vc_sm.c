@@ -934,11 +934,28 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
                 on_terrain_check(p_sm, p_event, type, in_state, now_ms, p_out);
                 break;
             case VC_ST_FAULT:
-            case VC_ST_MISSION_COMPLETE:
-                /* stay stopped until acknowledged */
+                /* stay stopped until Reset (overturn, operator stop, ...) */
                 if (VC_EV_CMD_RESET == type)
                 {
                     enter(p_sm, VC_ST_IDLE, now_ms, p_out);
+                }
+                break;
+            case VC_ST_MISSION_COMPLETE:
+                /* Motors stay off until an explicit Start or Reset (owner,
+                   2026-11-14).  Start acts as Reset then Start: it clears
+                   the S2 latch (via IDLE) and begins a new mission. */
+                if (VC_EV_CMD_RESET == type)
+                {
+                    enter(p_sm, VC_ST_IDLE, now_ms, p_out);
+                }
+                else if (VC_EV_CMD_START == type)
+                {
+                    enter(p_sm, VC_ST_IDLE, now_ms, p_out);
+                    enter(p_sm, VC_ST_MISSION_START, now_ms, p_out);
+                }
+                else
+                {
+                    /* everything else is ignored: stay stopped */
                 }
                 break;
             default:

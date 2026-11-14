@@ -661,9 +661,9 @@ static void test_lift(void)
     advance(5000u);
     CHECK("VC-L09", VC_ST_MISSION_COMPLETE == g_sm.st.state,
           "after lift: line, junction, obstacle, hump events and time change nothing");
-    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     CHECK("VC-L10", (VC_ST_MISSION_COMPLETE == g_sm.st.state) && !any_move(),
-          "after lift: Start alone does not restart (Reset first)");
+          "after lift: nothing but Start or Reset leaves MISSION_COMPLETE");
     feed_lift();
     CHECK("VC-L11", (VC_ST_MISSION_COMPLETE == g_sm.st.state) && (0 == g_actions.n),
           "second lift while complete: no change, no action");
@@ -673,6 +673,37 @@ static void test_lift(void)
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
     CHECK("VC-L13", VC_ST_MISSION_START == g_sm.st.state,
           "Start after Reset begins a new mission");
+
+    /* Start straight after a lift (e.g. MQTT start): Reset then Start */
+    start_mission();
+    feed_lift();
+    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    CHECK("VC-S01",
+          (VC_ST_MISSION_START == g_sm.st.state) &&
+              has_move(VC_MOVE_RESET, 0, 0) &&
+              has_request(VC_SRC_NONE, VC_REQ_SELF_CHECK),
+          "lift then Start: S2 latch reset, new mission starts (self check)");
+    feed(VC_SRC_MOTION, VC_EV_READY, 0, 0);
+    feed(VC_SRC_LINE, VC_EV_READY, 0, 0);
+    feed(VC_SRC_IMU, VC_EV_READY, 0, 0);
+    feed(VC_SRC_OBST, VC_EV_READY, 0, 0);
+    CHECK("VC-S02", VC_ST_FOLLOW_LINE == g_sm.st.state,
+          "lift then Start: mission runs again once subsystems are ready");
+    feed_lift();
+    feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
+    CHECK("VC-S03", VC_ST_IDLE == g_sm.st.state,
+          "lift then Reset still works");
+    feed_lift();
+    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    feed_lift();
+    CHECK("VC-S04", VC_ST_FAULT == g_sm.st.state,
+          "lift again during the new self check -> FAULT 0x4005");
+    /* overturn FAULT stays Reset-first */
+    start_mission();
+    feed(VC_SRC_IMU, VC_EV_FAULT, VC_FAULT_CRITICAL, 0x4005);
+    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    CHECK("VC-S05", VC_ST_FAULT == g_sm.st.state,
+          "overturn FAULT: Start ignored, Reset first");
 
     /* lift outside a running mission */
     g_now_ms = 0u;
