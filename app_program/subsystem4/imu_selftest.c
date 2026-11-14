@@ -119,18 +119,21 @@ int32_t imu_selftest_hump(int32_t height_mm, int32_t * p_peak_um,
            (g_terrain.st.max_peak_um < (height_mm * 1200));  /* +20 % */
 }
 
-int32_t imu_selftest_impact(void)
+/* One 2.5 g single-sample spike (a knock) while cruising: no event of any
+   kind, no safety stop, no hump.  Impact detection no longer exists. */
+int32_t imu_selftest_spike_ignored(void)
 {
     if (!setup())
     {
         return 0;
     }
+    g_ev_all = 0U;
     feed(0, 0, 1000, 300, 0, 50, SPEED_MM_S);
     feed(1200, 0, 2200, 300, 0, 1, SPEED_MM_S); /* ~2.5 g spike */
     feed(0, 0, 1000, 300, 0, 50, SPEED_MM_S);
 
-    return (1U == g_terrain.st.impact_count) &&
-           ((g_ev_all & IMU_EV_IMPACT) != 0U) &&
+    return (0U == (g_ev_all & ~IMU_EV_MOTION_CHANGE)) &&
+           (IMU_SAFETY_NONE == g_terrain.st.safety_stop) &&
            (0U == g_terrain.st.hump_count);
 }
 

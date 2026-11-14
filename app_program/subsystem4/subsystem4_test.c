@@ -75,8 +75,8 @@ void subsystem4_test(void)
                "30 mm synthetic hump measured within 20 %");
     tm_printf((uint8_t *)"[TEST] S4-U07 info: peak %d um, humps %d\n",
               (int32_t)peak_um, (int32_t)humps);
-    TEST_CHECK("S4-U08", 0 != imu_selftest_impact(),
-               "one 2.5 g spike = exactly one impact event");
+    TEST_CHECK("S4-U08", 0 != imu_selftest_spike_ignored(),
+               "one 2.5 g spike raises no event and no stop (impact removed)");
     TEST_CHECK("S4-U09", 0 != imu_selftest_turn(),
                "60 deg/s heading change = TURNING_LEFT");
     TEST_CHECK("S4-U10", 0 != imu_selftest_cal_reject(),

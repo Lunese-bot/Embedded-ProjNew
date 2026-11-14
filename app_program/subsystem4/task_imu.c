@@ -190,10 +190,6 @@ static void report(uint32_t events, const imu_status_t * p_status)
     {
         send_event(IMU_EVT_HUMP_ABORT, IMU_SEV_INFO, 0);
     }
-    if (0U != (events & IMU_EV_IMPACT))
-    {
-        send_event(IMU_EVT_IMPACT, IMU_SEV_CRITICAL, p_status->last_impact_mg);
-    }
     if (0U != (events & IMU_EV_TILT_LIMIT))
     {
         tilt = p_status->pitch_cdeg;
@@ -279,14 +275,13 @@ static void print_status(void)
 {
     /* Cast: the console API takes uint8_t strings and int32_t args. */
     tm_printf((uint8_t *)"imu: %s %s pitch=%d roll=%d hdg=%d rate=%d"
-                         " h=%dum max=%dum humps=%d impacts=%d\n",
+                         " h=%dum max=%dum humps=%d\n",
               imu_state_name(g_terrain.st.state),
               imu_motion_name(g_terrain.st.motion), g_terrain.st.pitch_cdeg,
               g_terrain.st.roll_cdeg, g_terrain.st.heading_cdeg,
               (int32_t)g_terrain.st.turn_rate_cdeg_s,
               (int32_t)g_terrain.st.hump_height_um,
-              (int32_t)g_terrain.st.max_peak_um, g_terrain.st.hump_count,
-              g_terrain.st.impact_count);
+              (int32_t)g_terrain.st.max_peak_um, g_terrain.st.hump_count);
 }
 #endif
 
@@ -330,7 +325,11 @@ static void sample_step(uint32_t ticks)
         }
         else if (0U != g_s2_imu_stop)
         {
-            s2_clear_imu_stop(); /* set down again: Start / Reset works */
+            /* LATCH RULE (owner, 2026-11-14): set-down only re-opens S2's
+               command path.  S2 stays in SAFE_STOP (motors off) and the VC
+               has ended the run, so nothing moves until an explicit Start
+               or Reset.  S4 never commands movement. */
+            s2_clear_imu_stop();
         }
         else
         {

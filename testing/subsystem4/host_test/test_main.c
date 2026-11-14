@@ -631,7 +631,8 @@ int main(void)
 
     check("S4-U06", imu_selftest_math(), "integer atan2 / sqrt");
     check("S4-U07", imu_selftest_hump(30, &peak, &humps), "30 mm hump");
-    check("S4-U08", imu_selftest_impact(), "impact detection");
+    check("S4-U08", imu_selftest_spike_ignored(),
+          "2.5 g spike: no event, no stop (impact removed)");
     check("S4-U09", imu_selftest_turn(), "turn detection");
     check("S4-U10", imu_selftest_cal_reject(), "calibration rejects motion");
     check("S4-U11", test_one_wheel_hump(),

@@ -40,7 +40,7 @@ typedef enum
     IMU_SEV_INFO = 0,    /* hump, motion change: log / telemetry */
     IMU_SEV_NONCRITICAL, /* report, keep navigating */
     IMU_SEV_RECOVERABLE, /* S4 is retrying on its own (bounded) */
-    IMU_SEV_CRITICAL     /* suggests Safe Stop (impact, tilt) */
+    IMU_SEV_CRITICAL     /* suggests Safe Stop (tilt limit) */
 } imu_severity_t;
 
 typedef enum
@@ -51,7 +51,6 @@ typedef enum
     IMU_EVT_HUMP_PEAK,    /* value = height so far, um */
     IMU_EVT_HUMP_END,     /* value = peak height of this hump, um */
     IMU_EVT_HUMP_ABORT,   /* value = 0 */
-    IMU_EVT_IMPACT,       /* value = |a| - 1 g, mg */
     IMU_EVT_TILT_LIMIT,   /* value = pitch cdeg (roll if larger) */
     IMU_EVT_MOTION,       /* value = imu_motion_t */
     IMU_EVT_FAULT,        /* value = kernel error code; retrying */

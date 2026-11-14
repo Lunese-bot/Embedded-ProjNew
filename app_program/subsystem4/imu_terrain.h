@@ -10,8 +10,10 @@
  *         any state -> ERROR (set by the task on I2C/IMU failure)
  *
  *      Motion classes while monitoring: STATIONARY, CRUISING, ACCELERATING,
- *      BRAKING, TURNING_LEFT, TURNING_RIGHT.  Impacts and tilt-limit are
- *      EVENTS: they are reported without breaking hump tracking.
+ *      BRAKING, TURNING_LEFT, TURNING_RIGHT.  Tilt-limit is an EVENT:
+ *      it is reported without breaking hump tracking.  There is NO impact /
+ *      collision detection (removed on the professor's change); the only
+ *      stop S4 raises is lifted / overturned (IMU_EV_SAFETY_STOP).
  *
  *      No kernel calls here: the task (task_imu.c) feeds one sample every
  *      period and publishes the result.  This keeps the algorithm testable
@@ -58,7 +60,8 @@ typedef enum
 #define IMU_EV_HUMP_PEAK     0x0008u /* top of hump reached */
 #define IMU_EV_HUMP_END      0x0010u /* back on level ground; peak valid */
 #define IMU_EV_HUMP_ABORT    0x0020u /* hump timed out, measurement dropped */
-#define IMU_EV_IMPACT        0x0040u /* sudden shock / collision */
+/* 0x0040u was IMU_EV_IMPACT (collision): removed, bit left unused so the
+   other event bits keep their values. */
 #define IMU_EV_TILT_LIMIT    0x0080u /* pitch or roll beyond safe limit */
 #define IMU_EV_MOTION_CHANGE 0x0100u /* motion class changed */
 #define IMU_EV_SAFETY_STOP   0x0200u /* pickup or overturn; clears when set down */
@@ -98,8 +101,6 @@ typedef struct
     int32_t hump_lever_mm;      /* >0: height = lever x sin(tilt); 0 = sum
                                    of distance x sin(pitch) */
 
-    int32_t impact_mg;       /* |a| - 1 g, raw (unfiltered) */
-    int32_t impact_holdoff;  /* samples between impact events */
     int32_t tilt_limit_cdeg; /* pitch/roll safety limit */
 
     int32_t accel_mg;         /* forward accel for ACCEL/BRAKING */
@@ -128,8 +129,6 @@ typedef struct
     int32_t  last_peak_um;   /* peak of the last completed hump */
     int32_t  max_peak_um;    /* highest confirmed hump height, including climb */
     uint16_t hump_count;
-    uint16_t impact_count;
-    int32_t  last_impact_mg; /* size of the last impact */
     uint32_t sample_count;
     uint8_t safety_stop; /* IMU_SAFETY_*; clears after set down level and still */
 } imu_status_t;
@@ -159,7 +158,6 @@ typedef struct
     int32_t in_state; /* samples spent in current hump state */
     int32_t peak_um;  /* running max during this hump */
     int32_t still_cnt;
-    int32_t holdoff;
     uint8_t tilt_latched;
     uint8_t lift_confirm; /* samples in a row near free fall */
     uint8_t overturn_confirm;

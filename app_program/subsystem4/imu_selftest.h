@@ -22,9 +22,9 @@ int32_t imu_selftest_math(void);
 int32_t imu_selftest_hump(int32_t height_mm, int32_t * p_peak_um,
                           int32_t * p_humps);
 
-/* Flat cruising with one 2.5 g spike.  Returns 1 if exactly one impact
-   is reported and no hump. */
-int32_t imu_selftest_impact(void);
+/* Flat cruising with one 2.5 g spike.  Returns 1 if no event, no safety
+   stop and no hump result (impact detection was removed). */
+int32_t imu_selftest_spike_ignored(void);
 
 /* Heading turning at +45 deg/s.  Returns 1 if motion = TURNING_LEFT. */
 int32_t imu_selftest_turn(void);

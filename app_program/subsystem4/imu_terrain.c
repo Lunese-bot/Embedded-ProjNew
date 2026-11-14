@@ -60,8 +60,6 @@ void imu_terrain_default_cfg(imu_cfg_t * p_cfg)
 #else
     p_cfg->hump_lever_mm = 0;
 #endif
-    p_cfg->impact_mg          = S4_IMPACT_MG;
-    p_cfg->impact_holdoff     = S4_IMPACT_HOLDOFF;
     p_cfg->tilt_limit_cdeg    = S4_TILT_LIMIT_CDEG;
     p_cfg->accel_mg           = S4_ACCEL_MG;
     p_cfg->still_mg           = S4_STILL_MG;
@@ -545,29 +543,6 @@ static imu_motion_t classify(imu_terrain_t * p_terrain, int32_t dyn_mg,
     return motion;
 }
 
-/* Step 2: impact check on the RAW magnitude (filtering would hide it) */
-static uint32_t check_impact(imu_terrain_t * p_terrain, int32_t raw_norm)
-{
-    uint32_t events = 0U;
-
-    if (p_terrain->holdoff > 0)
-    {
-        p_terrain->holdoff--;
-    }
-    else if (iabs32(raw_norm - ONE_G_MG) > p_terrain->cfg.impact_mg)
-    {
-        p_terrain->st.impact_count++;
-        p_terrain->st.last_impact_mg = raw_norm - ONE_G_MG;
-        p_terrain->holdoff           = p_terrain->cfg.impact_holdoff;
-        events |= IMU_EV_IMPACT;
-    }
-    else
-    {
-        /* no impact */
-    }
-    return events;
-}
-
 /* Step 3: low-pass filter, then tilt and the tilt-limit latch */
 static uint32_t update_tilt(imu_terrain_t * p_terrain, int32_t acc_x,
                             int32_t acc_y, int32_t acc_z)
@@ -828,10 +803,9 @@ uint32_t imu_terrain_update(imu_terrain_t *      p_terrain,
         acc_y = (int32_t)p_sample->ay_mg - p_terrain->bias[1];
         acc_z = (int32_t)p_sample->az_mg - p_terrain->bias[2];
 
-        /* 2. Impact, 3. tilt, 4. heading */
+        /* 2. (impact check removed), 3. tilt, 4. heading */
         /* Cast: the norm of a +-2 g vector fits int32_t. */
         raw_norm = (int32_t)imu_norm3(acc_x, acc_y, acc_z);
-        events |= check_impact(p_terrain, raw_norm);
         events |= update_tilt(p_terrain, acc_x, acc_y, acc_z);
         update_heading(p_terrain, p_sample);
 

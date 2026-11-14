@@ -73,9 +73,7 @@
 #define S4_NOMINAL_SPEED_MM_S 150  /* used when motion speed unknown */
 #define S4_HUMP_MAX_SPEED_MM_S 500
 
-/* ---- impact / safety ----------------------------------------------- */
-#define S4_IMPACT_MG       900  /* | |a| - 1 g | above this = impact */
-#define S4_IMPACT_HOLDOFF  25   /* 500 ms between impact events */
+/* ---- safety (no impact stop: removed on the professor change) ---------- */
 #define S4_TILT_LIMIT_CDEG 3000 /* 30 deg pitch or roll = unsafe */
 
 /* Additional pickup/overturn stop, always enabled.  Raw samples avoid EMA
