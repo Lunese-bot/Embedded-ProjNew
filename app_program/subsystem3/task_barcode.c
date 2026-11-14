@@ -55,6 +55,9 @@ volatile uint16_t g_s3_bc_geom_margin_x100;
 volatile uint8_t  g_s3_bc_geom_fit;
 volatile uint32_t g_s3_bc_geom_ok;
 volatile uint16_t g_s3_bc_geom_ms;
+volatile uint8_t  g_s3_bc_geom_try;
+volatile char     g_s3_bc_geom_first_best;
+volatile uint32_t g_s3_bc_geom_tie_ovr;
 static uint32_t   g_read_start_idx; /* g_s3_ltrace_idx at BARCODE_START */
 static uint32_t   g_frz_idx;        /* g_s3_ltrace_idx when frozen */
 static uint32_t        g_n_widths;
@@ -322,6 +325,13 @@ static bool shape_read(uint8_t * p_text, uint32_t text_size,
     g_s3_bc_geom_err_x100     = info.err_x100;
     g_s3_bc_geom_margin_x100  = info.margin_x100;
     g_s3_bc_geom_fit          = info.fit_x100;
+    g_s3_bc_geom_try          = info.try_n;
+    g_s3_bc_geom_first_best   = info.first_best;
+    if ((C39G_OK == r) && (2u == info.try_n) &&
+        ((uint8_t)C39G_TIE == info.first_res))
+    {
+        g_s3_bc_geom_tie_ovr++; /* second try named a letter after a tie */
+    }
     if ((C39G_OK == r) && (text_size >= 2U))
     {
         /* Cast: 'A'..'Z' */
@@ -372,6 +382,7 @@ static void decode(void)
             g_s3_ltrace_frz_n = count;
         }
         g_s3_bc_geom_res = 255U; /* not tried */
+        g_s3_bc_geom_try = 0U;
 #if S3_BC_GEOM
         if ((CODE39_OK != res) && (g_n_widths >= S3_BC_GEOM_MIN_ELEMENTS) &&
             shape_read(evt.text, sizeof(evt.text), &b_reversed))

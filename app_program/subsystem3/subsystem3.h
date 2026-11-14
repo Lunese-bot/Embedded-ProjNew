@@ -89,6 +89,12 @@ extern volatile uint16_t g_s3_bc_geom_margin_x100;
 extern volatile uint8_t  g_s3_bc_geom_fit;
 extern volatile uint32_t g_s3_bc_geom_ok; /* letters found by it */
 extern volatile uint16_t g_s3_bc_geom_ms; /* how long it took */
+/* Which shape-read try gave the result (1 half height, 2 near the top,
+   0 none), the first try's best letter, and how many letters came from
+   the second try after the first try called a TIE (review R1). */
+extern volatile uint8_t  g_s3_bc_geom_try;
+extern volatile char     g_s3_bc_geom_first_best;
+extern volatile uint32_t g_s3_bc_geom_tie_ovr;
 /* Wheel position used for barcode widths (S3_BC_DIST_WHEEL), in counts of
    about 0.15 mm; 0 when S3_BC_USE_DIST is off.  task_line.c */
 extern uint32_t s3_bc_pos(void);

@@ -308,40 +308,25 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us)
                                   b_scan || b_hold);
 #if S3_BC_LOCK
         {
-            /* straight and slow from the first bar until past the barcode
-               (the slow speed is applied in vc_bridge_s2.c) */
-            static bc_lock_t       lock;
-            static bc_lock_steer_t ls;
-            static bool            b_init = false;
-            uint32_t               pos    = s3_bc_pos();
+            /* slow from the first bar until past the barcode (the slow
+               speed is applied in vc_bridge_s2.c).  Steering is only
+               changed once the read is confirmed as a barcode, and never
+               while the tracker holds a curve (review R1): see
+               bc_lock_apply() in line_algo.c, host tests H-K11..K14. */
+            static bc_lock_ctl_t       ctl;
+            static bool                b_init = false;
+            static bc_lock_cfg_t const cfg    = {
+                S3_BC_LOCK_FIRST_COUNTS, S3_BC_LOCK_AFTER_COUNTS,
+                S3_BC_LOCK_MAX_COUNTS,   S3_BC_LOCK_SIDE_COUNTS,
+                S3_BC_LOCK_STEER_MAX };
             if (!b_init)
             {
-                bc_lock_reset(&lock);
-                bc_lock_steer_reset(&ls);
+                bc_lock_ctl_reset(&ctl);
                 b_init = true;
             }
-            g_b_s3_bc_lock = bc_lock_step(&lock, g_b_s3_bc_scanning, b_scan,
-                                          pos, S3_BC_LOCK_FIRST_COUNTS,
-                                          S3_BC_LOCK_AFTER_COUNTS,
-                                          S3_BC_LOCK_MAX_COUNTS);
-            if (g_b_s3_bc_lock)
-            {
-                /* still follow the line, gently: only a lasting one-side
-                   black steers (2026-11-12: fully straight drifted off) */
-                int16_t st = bc_lock_steer(&ls, g_tracker.black_mask, pos,
-                                           g_tracker.steering,
-                                           S3_BC_LOCK_SIDE_COUNTS,
-                                           S3_BC_LOCK_STEER_MAX);
-                if (0 == st)
-                {
-                    line_tracker_go_straight(&g_tracker);
-                }
-                g_tracker.steering = st;
-            }
-            else
-            {
-                bc_lock_steer_reset(&ls);
-            }
+            g_b_s3_bc_lock = bc_lock_apply(&ctl, &cfg, &g_tracker,
+                                           g_b_s3_bc_scanning, b_scan,
+                                           s3_bc_pos());
         }
 #endif
     }

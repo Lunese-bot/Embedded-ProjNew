@@ -193,7 +193,8 @@ void line_tracker_go_straight(line_tracker_t * p_trk);
    is drifting off the line).  A bar under both, or the short moment only
    one of them is over a bar edge, gives no steering.  Steering is capped
    at +-max_steer.  Returns the steering to use; when it returns 0 the
-   caller also calls line_tracker_go_straight() so no turn builds up. */
+   caller also calls line_tracker_go_straight() so no turn builds up
+   (bc_lock_apply() below does this, and never while a curve is held). */
 typedef struct
 {
     int8_t   side;     /* -1 C only, +1 R only, 0 none or both */
@@ -204,6 +205,39 @@ void    bc_lock_steer_reset(bc_lock_steer_t * p_s);
 int16_t bc_lock_steer(bc_lock_steer_t * p_s, uint8_t black_mask, uint32_t pos,
                       int16_t steering, uint32_t side_counts,
                       int16_t max_steer);
+
+/*
+ * Lock + tracker glue (review R1, 2026-11-14).  Call once per 10 ms
+ * sample AFTER line_tracker_step().  Returns the lock state (the VC caps
+ * the speed while it is true) and may change p_trk->steering:
+ *   - not locked: tracker untouched;
+ *   - locked, not yet confirmed (no bar + space seen): tracker untouched,
+ *     speed cap only.  A false start on a curve (L sees the line) then
+ *     costs nothing but speed;
+ *   - confirmed, tracker holding a curve (b_hold): tracker untouched, so
+ *     the curve memory keeps turning and is never cleared;
+ *   - confirmed, no curve held: bc_lock_steer() rules; when it gives 0
+ *     the tracker is told to go straight (only bar edges are zeroed).
+ */
+typedef struct
+{
+    bc_lock_t       lock;
+    bc_lock_steer_t steer;
+} bc_lock_ctl_t;
+
+typedef struct
+{
+    uint32_t first_max;   /* S3_BC_LOCK_FIRST_COUNTS */
+    uint32_t after;       /* S3_BC_LOCK_AFTER_COUNTS */
+    uint32_t max_counts;  /* S3_BC_LOCK_MAX_COUNTS   */
+    uint32_t side_counts; /* S3_BC_LOCK_SIDE_COUNTS  */
+    int16_t  max_steer;   /* S3_BC_LOCK_STEER_MAX    */
+} bc_lock_cfg_t;
+
+void bc_lock_ctl_reset(bc_lock_ctl_t * p_c);
+bool bc_lock_apply(bc_lock_ctl_t * p_c, bc_lock_cfg_t const * p_cfg,
+                   line_tracker_t * p_trk, bool b_scan, bool b_bars,
+                   uint32_t pos);
 
 #endif /* LINE_ALGO_H */
 

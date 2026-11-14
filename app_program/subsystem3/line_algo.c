@@ -754,4 +754,41 @@ int16_t bc_lock_steer(bc_lock_steer_t * p_s, uint8_t black_mask, uint32_t pos,
     return steering;
 }
 
+void bc_lock_ctl_reset(bc_lock_ctl_t * p_c)
+{
+    bc_lock_reset(&p_c->lock);
+    bc_lock_steer_reset(&p_c->steer);
+}
+
+bool bc_lock_apply(bc_lock_ctl_t * p_c, bc_lock_cfg_t const * p_cfg,
+                   line_tracker_t * p_trk, bool b_scan, bool b_bars,
+                   uint32_t pos)
+{
+    bool b_lock = bc_lock_step(&p_c->lock, b_scan, b_bars, pos,
+                               p_cfg->first_max, p_cfg->after,
+                               p_cfg->max_counts);
+
+    if ((!b_lock) || (!p_c->lock.b_confirmed) || p_trk->b_hold)
+    {
+        /* free, unconfirmed (speed cap only), or a curve is being held:
+           leave the tracker's steering and its curve memory alone.  The
+           side timer restarts so a held curve is not counted as drift. */
+        bc_lock_steer_reset(&p_c->steer);
+    }
+    else
+    {
+        int16_t st = bc_lock_steer(&p_c->steer, p_trk->black_mask, pos,
+                                   p_trk->steering, p_cfg->side_counts,
+                                   p_cfg->max_steer);
+        if (0 == st)
+        {
+            /* not holding a curve (checked above), so this only drops a
+               turn built up on a bar edge */
+            line_tracker_go_straight(p_trk);
+        }
+        p_trk->steering = st;
+    }
+    return b_lock;
+}
+
 /*** end of file ***/

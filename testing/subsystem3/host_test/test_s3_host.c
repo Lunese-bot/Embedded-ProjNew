@@ -1046,6 +1046,52 @@ static void test_geom(void)
           "shape: strong blur (0.7 module): 90 % read, at most 1 wrong");
 }
 
+/* Which try read the letter is reported (review R1: tie overrides are
+   counted on the robot).  Same 60 % grey gap traces as H-G02. */
+static void test_geom_try(void)
+{
+    static uint16_t l[C39G_MAX_SAMPLES];
+    static uint8_t  f[C39G_MAX_SAMPLES];
+    static int8_t   y[C39G_MAX_SAMPLES];
+    c39g_info_t info;
+    uint32_t    n;
+    int         X, t, n1 = 0, n2 = 0, ties = 0;
+    bool        b_ok = true;
+
+    for (X = 0; X < 26; X++)
+    {
+        for (t = 1; t < 9; t += 2)
+        {
+            n = gtrace(X, 3.0, X % 2, 0.3, 40, t, 0.6, l, f, y);
+            if (C39G_OK == c39g_decode(l, f, y, n, true, NULL, &info))
+            {
+                if (1u == info.try_n)
+                {
+                    n1++;
+                    b_ok = b_ok && ((uint8_t)C39G_OK == info.first_res);
+                }
+                else if (2u == info.try_n)
+                {
+                    n2++;
+                    b_ok = b_ok && ((uint8_t)C39G_OK != info.first_res);
+                    if ((uint8_t)C39G_TIE == info.first_res) { ties++; }
+                }
+                else
+                {
+                    b_ok = false;
+                }
+            }
+        }
+    }
+    printf("[INFO] shape: 60 %% gap: %d letters on try 1, %d on try 2 (%d after a tie)\n",
+           n1, n2, ties);
+    CHECK("H-G08", b_ok && (n2 > 0),
+          "shape: result says which try read it; try 2 only after try 1 gave no letter");
+    b_ok = (C39G_ARG == c39g_decode(NULL, NULL, NULL, 0u, false, NULL, &info)) &&
+           (0u == info.try_n);
+    CHECK("H-G09", b_ok, "shape: bad arguments report try 0");
+}
+
 /* Barcode lock: run a sequence of (pos, scanning, bars) 10 ms samples */
 typedef struct { uint32_t pos; bool scan; bool bars; } lk_s_t;
 
@@ -1170,6 +1216,148 @@ static void test_bc_lock(void)
     }
 }
 
+/* Lock + tracker together (review R1): one 10 ms sample.  pos moves 5
+   counts per sample.  L, C, R are 0 (white) or 1 (black); L also sets
+   l_raw.  scan / bars as barcode_task would set them. */
+static line_tracker_t g_lk_trk;
+static line_tracker_t g_lk_ref; /* same input, no lock: reference */
+static line_params_t  g_lk_p;
+static bc_lock_ctl_t  g_lk_ctl;
+static uint32_t       g_lk_pos;
+static bc_lock_cfg_t const g_lk_cfg = {
+    S3_BC_LOCK_FIRST_COUNTS, S3_BC_LOCK_AFTER_COUNTS, S3_BC_LOCK_MAX_COUNTS,
+    S3_BC_LOCK_SIDE_COUNTS,  S3_BC_LOCK_STEER_MAX };
+
+static void lk_trk_reset(void)
+{
+    line_params_default(&g_lk_p);
+    g_lk_p.kp_num = 4;  /* first nudge 100 */
+    g_lk_p.kd_num = 10; /* +10 per sample: 70 samples -> 800 (hard) */
+    line_tracker_reset(&g_lk_trk);
+    line_tracker_reset(&g_lk_ref);
+    bc_lock_ctl_reset(&g_lk_ctl);
+    g_lk_pos = 1000u;
+}
+
+static bool lk_trk_step(int l, int c, int r, bool scan, bool bars)
+{
+    uint16_t nm[S3_IR_COUNT];
+    nm[S3_IR_L] = (uint16_t)(l ? 1000u : 0u);
+    nm[S3_IR_C] = (uint16_t)(c ? 1000u : 0u);
+    nm[S3_IR_R] = (uint16_t)(r ? 1000u : 0u);
+    g_lk_trk.l_raw = (uint16_t)(l ? 3000u : 200u);
+    g_lk_ref.l_raw = g_lk_trk.l_raw;
+    (void)line_tracker_step(&g_lk_trk, &g_lk_p, nm, bars);
+    (void)line_tracker_step(&g_lk_ref, &g_lk_p, nm, bars);
+    g_lk_pos += 5u;
+    return bc_lock_apply(&g_lk_ctl, &g_lk_cfg, &g_lk_trk, scan, bars, g_lk_pos);
+}
+
+static void test_bc_lock_tracker(void)
+{
+    int     i;
+    bool    b_ok;
+    bool    b_lk;
+    int16_t curve;
+
+    /* (a) left curve: hard left correction, L sees the line and starts a
+       read (no bars yet), C slips off the line: both C and R white. */
+    lk_trk_reset();
+    (void)lk_trk_step(0, 0, 0, false, false);
+    (void)lk_trk_step(0, 0, 0, false, false);
+    for (i = 0; i < 70; i++) { (void)lk_trk_step(0, 1, 0, false, false); }
+    curve = g_lk_trk.steering;
+    b_ok  = (curve <= -S3_STRADDLE_HOLD_MAG);
+    b_lk  = true;
+    for (i = 0; i < 40; i++) /* 200 counts, under FIRST (250) */
+    {
+        b_lk = lk_trk_step(1, 0, 0, true, false) && b_lk;
+        b_ok = b_ok && (g_lk_trk.steering == curve) && g_lk_trk.b_hold;
+    }
+    CHECK("H-K11", b_ok && b_lk,
+          "lock+tracker: false start on a left curve keeps turning left (curve memory kept)");
+
+    /* (b) a lock that is never confirmed changes nothing in the tracker:
+       compare with the same tracker run without the lock, through a
+       curve, a re-entry, the other side and white, until it lets go. */
+    lk_trk_reset();
+    b_ok = true;
+    b_lk = false;
+    for (i = 0; i < 60; i++) { (void)lk_trk_step(0, 1, 0, false, false); }
+    for (i = 0; i < 49; i++) /* one long black under L: 245 counts */
+    {
+        int c = ((i / 12) % 2);       /* C on / off the line */
+        int r = (i > 36) ? 1 : 0;     /* then R */
+        b_lk = lk_trk_step(1, c, r, true, false) || b_lk;
+        b_ok = b_ok && (g_lk_trk.steering == g_lk_ref.steering) &&
+               (g_lk_trk.b_hold == g_lk_ref.b_hold) &&
+               (g_lk_trk.corr_mag == g_lk_ref.corr_mag);
+    }
+    for (i = 0; i < 20; i++) /* past FIRST: lets go */
+    {
+        (void)lk_trk_step(1, 0, 0, true, false);
+        b_ok = b_ok && (g_lk_trk.steering == g_lk_ref.steering);
+    }
+    b_lk = b_lk && !lk_trk_step(0, 0, 0, false, false);
+    CHECK("H-K12", b_ok && b_lk,
+          "lock+tracker: an unconfirmed lock leaves steering and curve memory unchanged");
+
+    /* (c) a CONFIRMED false lock on a curve (L hunts black-white-black):
+       the held curve keeps its sign, and the lock still ends by MAX. */
+    lk_trk_reset();
+    for (i = 0; i < 70; i++) { (void)lk_trk_step(0, 1, 0, false, false); }
+    curve = g_lk_trk.steering;
+    (void)lk_trk_step(1, 0, 0, true, false);
+    b_lk = lk_trk_step(1, 0, 0, true, true); /* bar + space seen */
+    b_ok = b_lk && g_lk_ctl.lock.b_confirmed;
+    for (i = 0; i < 60; i++)
+    {
+        (void)lk_trk_step(i % 2, 0, 0, true, true);
+        b_ok = b_ok && (g_lk_trk.steering == curve) && g_lk_trk.b_hold;
+    }
+    CHECK("H-K13a", b_ok,
+          "lock+tracker: confirmed lock on a curve keeps the held turn (not zeroed)");
+    {
+        uint32_t start = g_lk_pos - (5u * 62u);
+        uint32_t freed = 0u;
+        for (i = 0; i < 2000; i++)
+        {
+            int c = ((i / 30) % 3) == 0; /* line comes back under C now and then */
+            if (!lk_trk_step(i % 2, c, 0, true, true)) { freed = g_lk_pos; break; }
+        }
+        CHECK("H-K13b", (0u != freed) &&
+                            ((freed - start) <= (S3_BC_LOCK_MAX_COUNTS + 10u)),
+              "lock+tracker: a confirmed false lock on a curve still ends by MAX counts");
+    }
+
+    /* (d) a real barcode on a straight, as before: bars under C and R and
+       a short bar edge give 0 and no built-up turn; a lasting C black
+       steers back, capped. */
+    lk_trk_reset();
+    for (i = 0; i < 5; i++) { (void)lk_trk_step(0, 0, 0, false, false); }
+    (void)lk_trk_step(1, 1, 1, true, false);
+    (void)lk_trk_step(0, 0, 0, true, true);
+    b_ok = g_lk_ctl.lock.b_confirmed;
+    for (i = 0; i < 4; i++)
+    {
+        (void)lk_trk_step(1, 1, 1, true, true); /* bar across C and R */
+        b_ok = b_ok && (0 == g_lk_trk.steering);
+    }
+    for (i = 0; i < 3; i++) /* edge: C only for 15 counts */
+    {
+        (void)lk_trk_step(0, 1, 0, true, true);
+        b_ok = b_ok && (0 == g_lk_trk.steering) && (0u == g_lk_trk.corr_count);
+    }
+    (void)lk_trk_step(0, 0, 0, true, true);
+    b_ok = b_ok && (0 == g_lk_trk.steering) && !g_lk_trk.b_hold;
+    CHECK("H-K14a", b_ok,
+          "lock+tracker: confirmed, bars and a short bar edge give no steering");
+    for (i = 0; i < 80; i++) { (void)lk_trk_step(0, 1, 0, true, true); }
+    CHECK("H-K14b", (g_lk_trk.steering < 0) &&
+                        (g_lk_trk.steering >= -S3_BC_LOCK_STEER_MAX),
+          "lock+tracker: confirmed, a lasting C black steers left, capped");
+}
+
 int main(void)
 {
     test_code39();
@@ -1178,7 +1366,9 @@ int main(void)
     test_bc_distance();
     test_partial();
     test_geom();
+    test_geom_try();
     test_bc_lock();
+    test_bc_lock_tracker();
     printf("[TEST] subsystem3-host SUMMARY %d passed, %d failed\n", g_pass, g_fail);
     return (0 == g_fail) ? 0 : 1;
 }

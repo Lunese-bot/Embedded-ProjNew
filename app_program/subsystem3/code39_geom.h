@@ -97,6 +97,10 @@ typedef struct
     uint16_t module_x10; /* module size, trace units x 10                 */
     uint16_t ratio_x100; /* wide:narrow ratio used, x 100                 */
     uint8_t  fit_x100;   /* share of the trace the model explains, %     */
+    uint8_t  try_n;      /* which try gave this result: 1 half height,
+                            2 near the top (C39G_HI_PERMILLE), 0 none  */
+    uint8_t  first_res;  /* c39g_result_t of the first try              */
+    char     first_best; /* first try's best letter (also when refused) */
 } c39g_info_t;
 
 /* Decode one-letter "*X*" from a trace (oldest sample first).

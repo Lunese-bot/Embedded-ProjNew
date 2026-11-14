@@ -828,8 +828,14 @@ c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
     c39g_result_t res;
     bool          b_dist = b_use_dist && (NULL != p_fwd) && (NULL != p_yaw);
 
-    if ((NULL == p_l) || (NULL == p_info) || (n < MIN_MODEL_N) ||
-        (n > C39G_MAX_SAMPLES))
+    if (NULL == p_info)
+    {
+        return C39G_ARG;
+    }
+    p_info->try_n      = 0u;
+    p_info->first_res  = (uint8_t)C39G_ARG;
+    p_info->first_best = 0;
+    if ((NULL == p_l) || (n < MIN_MODEL_N) || (n > C39G_MAX_SAMPLES))
     {
         return C39G_ARG;
     }
@@ -858,6 +864,10 @@ c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
        once more near the top.  The first try's details are kept unless
        the second one reads a letter. */
     res = decode_humps(n, 0, p_yield, p_info);
+    /* Casts: c39g_result_t values fit 8 bits */
+    p_info->try_n      = 1u;
+    p_info->first_res  = (uint8_t)res;
+    p_info->first_best = p_info->best;
 #if (C39G_HI_PERMILLE > 0)
     if ((C39G_OK != res) && (C39G_FEW != res))
     {
@@ -867,8 +877,13 @@ c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
            bars, so the model must explain more of the trace */
         if ((C39G_OK == res_hi) && (hi.fit_x100 >= C39G_HI_MIN_FIT_X100))
         {
-            *p_info = hi;
-            res     = res_hi;
+            /* keep what the first try said (a TIE overridden here is
+               counted on the dashboard, review R1) */
+            hi.try_n      = 2u;
+            hi.first_res  = p_info->first_res;
+            hi.first_best = p_info->first_best;
+            *p_info       = hi;
+            res           = res_hi;
         }
     }
 #endif
