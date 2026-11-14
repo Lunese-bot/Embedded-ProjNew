@@ -631,4 +631,127 @@ uint8_t bc_edge_step_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
     return 1U;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Barcode lock (see line_algo.h)                                     */
+/* ------------------------------------------------------------------ */
+
+void bc_lock_reset(bc_lock_t * p_l)
+{
+    p_l->b_lock      = false;
+    p_l->b_confirmed = false;
+    p_l->b_was_scan  = false;
+    p_l->b_after     = false;
+    p_l->start_pos   = 0U;
+    p_l->read_pos    = 0U;
+    p_l->end_pos     = 0U;
+}
+
+bool bc_lock_step(bc_lock_t * p_l, bool b_scan, bool b_bars, uint32_t pos,
+                  uint32_t first_max, uint32_t after, uint32_t max_counts)
+{
+    if (b_scan && !p_l->b_was_scan)
+    {
+        /* a read has just started (first bar) */
+        if (!p_l->b_lock)
+        {
+            p_l->b_lock      = true;
+            p_l->b_confirmed = false;
+            p_l->start_pos   = pos;
+        }
+        p_l->read_pos = pos;
+        p_l->b_after  = false;
+    }
+    p_l->b_was_scan = b_scan;
+
+    if (p_l->b_lock)
+    {
+        bool b_free = false;
+
+        if (b_scan && b_bars)
+        {
+            p_l->b_confirmed = true;
+        }
+        if (b_scan)
+        {
+            /* Casts: wrapping differences of up-counters */
+            if (!b_bars && !p_l->b_confirmed &&
+                ((uint32_t)(pos - p_l->read_pos) >= first_max))
+            {
+                b_free = true; /* one long black: not a barcode */
+            }
+        }
+        else
+        {
+            if (!p_l->b_after)
+            {
+                p_l->b_after = true;
+                p_l->end_pos = pos;
+            }
+            if (!p_l->b_confirmed ||
+                ((uint32_t)(pos - p_l->end_pos) >= after))
+            {
+                b_free = true;
+            }
+        }
+        if ((uint32_t)(pos - p_l->start_pos) >= max_counts)
+        {
+            b_free = true;
+        }
+        if (b_free)
+        {
+            /* relocks only when the NEXT read starts */
+            p_l->b_lock      = false;
+            p_l->b_confirmed = false;
+            p_l->b_after     = false;
+        }
+    }
+    return p_l->b_lock;
+}
+
+void line_tracker_go_straight(line_tracker_t * p_trk)
+{
+    p_trk->steering   = 0;
+    p_trk->b_hold     = false;
+    p_trk->b_reentry  = false;
+    p_trk->hold_count = 0u;
+    p_trk->corr_count = 0u;
+    p_trk->corr_mag   = 0;
+    p_trk->mem_side   = 0;
+}
+
+void bc_lock_steer_reset(bc_lock_steer_t * p_s)
+{
+    p_s->side     = 0;
+    p_s->side_pos = 0U;
+}
+
+int16_t bc_lock_steer(bc_lock_steer_t * p_s, uint8_t black_mask, uint32_t pos,
+                      int16_t steering, uint32_t side_counts,
+                      int16_t max_steer)
+{
+    bool   b_c  = (0u != (black_mask & S3_MASK_C));
+    bool   b_r  = (0u != (black_mask & S3_MASK_R));
+    int8_t side = (b_c && !b_r) ? -1 : ((b_r && !b_c) ? 1 : 0);
+
+    if (side != p_s->side)
+    {
+        p_s->side     = side;
+        p_s->side_pos = pos;
+    }
+    /* Cast: wrapping difference of an up-counter */
+    if ((0 == side) || ((uint32_t)(pos - p_s->side_pos) < side_counts))
+    {
+        return 0;
+    }
+    if (steering > max_steer)
+    {
+        return max_steer;
+    }
+    if (steering < -max_steer)
+    {
+        return (int16_t)(-max_steer);
+    }
+    return steering;
+}
+
 /*** end of file ***/

@@ -36,6 +36,7 @@
  * --------------------------------------------------------------------- */
 #define S3_PRI_LINE    16 /* line_task:    10 ms, owns IR_L/C/R (+ADC) */
 #define S3_PRI_BARCODE 17 /* barcode_task: event driven, decodes      */
+#define S3_PRI_GEOM    19 /* barcode_task during a shape read (~0.5 s), below imu_task */
 
 /* ---------------------------------------------------------------------
  *  IF-31: line status.  Copy it with s3_get_line_status(); never read
@@ -194,6 +195,9 @@ extern volatile bool    g_b_s3_bc_scanning;   /* barcode_task -> line_task:
    under L with nothing after it is a junction's side arm (or the line on
    a curve), and the junction behind it must still be reported. */
 extern volatile bool    g_b_s3_bc_bars;
+/* line_task -> vehicle controller: barcode lock (S3_BC_LOCK) is on, so
+   drive straight at no more than VC_SPEED_SLOW_MMS */
+extern volatile bool    g_b_s3_bc_lock;
 extern uint32_t         g_s3_line_overruns;   /* line_task diagnostics */
 extern uint32_t         g_s3_line_read_errors;
 extern uint32_t         g_s3_line_wakeups;

@@ -35,6 +35,7 @@
 #include "vc_bridge.h"
 #include "vc_sm.h" /* VC_CURVE_SLOW_PERMILLE */
 #include "../subsystem2/subsystem2.h"
+#include "../subsystem3/subsystem3.h" /* g_b_s3_bc_lock */
 #include "../debugging/live_tune.h"
 
 #ifdef S2_PRI_MOTION /* S2's real interface is present */
@@ -55,10 +56,19 @@ static int32_t  g_speed     = 0;     /* current forward speed, mm/s */
    without a rebuild. */
 static int32_t sent_speed(void)
 {
+    int32_t v = g_speed;
+#if S3_BC_LOCK
+    /* barcode lock: one slow speed over the whole barcode, even if a
+       failed piece of the read put the controller back to cruise */
+    if (g_b_s3_bc_lock && (v > VC_SPEED_SLOW_MMS))
+    {
+        v = VC_SPEED_SLOW_MMS;
+    }
+#endif
 #if S2_WEBDEBUG
-    return (g_speed * g_lt_speed_pct) / 100;
+    return (v * g_lt_speed_pct) / 100;
 #else
-    return g_speed;
+    return v;
 #endif
 }
 /* Spin speed for the controller's turns (line search, barcode turns).  With
@@ -131,6 +141,12 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
                 int32_t slow = g_lt_curve;
 #else
                 int32_t slow = VC_CURVE_SLOW_PERMILLE;
+#endif
+#if S3_BC_LOCK
+                if (g_b_s3_bc_lock)
+                {
+                    slow = 0; /* barcode: one constant speed */
+                }
 #endif
                 mag = (mag > VC_STEER_FULL_SCALE) ? VC_STEER_FULL_SCALE : mag;
                 fwd = base - ((base * slow / 1000) * mag) / VC_STEER_FULL_SCALE;

@@ -157,6 +157,54 @@ uint8_t bc_edge_step_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
                          uint32_t pos, int32_t swing, int32_t floor,
                          uint32_t * p_edge_us, uint32_t * p_edge_pos);
 
+/*
+ * Barcode lock (S3_BC_LOCK, MY 2026-11-12): from the first bar of a
+ * barcode until the robot is past it, drive straight at one slow speed
+ * instead of steering (and slowing for "curves") at every bar.
+ *   - locks when a read starts (barcode_task's first bar);
+ *   - lets go if no second bar comes within first_max counts (one long
+ *     black is a junction arm or the line on a curve, not a barcode);
+ *   - after a read ends, stays locked for `after` counts, so the next
+ *     piece of the same barcode is read at the same speed;
+ *   - never longer than max_counts in one go.
+ * pos: wheel counts that only go up (s3_bc_pos()).
+ */
+typedef struct
+{
+    bool     b_lock;      /* drive straight and slow now               */
+    bool     b_confirmed; /* a read in this lock saw bar + space        */
+    bool     b_was_scan;
+    bool     b_after;     /* read over, counting `after`                */
+    uint32_t start_pos;   /* where this lock began                      */
+    uint32_t read_pos;    /* where the current read began               */
+    uint32_t end_pos;     /* where the last read ended                  */
+} bc_lock_t;
+
+void bc_lock_reset(bc_lock_t * p_l);
+/* One 10 ms step; returns p_l->b_lock */
+bool bc_lock_step(bc_lock_t * p_l, bool b_scan, bool b_bars, uint32_t pos,
+                  uint32_t first_max, uint32_t after, uint32_t max_counts);
+
+/* Steer straight this sample and forget any turn being built up */
+void line_tracker_go_straight(line_tracker_t * p_trk);
+
+/* While the barcode lock is on, keep following the line, but only when
+   ONE of C / R has been black for side_counts of travel (the robot really
+   is drifting off the line).  A bar under both, or the short moment only
+   one of them is over a bar edge, gives no steering.  Steering is capped
+   at +-max_steer.  Returns the steering to use; when it returns 0 the
+   caller also calls line_tracker_go_straight() so no turn builds up. */
+typedef struct
+{
+    int8_t   side;     /* -1 C only, +1 R only, 0 none or both */
+    uint32_t side_pos; /* where that started                   */
+} bc_lock_steer_t;
+
+void    bc_lock_steer_reset(bc_lock_steer_t * p_s);
+int16_t bc_lock_steer(bc_lock_steer_t * p_s, uint8_t black_mask, uint32_t pos,
+                      int16_t steering, uint32_t side_counts,
+                      int16_t max_steer);
+
 #endif /* LINE_ALGO_H */
 
 /*** end of file ***/

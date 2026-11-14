@@ -251,9 +251,22 @@ static code39_result_t try_decode(uint8_t * p_text, uint32_t text_size,
 }
 
 #if S3_BC_GEOM
+static SYSTIM g_geom_slice; /* when shape_read last let others run */
+
+/* Called often by c39g_decode.  Sleeps (lets the tasks below
+   S3_PRI_GEOM run) only after S3_BC_GEOM_SLICE_MS of running: one
+   tk_dly_tsk(1) takes up to 2 kernel ticks (10-20 ms here), so sleeping
+   on every call made a refused read take ~1.6 s (2026-11-12 logs). */
 static void geom_yield(void)
 {
-    (void)tk_dly_tsk(1); /* let lower-priority tasks run meanwhile */
+    SYSTIM now;
+
+    tk_get_tim(&now);
+    if ((uint32_t)(now.lo - g_geom_slice.lo) >= S3_BC_GEOM_SLICE_MS)
+    {
+        (void)tk_dly_tsk(1);
+        tk_get_tim(&g_geom_slice);
+    }
 }
 
 /* S3_BC_GEOM: the element list did not decode; look for the wide bars of
@@ -272,6 +285,11 @@ static bool shape_read(uint8_t * p_text, uint32_t text_size,
     SYSTIM        t1;
 
     tk_get_tim(&t0);
+    g_geom_slice = t0;
+    /* run below imu_task (18) while this long job runs, so the IMU keeps
+       its 20 ms rhythm without this task having to sleep often.
+       19 is in S4's band (18-19, TEAM.md) but S4 only uses 18 */
+    (void)tk_chg_pri(TSK_SELF, S3_PRI_GEOM);
     /* the bars are over: let line_task look for junctions again (its
        after-read hold still covers the last bars) while this runs */
     g_b_s3_bc_bars = false;
@@ -294,6 +312,7 @@ static bool shape_read(uint8_t * p_text, uint32_t text_size,
                     (const uint8_t *)&g_s3_ltrace_frz_fwd[off],
                     (const int8_t *)&g_s3_ltrace_frz_yaw[off], count - off,
                     b_dist, geom_yield, &info);
+    (void)tk_chg_pri(TSK_SELF, S3_PRI_BARCODE);
     tk_get_tim(&t1);
     /* Cast: well under a minute */
     g_s3_bc_geom_ms = (uint16_t)(t1.lo - t0.lo);

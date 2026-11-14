@@ -21,6 +21,10 @@
 #define PARTIAL_END_SLACK   2u      /* stray elements allowed past a '*' */
 #define PARTIAL_CHAR_TOL_PCT  10u   /* '*' and letter widths may differ by */
 #define PARTIAL_OTHER_TOL_PCT 12u   /* damaged '*' still 15 units, +- */
+/* ... but it may be up to this much SHORT: the read started a bar late
+   (2026-11-12 09:51:54 pass: the first narrow bar and the wide space
+   after it were missing, the damaged '*' was 18 % short; *A* clean) */
+#define PARTIAL_OTHER_SHORT_PCT 25u
 #define PARTIAL_MIN_EL_PCT    50u   /* thinnest element vs one unit */
 #define PARTIAL_MIN_RATIO_X10 18u   /* thick at least 1.8 x thin */
 
@@ -439,7 +443,7 @@ partial_widths_ok (uint32_t const * p_widths, uint32_t count, bool reverse,
        PARTIAL_END_SLACK stray elements at the far end. */
     {
         uint32_t unit15 = ((a + b) * 15u) / 30u;
-        uint32_t lo     = (unit15 * (100u - PARTIAL_OTHER_TOL_PCT)) / 100u;
+        uint32_t lo     = (unit15 * (100u - PARTIAL_OTHER_SHORT_PCT)) / 100u;
         uint32_t hi     = (unit15 * (100u + PARTIAL_OTHER_TOL_PCT)) / 100u;
         uint32_t first  = star_first ? (k + (2u * CHAR_PITCH)) : 0u;
         uint32_t last   = star_first ? count : ((k > 0u) ? (k - 1u) : 0u);

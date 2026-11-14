@@ -306,6 +306,44 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us)
         b_was = b_scan;
         evt   = line_tracker_step(&g_tracker, &g_params, norm,
                                   b_scan || b_hold);
+#if S3_BC_LOCK
+        {
+            /* straight and slow from the first bar until past the barcode
+               (the slow speed is applied in vc_bridge_s2.c) */
+            static bc_lock_t       lock;
+            static bc_lock_steer_t ls;
+            static bool            b_init = false;
+            uint32_t               pos    = s3_bc_pos();
+            if (!b_init)
+            {
+                bc_lock_reset(&lock);
+                bc_lock_steer_reset(&ls);
+                b_init = true;
+            }
+            g_b_s3_bc_lock = bc_lock_step(&lock, g_b_s3_bc_scanning, b_scan,
+                                          pos, S3_BC_LOCK_FIRST_COUNTS,
+                                          S3_BC_LOCK_AFTER_COUNTS,
+                                          S3_BC_LOCK_MAX_COUNTS);
+            if (g_b_s3_bc_lock)
+            {
+                /* still follow the line, gently: only a lasting one-side
+                   black steers (2026-11-12: fully straight drifted off) */
+                int16_t st = bc_lock_steer(&ls, g_tracker.black_mask, pos,
+                                           g_tracker.steering,
+                                           S3_BC_LOCK_SIDE_COUNTS,
+                                           S3_BC_LOCK_STEER_MAX);
+                if (0 == st)
+                {
+                    line_tracker_go_straight(&g_tracker);
+                }
+                g_tracker.steering = st;
+            }
+            else
+            {
+                bc_lock_steer_reset(&ls);
+            }
+        }
+#endif
     }
 #if S2_WEBDEBUG
     /* dashboard "Steering correction": 1 = hold straight while a barcode

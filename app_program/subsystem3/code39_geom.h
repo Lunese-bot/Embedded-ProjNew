@@ -58,6 +58,19 @@
 #define C39G_FLOOR_SAMPLES 40
 /* A hump must rise this far above the floor (raw ADC) to count at all */
 #define C39G_MIN_HUMP 250
+/* Second try when the half-height humps give no letter: humps above
+   this many 1/1000 of the darkest point (0 = no second try).  On the
+   2026-11-12 robot passes the thin white gaps only came back to about
+   1000-2000 of 3800, so at half height whole groups of bars ran into one
+   hump; at 0.7-0.9 of the top only the saturated wide bars are left. */
+#ifndef C39G_HI_PERMILLE
+#define C39G_HI_PERMILLE 800
+#endif
+/* ... and that second try must explain at least this many percent of
+   the trace (C39G_MIN_FIT_X100 is for the first try) */
+#ifndef C39G_HI_MIN_FIT_X100
+#define C39G_HI_MIN_FIT_X100 55
+#endif
 
 typedef enum
 {

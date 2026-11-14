@@ -269,10 +269,12 @@
 /* Shape read (2026-11-12): when the full and the partial read both fail,
    look for the 6 wide bars of "*X*" in the raw L trace (code39_geom.c).
    It finds the letter even when a thin gap was missed or a bar split,
-   and refuses when two letters fit about equally.  Takes about 0.3 s
-   on the Pico (dashboard shows it; the robot keeps driving slowly).
+   and refuses when two letters fit about equally.  The dashboard shows
+   how long it took (1.6 s on 11-12 because it slept a tick ~80 times;
+   now it sleeps once per S3_BC_GEOM_SLICE_MS of work).
    Replayed on the 76 saved dashboard passes: read the 11-11 08:46 Z and
-   the 07:29 A (that one the robot missed), nothing wrong.
+   the 07:29 A (that one the robot missed), nothing wrong.  On the 11-12
+   logs it reads the 08:54:41 pass as A on its second, near-the-top try.
    0 = off (old behaviour). */
 #ifndef S3_BC_GEOM
 #define S3_BC_GEOM 1
@@ -282,6 +284,11 @@
 #define S3_BC_GEOM_MIN_ELEMENTS 11u
 /* trace samples (10 ms) before the first bar that the shape read uses */
 #define S3_BC_GEOM_LEAD 50u
+/* Shape read: longest stretch (ms) it runs before sleeping one tick to
+   let the tasks below S3_PRI_GEOM run (the S5 tasks, 20-21) */
+#ifndef S3_BC_GEOM_SLICE_MS
+#define S3_BC_GEOM_SLICE_MS 100u
+#endif
 #define S3_BC_MAX_CHARS    (S3_BC_MAX_LETTERS + 2u) /* incl. '*' markers */
 #define S3_BC_MAX_ELEMENTS ((S3_BC_MAX_CHARS * 10u) - 1u)
 #define S3_BC_TEXT_MAX     (S3_BC_MAX_LETTERS + 1u) /* incl. NUL */
@@ -327,6 +334,35 @@
    reported as a JUNCTION.  270 counts ~40 mm.  0 = off. */
 #define S3_BC_AFTER_HOLD_COUNTS 270u
 #define S3_BC_QUIET_STOP_MS  3000
+
+/* Barcode lock (MY 2026-11-12): from the first bar until past the barcode,
+   drive straight at the slow barcode speed (VC_SPEED_SLOW_MMS) instead of
+   steering, and slowing for a "curve", at every bar.  Before this each bar
+   under C or R gave a steering kick plus a curve slow-down, and each
+   failed piece of a read sent the robot back to cruise speed: jerky, and
+   the L sensor slid off the bars.  Wheel counts (~0.15 mm each).
+   0 = off (old behaviour). */
+#ifndef S3_BC_LOCK
+#define S3_BC_LOCK 1
+#endif
+/* no 2nd bar this far after the 1st: a junction arm or the line, let go
+   (~37 mm; big print's 1st bar + wide space is ~25 mm) */
+#define S3_BC_LOCK_FIRST_COUNTS 250u
+/* after a read ends, stay locked this much further (~40 mm), so the next
+   piece of the same barcode is not read at cruise speed */
+#define S3_BC_LOCK_AFTER_COUNTS S3_BC_AFTER_HOLD_COUNTS
+/* never drive blind for longer than this (~440 mm; big print *A* is
+   ~291 mm) */
+#define S3_BC_LOCK_MAX_COUNTS   3000u
+/* Line following during the lock (2026-11-12: fully straight drifted off
+   the line): steer only once ONE of C / R has stayed black for this much
+   travel (~3 mm; a bar edge under one sensor is shorter), and never harder
+   than S3_BC_LOCK_STEER_MAX (of 1000).  No curve slow-down while locked. */
+#define S3_BC_LOCK_SIDE_COUNTS  20u
+#define S3_BC_LOCK_STEER_MAX    500
+#if (S3_BC_LOCK && !S3_BC_USE_DIST)
+#error "S3_BC_LOCK needs S3_BC_USE_DIST (wheel counts)"
+#endif
 
 /* End the read as soon as the bars seen so far decode with a '*' at both
    ends, instead of waiting S3_BC_QUIET_MIN_MS of white.  Junctions are

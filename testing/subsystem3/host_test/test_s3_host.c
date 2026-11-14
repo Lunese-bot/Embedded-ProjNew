@@ -1011,6 +1011,163 @@ static void test_geom(void)
     }
     printf("[INFO] shape: %d of 3000 random bar patterns gave a letter\n", wrong);
     CHECK("H-G06", wrong <= 3, "shape: random bars give a letter at most 0.1 % of the time");
+
+    /* strong blur (0.7 module, like the 11-12 robot passes: thin white
+       gaps only come back half way): the half-height humps merge, the
+       second try near the top of the wide bars must read them.  Before
+       that try: 1 of 104. */
+    ok = 0; wrong = 0; total = 0;
+    for (b = 0; b < 2; b++)
+    {
+        for (X = 0; X < 26; X++)
+        {
+            for (rev = 0; rev < 2; rev++)
+            {
+                n = gtrace(X, rat[b], rev, 0.7, 40, -1, 0.0, l, f, y);
+                total++;
+                if (C39G_OK == c39g_decode(l, f, y, n, true, NULL, &info))
+                {
+                    if ((info.letter == (char)('A' + X)) &&
+                        (info.b_reversed == (rev != 0))) { ok++; }
+                    else
+                    {
+                        wrong++;
+                        printf("[INFO]   %c%s -> %c\n", 'A' + X, rev ? " (rev)" : "",
+                               info.letter);
+                    }
+                }
+            }
+        }
+    }
+    printf("[INFO] shape: blur 0.7 module: %d of %d read, %d wrong\n", ok, total, wrong);
+    /* the one wrong (U backwards read as R) is from the first try and
+       was there before the second try was added */
+    CHECK("H-G07", ((ok * 10) >= (total * 9)) && (wrong <= 1),
+          "shape: strong blur (0.7 module): 90 % read, at most 1 wrong");
+}
+
+/* Barcode lock: run a sequence of (pos, scanning, bars) 10 ms samples */
+typedef struct { uint32_t pos; bool scan; bool bars; } lk_s_t;
+
+/* steps pos from a to b (step 5 counts), returns lock state at each end */
+static bool lk_run(bc_lock_t * p_l, uint32_t a, uint32_t b, bool scan,
+                   bool bars, bool * p_all_locked, bool * p_any_locked)
+{
+    uint32_t pos;
+    bool     b_l = false;
+    *p_all_locked = true;
+    *p_any_locked = false;
+    for (pos = a; pos < b; pos += 5u)
+    {
+        b_l = bc_lock_step(p_l, scan, bars, pos, S3_BC_LOCK_FIRST_COUNTS,
+                           S3_BC_LOCK_AFTER_COUNTS, S3_BC_LOCK_MAX_COUNTS);
+        *p_all_locked = *p_all_locked && b_l;
+        *p_any_locked = *p_any_locked || b_l;
+    }
+    return b_l;
+}
+
+static void test_bc_lock(void)
+{
+    bc_lock_t l;
+    bool      all, any, all2, any2;
+    uint32_t  a = S3_BC_LOCK_AFTER_COUNTS;
+
+    /* a whole barcode: 1st bar at 0, 2nd element from 60, read ends at 900 */
+    bc_lock_reset(&l);
+    (void)lk_run(&l, 0u, 60u, true, false, &all, &any);
+    (void)lk_run(&l, 60u, 900u, true, true, &all2, &any2);
+    all = all && all2;
+    (void)lk_run(&l, 900u, 900u + a - 10u, false, false, &all2, &any2);
+    all = all && all2;
+    (void)lk_run(&l, 900u + a + 10u, 2000u, false, false, &all2, &any2);
+    CHECK("H-K01", all && !any2,
+          "lock: straight from the 1st bar to AFTER counts past the end, then free");
+
+    /* one long black (line on a curve, junction arm): free after FIRST */
+    bc_lock_reset(&l);
+    (void)lk_run(&l, 0u, S3_BC_LOCK_FIRST_COUNTS - 10u, true, false, &all, &any);
+    (void)lk_run(&l, S3_BC_LOCK_FIRST_COUNTS + 10u, 1500u, true, false, &all2, &any2);
+    CHECK("H-K02", all && !any2,
+          "lock: one long black lets go after FIRST counts and stays free");
+
+    /* ... and the next real read locks again */
+    (void)lk_run(&l, 1500u, 1510u, false, false, &all2, &any2);
+    (void)lk_run(&l, 1600u, 1700u, true, true, &all, &any);
+    CHECK("H-K03", all, "lock: the next read locks again");
+
+    /* a read that fails half way and a second piece right after it: one
+       continuous lock (no speed-up between the pieces) */
+    bc_lock_reset(&l);
+    (void)lk_run(&l, 0u, 400u, true, true, &all, &any);
+    (void)lk_run(&l, 400u, 400u + (a / 2u), false, false, &all2, &any2);
+    all = all && all2;
+    (void)lk_run(&l, 400u + (a / 2u), 900u, true, false, &all2, &any2);
+    all = all && all2;
+    (void)lk_run(&l, 900u, 900u + a - 10u, false, false, &all2, &any2);
+    all = all && all2;
+    CHECK("H-K04", all, "lock: two pieces of one barcode stay locked throughout");
+
+    /* never longer than MAX */
+    bc_lock_reset(&l);
+    (void)lk_run(&l, 0u, S3_BC_LOCK_MAX_COUNTS - 10u, true, true, &all, &any);
+    (void)lk_run(&l, S3_BC_LOCK_MAX_COUNTS + 10u, S3_BC_LOCK_MAX_COUNTS + 500u,
+                 true, true, &all2, &any2);
+    CHECK("H-K05", all && !any2, "lock: let go after MAX counts at most");
+
+    /* one bar only (no space after it before the read ends): free at once */
+    bc_lock_reset(&l);
+    (void)lk_run(&l, 0u, 50u, true, false, &all, &any);
+    (void)lk_run(&l, 50u, 60u, false, false, &all2, &any2);
+    CHECK("H-K06", all && !any2, "lock: a lone bar with no space after it lets go when the read ends");
+
+    /* following the line while locked */
+    {
+        bc_lock_steer_t ls;
+        int16_t         st = 0;
+        uint32_t        pos;
+        bool            b_zero = true;
+
+        bc_lock_steer_reset(&ls);
+        for (pos = 0u; pos < 200u; pos += 4u) /* bar under C and R */
+        {
+            st = bc_lock_steer(&ls, (uint8_t)(S3_MASK_C | S3_MASK_R), pos, 900,
+                               S3_BC_LOCK_SIDE_COUNTS, S3_BC_LOCK_STEER_MAX);
+            b_zero = b_zero && (0 == st);
+        }
+        for (pos = 200u; pos < 200u + S3_BC_LOCK_SIDE_COUNTS; pos += 4u)
+        {
+            /* bar edge: only C for less than SIDE counts */
+            st = bc_lock_steer(&ls, (uint8_t)S3_MASK_C, pos, -900,
+                               S3_BC_LOCK_SIDE_COUNTS, S3_BC_LOCK_STEER_MAX);
+            b_zero = b_zero && (0 == st);
+        }
+        CHECK("H-K08", b_zero, "lock steer: a bar, and one sensor briefly on a bar edge, give no steering");
+        for (pos = 300u; pos < 400u; pos += 4u) /* C stays black: drifting */
+        {
+            st = bc_lock_steer(&ls, (uint8_t)S3_MASK_C, pos, -900,
+                               S3_BC_LOCK_SIDE_COUNTS, S3_BC_LOCK_STEER_MAX);
+        }
+        CHECK("H-K09", -S3_BC_LOCK_STEER_MAX == st,
+              "lock steer: C black for longer steers back, capped");
+        for (pos = 400u; pos < 500u; pos += 4u)
+        {
+            st = bc_lock_steer(&ls, (uint8_t)S3_MASK_R, pos, 120,
+                               S3_BC_LOCK_SIDE_COUNTS, S3_BC_LOCK_STEER_MAX);
+        }
+        CHECK("H-K10", 120 == st, "lock steer: R black for longer steers the other way");
+    }
+
+    /* straight: the tracker forgets its turn */
+    {
+        line_tracker_t t;
+        line_tracker_reset(&t);
+        t.steering = 700; t.corr_count = 9u; t.corr_mag = 300; t.b_hold = true;
+        line_tracker_go_straight(&t);
+        CHECK("H-K07", (0 == t.steering) && (0u == t.corr_count) &&
+                           (0 == t.corr_mag) && !t.b_hold,
+              "lock: go_straight clears the steering and the turn memory");
+    }
 }
 
 int main(void)
@@ -1021,6 +1178,7 @@ int main(void)
     test_bc_distance();
     test_partial();
     test_geom();
+    test_bc_lock();
     printf("[TEST] subsystem3-host SUMMARY %d passed, %d failed\n", g_pass, g_fail);
     return (0 == g_fail) ? 0 : 1;
 }

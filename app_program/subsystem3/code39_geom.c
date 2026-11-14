@@ -410,9 +410,11 @@ static void fill_floor(const uint16_t * p_l, uint32_t n, int32_t fr16)
     }
 }
 
-c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
-                          const int8_t * p_yaw, uint32_t n, bool b_use_dist,
-                          void (*p_yield)(void), c39g_info_t * p_info)
+/* Steps 2-7 on g_sig / g_pos.  hi_permille 0: humps at half the 6th
+   highest; otherwise at hi_permille / 1000 of the darkest point. */
+static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
+                                  void (*p_yield)(void),
+                                  c39g_info_t * p_info)
 {
     int32_t  top6[N_WIDE];
     int32_t  thr2;
@@ -433,13 +435,7 @@ c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
     uint32_t n_riv = 0u;
     int32_t  base;
     double   margin;
-    bool     b_dist = b_use_dist && (NULL != p_fwd) && (NULL != p_yaw);
 
-    if ((NULL == p_l) || (NULL == p_info) || (n < MIN_MODEL_N) ||
-        (n > C39G_MAX_SAMPLES))
-    {
-        return C39G_ARG;
-    }
     p_info->letter      = 0;
     p_info->best        = 0;
     p_info->runner      = '-';
@@ -450,26 +446,6 @@ c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
     p_info->module_x10  = 0u;
     p_info->ratio_x100  = 0u;
     p_info->fit_x100    = 0u;
-
-    /* 1. position and the signal above a rolling white floor */
-    {
-        int32_t pos = 0;
-        for (i = 0u; i < n; i++)
-        {
-            if (b_dist)
-            {
-                /* fwd - yaw = (L + R) - (R - L) = 2 x left wheel */
-                pos += ((int32_t)p_fwd[i] - (int32_t)p_yaw[i]) * Q;
-            }
-            else
-            {
-                /* Cast: i < C39G_MAX_SAMPLES */
-                pos = (int32_t)i * Q;
-            }
-            g_pos[i] = pos;
-        }
-    }
-    fill_floor(p_l, n, (b_dist ? C39G_FLOOR_COUNTS : C39G_FLOOR_SAMPLES) * Q);
 
     /* 2. humps: threshold at half the 6th highest */
     if (find_humps(n, 2 * C39G_MIN_HUMP, NULL, 0u, top6) < N_WIDE)
@@ -484,6 +460,25 @@ c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
     }
     thr2 = (top6[N_WIDE - 1u] > (2 * C39G_MIN_HUMP)) ? top6[N_WIDE - 1u]
                                                       : (2 * C39G_MIN_HUMP);
+    if (hi_permille > 0)
+    {
+        /* Strong blur: thin gaps never come back near white, so the bars
+           of a group run together at half height.  Only the wide bars
+           reach the top (the sensor saturates on them). */
+        int32_t top = 0;
+        for (i = 0u; i < n; i++)
+        {
+            if (g_sig[i] > top)
+            {
+                top = g_sig[i];
+            }
+        }
+        thr2 = (2 * top * hi_permille) / 1000;
+        if (thr2 < (2 * C39G_MIN_HUMP))
+        {
+            return C39G_FEW2;
+        }
+    }
     n_h = find_humps(n, thr2, g_hump, MAX_SEG, top6);
     /* Cast: n_h is small here or refused below */
     p_info->n_humps = (uint8_t)((n_h > 255u) ? 255u : n_h);
@@ -823,6 +818,61 @@ c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
     }
     p_info->letter = p_info->best;
     return C39G_OK;
+}
+
+c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
+                          const int8_t * p_yaw, uint32_t n, bool b_use_dist,
+                          void (*p_yield)(void), c39g_info_t * p_info)
+{
+    uint32_t      i;
+    c39g_result_t res;
+    bool          b_dist = b_use_dist && (NULL != p_fwd) && (NULL != p_yaw);
+
+    if ((NULL == p_l) || (NULL == p_info) || (n < MIN_MODEL_N) ||
+        (n > C39G_MAX_SAMPLES))
+    {
+        return C39G_ARG;
+    }
+
+    /* 1. position and the signal above a rolling white floor */
+    {
+        int32_t pos = 0;
+        for (i = 0u; i < n; i++)
+        {
+            if (b_dist)
+            {
+                /* fwd - yaw = (L + R) - (R - L) = 2 x left wheel */
+                pos += ((int32_t)p_fwd[i] - (int32_t)p_yaw[i]) * Q;
+            }
+            else
+            {
+                /* Cast: i < C39G_MAX_SAMPLES */
+                pos = (int32_t)i * Q;
+            }
+            g_pos[i] = pos;
+        }
+    }
+    fill_floor(p_l, n, (b_dist ? C39G_FLOOR_COUNTS : C39G_FLOOR_SAMPLES) * Q);
+
+    /* 2-7 at half height, then (if humps were found but no letter read)
+       once more near the top.  The first try's details are kept unless
+       the second one reads a letter. */
+    res = decode_humps(n, 0, p_yield, p_info);
+#if (C39G_HI_PERMILLE > 0)
+    if ((C39G_OK != res) && (C39G_FEW != res))
+    {
+        c39g_info_t   hi;
+        c39g_result_t res_hi = decode_humps(n, C39G_HI_PERMILLE, p_yield, &hi);
+        /* stricter: near the top the humps say less about the thin
+           bars, so the model must explain more of the trace */
+        if ((C39G_OK == res_hi) && (hi.fit_x100 >= C39G_HI_MIN_FIT_X100))
+        {
+            *p_info = hi;
+            res     = res_hi;
+        }
+    }
+#endif
+    return res;
 }
 
 /*** end of file ***/
