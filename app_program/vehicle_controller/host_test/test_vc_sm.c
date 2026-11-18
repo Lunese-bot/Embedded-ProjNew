@@ -437,8 +437,18 @@ static void test_obstacle(void)
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
     CHECK("S6-H22",
           (VC_ST_AVOID_OBSTACLE == g_sm.st.state) &&
-              has_request(VC_SRC_OBST, VC_REQ_OBST_AVOID),
-          "obstacle -> AVOID");
+              has_move(VC_MOVE_STOP_CONFIRM, 0, 1) &&
+              !has_request(VC_SRC_OBST, VC_REQ_OBST_AVOID),
+          "obstacle stops before scan starts");
+    feed(VC_SRC_OBST, VC_EV_MOVE_REQUEST, VC_MOVE_TURN_LEFT, 30);
+    CHECK("S6-OBS01", !has_move(VC_MOVE_TURN_LEFT, 30, 1),
+          "no bypass movement before physical stop");
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    CHECK("S6-OBS02", has_request(VC_SRC_OBST, VC_REQ_OBST_AVOID),
+          "physical stop confirmation starts scan");
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    CHECK("S6-OBS03", !has_request(VC_SRC_OBST, VC_REQ_OBST_AVOID),
+          "duplicate stop indication does not restart scan");
     feed(VC_SRC_LINE, VC_EV_LINE_LOST, 0, 0);
     feed(VC_SRC_OBST, VC_EV_MOVE_REQUEST, VC_MOVE_TURN_LEFT, 30);
     CHECK("S6-H23",
@@ -449,6 +459,7 @@ static void test_obstacle(void)
     CHECK("S6-H24", VC_ST_FOLLOW_LINE == g_sm.st.state,
           "avoid done -> FOLLOW_LINE");
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     feed(VC_SRC_OBST, VC_EV_AVOID_FAILED, 0, 0);
     CHECK("S6-H35",
           (VC_ST_LOST_LINE == g_sm.st.state) &&
@@ -457,6 +468,12 @@ static void test_obstacle(void)
           "avoid failed -> bounded line search (recoverable)");
     feed(VC_SRC_LINE, VC_EV_LINE_FOUND, 0, 0);
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
+    advance(VC_JUNCTION_STOP_MS);
+    CHECK("S6-OBS04", VC_ST_FAULT == g_sm.st.state && has_move(VC_MOVE_SAFE_STOP, 0, 1),
+          "missing stop confirmation faults instead of moving");
+    start_mission();
+    feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     advance(VC_AVOID_MS + 20);
     CHECK("S6-H25", VC_ST_FAULT == g_sm.st.state, "avoid timeout -> FAULT");
 }

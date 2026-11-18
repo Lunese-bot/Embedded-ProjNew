@@ -267,9 +267,9 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
             break;
 
         case VC_ST_AVOID_OBSTACLE:
-            move(p_out, VC_MOVE_STOP, 0);
+            p_sm->avoid_wait_stop = true;
+            move(p_out, VC_MOVE_STOP_CONFIRM, 0);
             request(p_out, VC_SRC_LINE, VC_REQ_BARCODE_OFF, 0);
-            request(p_out, VC_SRC_OBST, VC_REQ_OBST_AVOID, 0);
             break;
 
         case VC_ST_DECODE_BARCODE:
@@ -338,6 +338,7 @@ static void move_request(vc_sm_t * p_sm, const vc_event_t * p_event,
 
     /* Command arbitration: only the current owner may move us */
     if ((src != VC_SRC_NONE) && (src == vc_sm_motion_owner(state)) &&
+        !((VC_ST_AVOID_OBSTACLE == state) && p_sm->avoid_wait_stop) &&
         (p_event->p1 >= 0) && (p_event->p1 < (int32_t)VC_MOVE_COUNT) &&
         (p_event->p1 != (int32_t)VC_MOVE_RESET) &&
         (p_event->p1 != (int32_t)VC_MOVE_STOP_CONFIRM))
@@ -611,8 +612,19 @@ static void on_avoid_obstacle(vc_sm_t * p_sm, const vc_event_t * p_event,
                               vc_event_type_t type, uint32_t in_state,
                               uint32_t now_ms, vc_actions_t * p_out)
 {
-    (void)p_event;
-    if (VC_EV_AVOID_DONE == type)
+    if (p_sm->avoid_wait_stop)
+    {
+        if ((VC_EV_MOTION_STOPPED == type) && (VC_SRC_MOTION == p_event->src))
+        {
+            p_sm->avoid_wait_stop = false;
+            request(p_out, VC_SRC_OBST, VC_REQ_OBST_AVOID, 0);
+        }
+        else if ((VC_EV_TICK == type) && (in_state >= VC_JUNCTION_STOP_MS))
+        {
+            go_fault(p_sm, VC_SRC_MOTION, VC_FC_STATE_TIMEOUT, now_ms, p_out);
+        }
+    }
+    else if (VC_EV_AVOID_DONE == type)
     {
         enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
     }

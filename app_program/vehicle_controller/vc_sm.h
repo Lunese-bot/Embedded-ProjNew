@@ -89,7 +89,7 @@
 /* Was 15000, shorter than a normal bypass: scan (up to ~5 s) + 4 turns +
    3 legs (~9 s) + up to 3 line recoveries (~9 s).  The controller faulted
    while S5 was still searching for the line (review 2026-11-10). */
-#define VC_AVOID_MS          45000 /* AVOID_OBSTACLE: whole bypass */
+#define VC_AVOID_MS          90000 /* scan, slow bypass and bounded recovery */
 
 /* ---------------------------------------------------------------------
  *  Actions produced by the state machine
@@ -130,6 +130,7 @@ typedef struct
     uint32_t             attempt_since_ms; /* LOST_LINE / DECODE timer */
     uint8_t              attempts;         /* LOST_LINE search attempts */
     uint8_t              retries;          /* barcode read retries */
+    bool                 avoid_wait_stop; /* wheels must stop before scanning */
     uint32_t             junction_stop_ms; /* JUNCTION_STOP: when S2 confirmed the stop */
     uint8_t              junction_stopped; /* JUNCTION_STOP: 1 = standing, holding */
     uint8_t              exec_phase;       /* EXECUTE_ACTION: 1 = advancing before the turn */

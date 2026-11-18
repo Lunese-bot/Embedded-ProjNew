@@ -53,8 +53,8 @@ _Static_assert(S5_DETECT_MM >= S5_STOP_NEEDED_MM,
 
 /* ---- Bypass manoeuvre ------------------------------------------- */
 #define S5_BYPASS_TURN_DEG   45
-#define S5_BYPASS_SPEED_MM_S 150
-#define S5_SEARCH_SPEED_MM_S 100
+#define S5_BYPASS_SPEED_MM_S 60
+#define S5_SEARCH_SPEED_MM_S 60
 #define S5_SEARCH_EXTRA_MM   100 /* drive this far past expected line */
 #define S5_REVERSE_MM        150 /* when no side is safe              */
 
@@ -87,6 +87,11 @@ extern int32_t s5_sin1000(int32_t deg);
    Returns TRUE and fills *p when an obstacle is found. */
 extern bool s5_build_profile(const s5_sample_t * p_samples, int32_t count,
                              s5_profile_t * p_profile);
+
+/* Ordered coarse + fine samples; the fine value wins at equal angles. */
+extern int32_t s5_merge_samples(const s5_sample_t *a, int32_t na,
+                                const s5_sample_t *b, int32_t nb,
+                                s5_sample_t *out, int32_t max);
 
 /* Pick the bypass side for a profile (also stored in p->bypass_side). */
 extern s5_side_t s5_choose_side(s5_profile_t * p_profile);

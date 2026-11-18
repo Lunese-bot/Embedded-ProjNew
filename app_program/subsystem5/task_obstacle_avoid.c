@@ -328,13 +328,20 @@ static void report_result(step_result_t result)
     switch (result)
     {
         case STEP_LINE:
-            if (STEP_ABORT != realign())
+        {
+            step_result_t aligned = realign();
+            if (STEP_DONE == aligned)
             {
                 s5_count_avoid_ok();
                 tm_printf((uint8_t *)"s5: line reacquired\n");
                 report(S5_EVT_LINE_REACQUIRED, S5_FAULT_NONE);
             }
+            else if (STEP_ABORT != aligned)
+            {
+                report(S5_EVT_FAULT, S5_FAULT_MOTION_TIMEOUT);
+            }
             break;
+        }
         case STEP_DONE: /* every recovery ran out */
             report(S5_EVT_AVOID_FAILED, S5_FAULT_NONE);
             break;
@@ -416,6 +423,7 @@ static void handle_command(const s5_cmd_t * p_cmd)
     {
         case S5_CMD_ENABLE:
             tk_set_flg(g_flg_s5, S5_FLG_ENABLED);
+            tk_set_flg(g_flg_s5, S5_FLG_RESUME);
             s5_set_state(S5_ST_MONITORING);
             break;
         case S5_CMD_DISABLE:

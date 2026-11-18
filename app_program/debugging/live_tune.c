@@ -23,7 +23,7 @@ volatile int32_t g_lt_lost      = S3_LOST_SAMPLES;
 volatile int32_t g_lt_steer_inv = 0;
 volatile int32_t g_lt_bc_en     = 1;   /* start with barcode reading ON; was 0 = off */
 volatile int32_t g_lt_imu_en    = 0;   /* start with IMU checking OFF */
-volatile int32_t g_lt_obst_en   = 0;   /* start with obstacle checking OFF */
+volatile int32_t g_lt_obst_en   = 1;   /* stop and avoid obstacles by default */
 volatile int32_t g_lt_lost_en    = 0;  /* start with lost-line handling OFF */
 volatile int32_t g_lt_dmin      = S2_DUTY_MIN_RUN;
 volatile int32_t g_lt_curve     = VC_CURVE_SLOW_PERMILLE;

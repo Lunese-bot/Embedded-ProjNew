@@ -106,6 +106,7 @@ static void handle(const vc_event_t * p_event, uint32_t now, bool b_from_s5)
     uint32_t   rejected = g_vc_sm.st.moves_rejected;
 
     vc_sm_handle(&g_vc_sm, p_event, now, &g_vc_actions);
+    vc_bridge_s2_set_obstacle_mode(VC_ST_AVOID_OBSTACLE == g_vc_sm.st.state);
     run_actions(&g_vc_actions);
 
     if (b_from_s5)

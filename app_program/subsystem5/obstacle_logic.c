@@ -55,6 +55,23 @@ static bool is_hit(const s5_sample_t * p_sample)
                                                                       : false;
 }
 
+int32_t s5_merge_samples(const s5_sample_t *a, int32_t na,
+                         const s5_sample_t *b, int32_t nb,
+                         s5_sample_t *out, int32_t max)
+{
+    int32_t i = 0, j = 0, n = 0;
+    while (n < max && (i < na || j < nb))
+    {
+        if (j >= nb || (i < na && a[i].deg < b[j].deg)) { out[n++] = a[i++]; }
+        else
+        {
+            if (i < na && a[i].deg == b[j].deg) { i++; }
+            out[n++] = b[j++];
+        }
+    }
+    return n;
+}
+
 static int32_t abs_i(int32_t value)
 {
     return (value < 0) ? -value : value;

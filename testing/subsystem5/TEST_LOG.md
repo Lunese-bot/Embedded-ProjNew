@@ -41,8 +41,23 @@ Define a test here before running it. Test IDs never change.
 
 ## Results
 
+2026-11-18 stop/scan/avoid restoration: obstacle checking starts enabled.
+Three near readings below 250 mm enter avoidance, with scanning requested
+only after S2 confirms the wheels stopped. Coarse side-clearance samples
+are retained during fine profiling. Obstacle drive/search/pivots use 60 mm/s;
+normal line following and normal mission pivots keep their previous behavior.
+The ultrasonic driver and startup readiness requirements remain at baseline.
+
+For the robot check, flash `build_make/mtk3pico_smp1_usb_cdc_wifi_lwip.uf2`,
+refresh the dashboard, enable obstacle use and start line following with the
+wheels raised first. Present a flat box at 200 mm; confirm wheel stop before
+servo sweep and then slow motor commands. Floor testing must still confirm
+actual turn direction and C/R black-line reacquisition after the bypass.
+
 Add a new row for every run. Never edit or delete old rows.
 
 | Date | Test ID | Commit | Tester | Result | Log / evidence | Notes |
 |---|---|---|---|---|---|---|
+| 2026-11-18 | stop/avoid navigation regressions | working tree | Codex | PASS 5 groups | [host log](logs/2026-11-18_restore_stop_avoid.txt) | Production S2 bridge and profile/plan algorithms with simulated motor commands |
+| 2026-11-18 | stop/avoid firmware build | working tree | Codex | PASS | [build log](logs/2026-11-18_restore_stop_avoid_build.txt) | NET=lwip UF2 generated; not flashed |
 | YYYY-MM-DD | S5-U01 | `abc1234` | | PASS / FAIL | `logs/YYYY-MM-DD_….txt` | |

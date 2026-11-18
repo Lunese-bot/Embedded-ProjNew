@@ -54,4 +54,5 @@ Add a new row for every run. Never edit or delete old rows.
 
 | Date | Test ID | Commit | Tester | Result | Log / evidence | Notes |
 |---|---|---|---|---|---|---|
+| 2026-11-18 | host suite plus S6-OBS01..OBS04 | working tree | Codex | PASS 70/70 | [host log](logs/2026-11-18_restore_stop_avoid.txt) | Detection requests physical stop; confirmation starts scan; premature motion rejected; missing confirmation faults |
 | 2026-10-15 | VC-H01..H41 | (base code, not committed yet) | Claude | PASS 41/41 | host run, gcc 13 | PC only; on-target tests not yet run |
