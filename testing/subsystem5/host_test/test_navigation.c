@@ -25,6 +25,7 @@ typedef struct { uint32_t lo; } SYSTIM;
 ID g_flg_motion;
 ID g_mbf_s5_cmd = 1, g_mbf_s5_evt = 2, g_flg_s5 = 3;
 volatile int32_t g_lt_obst_en = 1;
+volatile bool g_b_s3_bc_lock = false; /* barcode lock flag read by vc_bridge_s2.c */
 volatile int32_t g_lt_speed_pct = 100, g_lt_steer_inv, g_lt_curve = 600;
 static int32_t speed_sent, angle_sent;
 static UINT pending_flags;
