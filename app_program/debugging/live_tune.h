@@ -7,7 +7,7 @@
  *        g_lt_line_kp / g_lt_line_kd       line steering PD  (task_line.c)
  *        g_lt_speed_pct                    mission speed %   (vc_bridge_s2.c)
  *        g_lt_obst_en                      obstacle checking (vc_bridge_s5.c)
- *      Without the dashboard, line following continues through junctions.
+ *      Without the dashboard, the barcode decides at each junction.
  */
 
 #ifndef LIVE_TUNE_H
@@ -54,7 +54,7 @@ static inline bool live_tune_straight_at_junction(void)
 #if S2_WEBDEBUG
     return (NAV_STRAIGHT == g_lt_next_nav);
 #else
-    return true;
+    return false; /* no dashboard: the barcode decides */
 #endif
 }
 
