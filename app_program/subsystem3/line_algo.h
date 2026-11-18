@@ -234,6 +234,38 @@ typedef struct
     int16_t  max_steer;   /* S3_BC_LOCK_STEER_MAX    */
 } bc_lock_cfg_t;
 
+/* 500 Hz L front end (S3_L_FAST): hand-off from the 2 ms interrupt
+   (one writer) to line_task (one reader) without a lock.  The writer adds
+   each 2 ms sample to running totals; the reader takes the totals and
+   uses the change since its last read, so no sample is used twice or
+   lost.  seq is odd while the writer is in the middle of an update. */
+typedef struct
+{
+    volatile uint32_t seq;
+    volatile uint32_t sum; /* sum of all 2 ms L samples (wraps)  */
+    volatile uint32_t n;   /* number of 2 ms samples (wraps)      */
+    volatile uint16_t c;   /* newest C conversion                 */
+    volatile uint16_t r;   /* newest R conversion                 */
+} l_fast_t;
+
+typedef struct
+{
+    uint32_t sum;  /* totals at the last record */
+    uint32_t n;
+    uint16_t last; /* last L record             */
+} l_fast_rd_t;
+
+void l_fast_reset(l_fast_t * p_f, l_fast_rd_t * p_rd);
+/* interrupt side: one 2 ms sample */
+void l_fast_put(l_fast_t * p_f, uint16_t l, uint16_t c, uint16_t r);
+/* task side: a consistent copy; false if no stable copy in a few tries */
+bool l_fast_get(const l_fast_t * p_f, uint32_t * p_sum, uint32_t * p_n,
+                uint16_t * p_c, uint16_t * p_r);
+/* task side: the 10 ms L record = mean of the samples since the last
+   record.  *p_used = how many (0: none came, the last record is kept). */
+uint16_t l_fast_record(l_fast_rd_t * p_rd, uint32_t sum, uint32_t n,
+                       uint32_t * p_used);
+
 void bc_lock_ctl_reset(bc_lock_ctl_t * p_c);
 bool bc_lock_apply(bc_lock_ctl_t * p_c, bc_lock_cfg_t const * p_cfg,
                    line_tracker_t * p_trk, bool b_scan, bool b_bars,

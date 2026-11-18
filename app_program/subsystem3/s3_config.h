@@ -89,6 +89,30 @@
 #define S3_L_OVERSAMPLE 4
 #endif
 
+/* 500 Hz front end for L (MY 2026-11-18; design: project files
+   eval/S3_500Hz_simulation.md, rank 3).  1 = a hardware timer alarm
+   interrupt every S3_L_FAST_PERIOD_US owns the ADC: it converts L
+   S3_L_FAST_CONV times and averages them into one 2 ms sample, then
+   converts C and R once each.  line_task (still every 10 ms) takes the
+   mean of the 2 ms samples since its last read (normally 5) as the L
+   record, and the newest C and R.  Everything after the read (line
+   follow, edge finder, trace, decoders) is unchanged.  The kernel "adca"
+   device is then not opened, so nothing else may use the ADC.
+   0 = old path: S3_L_OVERSAMPLE reads through "adca" at each 10 ms read. */
+#ifndef S3_L_FAST
+#define S3_L_FAST 1
+#endif
+#define S3_L_FAST_PERIOD_US 2000u /* 500 Hz */
+#define S3_L_FAST_CONV      4u    /* L conversions averaged per 2 ms sample */
+/* RP2040 TIMER alarm used (0..3; its IRQ number is the same).  Nothing
+   else in this firmware arms a TIMER alarm (2026-11-18: the kernel tick
+   is SysTick, the SDK alarm pool is not linked). */
+#define S3_L_FAST_ALARM     3u
+/* Interrupt level 3, the lowest, equal to PendSV: like the SIO IPI
+   (smp_rp2040.c), it must not preempt a context switch.  The 2 ms
+   sample may be late by a few tens of us; the 10 ms mean does not care. */
+#define S3_L_FAST_INTPRI    3
+
 /* Barcode reading: dead band around the black threshold (0..1000 scale) so
    L does not flicker at a bar edge and split one bar into two.  L turns
    black at threshold + HYST and white again below threshold - HYST.

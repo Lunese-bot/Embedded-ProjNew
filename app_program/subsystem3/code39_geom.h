@@ -31,9 +31,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Largest trace accepted (S3_LTRACE_N) */
+/* Largest trace accepted (at least S3_LTRACE_N; 2026-11-18: 700 -> 1400) */
 #ifndef C39G_MAX_SAMPLES
-#define C39G_MAX_SAMPLES 700u
+#define C39G_MAX_SAMPLES 1400u
 #endif
 /* Worst wide-bar centre error allowed, in 1/100 module.  0.3 module gave
    no wrong letter on the 76 saved passes; 0.6 read one pass as 'I' that

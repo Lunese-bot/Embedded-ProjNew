@@ -721,6 +721,23 @@ int32_t web_debug_barcode(char * p_out, int32_t out_max)
     n = kv(p_out, n, out_max, "gm", g_mrg);
     n = kv(p_out, n, out_max, "gf", g_fit);
     n = kv(p_out, n, out_max, "gt", g_ms);
+#if S3_L_FAST
+    /* 500 Hz L front end: samples, late, longest us, ADC errors, empty
+       records, samples in the last record.  Casts: shown, not computed */
+    n = put_str(p_out, n, out_max, "\"lf\":[");
+    n = put_int(p_out, n, out_max, (int32_t)g_s3_lf_isr);
+    n = put_str(p_out, n, out_max, ",");
+    n = put_int(p_out, n, out_max, (int32_t)g_s3_lf_late);
+    n = put_str(p_out, n, out_max, ",");
+    n = put_int(p_out, n, out_max, (int32_t)g_s3_lf_max_us);
+    n = put_str(p_out, n, out_max, ",");
+    n = put_int(p_out, n, out_max, (int32_t)g_s3_lf_adc_err);
+    n = put_str(p_out, n, out_max, ",");
+    n = put_int(p_out, n, out_max, (int32_t)g_s3_lf_stall);
+    n = put_str(p_out, n, out_max, ",");
+    n = put_int(p_out, n, out_max, (int32_t)g_s3_lf_used);
+    n = put_str(p_out, n, out_max, "],");
+#endif
     n = put_str(p_out, n, out_max, "\"d\":[");
     for (k = 0U; k < cnt; k++)
     {
@@ -735,12 +752,15 @@ int32_t web_debug_barcode(char * p_out, int32_t out_max)
     return n;
 }
 
-int32_t web_debug_ltrace(char * p_out, int32_t out_max, int32_t live)
+int32_t web_debug_ltrace(char * p_out, int32_t out_max, int32_t live,
+                         int32_t page)
 {
     uint32_t idx   = g_s3_ltrace_idx;
     uint32_t count = (idx < S3_LTRACE_N) ? idx : S3_LTRACE_N;
     uint32_t start = idx - count;
     bool     frz   = (0 == live) && (0U != g_s3_ltrace_frz_n);
+    uint32_t first = 0U; /* first sample of this page (frozen copy) */
+    uint32_t total;      /* samples in the whole trace */
     uint32_t k;
     int32_t  n     = 0;
     /* raw levels where L switches (normalised threshold +- S3_BC_HYST),
@@ -762,16 +782,35 @@ int32_t web_debug_ltrace(char * p_out, int32_t out_max, int32_t live)
     n = kv(p_out, n, out_max, "off", off);
     if (frz)
     {
-        count = g_s3_ltrace_frz_n; /* the frozen copy (taken when the read ended) */
+        /* the frozen copy (taken when the read ended), one page of it */
+        total = g_s3_ltrace_frz_n;
+        total = (total > S3_LTRACE_N) ? S3_LTRACE_N : total;
+        /* Cast: page is a single digit, checked >= 0 */
+        first = (page > 0) ? ((uint32_t)page * WD_LT_PAGE) : 0U;
+        first = (first > total) ? total : first;
+        count = total - first;
+        count = (count > WD_LT_PAGE) ? WD_LT_PAGE : count;
+    }
+    else
+    {
+        /* live: only the newest page, so one reply is one moment */
+        page  = 0;
+        total = (count > WD_LT_PAGE) ? WD_LT_PAGE : count;
+        start = idx - total;
+        count = total;
     }
     n = kv(p_out, n, out_max, "frz", frz ? 1 : 0);
     n = kv(p_out, n, out_max, "edge", g_lt_bc_edge);
     n = kv(p_out, n, out_max, "sw", g_lt_bc_swing);
+    /* Casts: counts are at most S3_LTRACE_N, the seq is only compared */
+    n = kv(p_out, n, out_max, "n", (int32_t)total);
+    n = kv(p_out, n, out_max, "p", page);
+    n = kv(p_out, n, out_max, "q", (int32_t)g_s3_bc_dbg_seq);
     n = put_str(p_out, n, out_max, "\"v\":[");
     for (k = 0U; k < count; k++)
     {
         n = put_int(p_out, n, out_max,
-                    frz ? (int32_t)g_s3_ltrace_frz[k]
+                    frz ? (int32_t)g_s3_ltrace_frz[first + k]
                         : (int32_t)g_s3_ltrace[(start + k) % S3_LTRACE_N]);
         if ((k + 1U) < count)
         {
@@ -783,7 +822,7 @@ int32_t web_debug_ltrace(char * p_out, int32_t out_max, int32_t live)
     for (k = 0U; k < count; k++)
     {
         n = put_int(p_out, n, out_max,
-                    frz ? (int32_t)g_s3_ltrace_frz_fwd[k]
+                    frz ? (int32_t)g_s3_ltrace_frz_fwd[first + k]
                         : (int32_t)g_s3_ltrace_fwd[(start + k) % S3_LTRACE_N]);
         if ((k + 1U) < count)
         {
@@ -794,7 +833,7 @@ int32_t web_debug_ltrace(char * p_out, int32_t out_max, int32_t live)
     for (k = 0U; k < count; k++)
     {
         n = put_int(p_out, n, out_max,
-                    frz ? (int32_t)g_s3_ltrace_frz_yaw[k]
+                    frz ? (int32_t)g_s3_ltrace_frz_yaw[first + k]
                         : (int32_t)g_s3_ltrace_yaw[(start + k) % S3_LTRACE_N]);
         if ((k + 1U) < count)
         {

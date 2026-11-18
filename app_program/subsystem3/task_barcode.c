@@ -27,6 +27,10 @@
 #include "code39.h"
 #include "code39_geom.h"
 
+#if S3_BC_GEOM && (C39G_MAX_SAMPLES < S3_LTRACE_N)
+#error "C39G_MAX_SAMPLES must be at least S3_LTRACE_N (shape_read passes the whole frozen trace)"
+#endif
+
 #define IDLE_POLL_MS 100   /* how often requests are checked when idle */
 #define DIST_POLL_MS 50    /* how often the white distance is checked */
 #define DIST_LIVE_MIN 10u  /* counts in this read that prove the wheels turn */

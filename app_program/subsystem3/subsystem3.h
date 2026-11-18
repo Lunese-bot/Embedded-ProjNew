@@ -102,7 +102,11 @@ extern uint32_t s3_bc_pos(void);
 /* Bench analysis: the barcode sensor's raw reading for the last
    S3_LTRACE_N line samples (10 ms each), a ring written by line_task.
    g_s3_ltrace_idx counts samples written (next slot = idx % N). */
-#define S3_LTRACE_N 700u /* 7 s (was 400: a slow pass did not fit) */
+#define S3_LTRACE_N 1400u /* 14 s.  Was 400, then 700 (7 s); 2026-11-18
+                             (R4): the 7 s window began inside the first
+                             '*' of a big-print pass at 36 mm/s.  Must not
+                             exceed C39G_MAX_SAMPLES (checked in
+                             task_barcode.c). */
 extern volatile uint16_t g_s3_ltrace[S3_LTRACE_N];
 extern volatile uint32_t g_s3_ltrace_idx;
 /* Same samples: how far the wheels went since the sample before, in
@@ -117,6 +121,16 @@ extern volatile uint16_t g_s3_ltrace_frz[S3_LTRACE_N];
 extern volatile uint8_t  g_s3_ltrace_frz_fwd[S3_LTRACE_N];
 extern volatile int8_t   g_s3_ltrace_frz_yaw[S3_LTRACE_N];
 extern volatile uint32_t g_s3_ltrace_frz_n; /* samples in the copy, 0 = none yet */
+
+#if S3_L_FAST
+/* 500 Hz L front end (drv_ir.c), for the dashboard (GET /b "lf") */
+extern volatile uint32_t g_s3_lf_isr;     /* 2 ms samples taken           */
+extern volatile uint32_t g_s3_lf_late;    /* alarm re-armed after a miss  */
+extern volatile uint32_t g_s3_lf_max_us;  /* longest interrupt, us        */
+extern volatile uint32_t g_s3_lf_adc_err; /* conversion timeout or error  */
+extern volatile uint32_t g_s3_lf_stall;   /* 10 ms reads with no sample   */
+extern volatile uint32_t g_s3_lf_used;    /* 2 ms samples in last record  */
+#endif
 
 /* ---------------------------------------------------------------------
  *  IF-32: events, received by the Vehicle Controller:

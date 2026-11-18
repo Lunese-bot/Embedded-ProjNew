@@ -791,4 +791,74 @@ bool bc_lock_apply(bc_lock_ctl_t * p_c, bc_lock_cfg_t const * p_cfg,
     return b_lock;
 }
 
+/* ---- 500 Hz L front end (S3_L_FAST) -------------------------------- */
+
+/* Full barrier: orders the counter and the data across the two cores
+   (GCC emits DMB on the Cortex-M0+). */
+#define L_FAST_BARRIER() __sync_synchronize()
+#define L_FAST_TRIES     8u
+
+void l_fast_reset(l_fast_t * p_f, l_fast_rd_t * p_rd)
+{
+    p_f->seq  = 0u;
+    p_f->sum  = 0u;
+    p_f->n    = 0u;
+    p_f->c    = 0u;
+    p_f->r    = 0u;
+    p_rd->sum  = 0u;
+    p_rd->n    = 0u;
+    p_rd->last = 0u;
+}
+
+void l_fast_put(l_fast_t * p_f, uint16_t l, uint16_t c, uint16_t r)
+{
+    p_f->seq = p_f->seq + 1u; /* odd: update in progress */
+    L_FAST_BARRIER();
+    p_f->sum = p_f->sum + (uint32_t)l;
+    p_f->n   = p_f->n + 1u;
+    p_f->c   = c;
+    p_f->r   = r;
+    L_FAST_BARRIER();
+    p_f->seq = p_f->seq + 1u; /* even: done */
+}
+
+bool l_fast_get(const l_fast_t * p_f, uint32_t * p_sum, uint32_t * p_n,
+                uint16_t * p_c, uint16_t * p_r)
+{
+    uint32_t k;
+
+    for (k = 0u; k < L_FAST_TRIES; k++)
+    {
+        uint32_t s1 = p_f->seq;
+        L_FAST_BARRIER();
+        *p_sum = p_f->sum;
+        *p_n   = p_f->n;
+        *p_c   = p_f->c;
+        *p_r   = p_f->r;
+        L_FAST_BARRIER();
+        if ((0u == (s1 & 1u)) && (s1 == p_f->seq))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+uint16_t l_fast_record(l_fast_rd_t * p_rd, uint32_t sum, uint32_t n,
+                       uint32_t * p_used)
+{
+    uint32_t dn = n - p_rd->n;     /* wraps correctly */
+    uint32_t ds = sum - p_rd->sum; /* wraps correctly */
+
+    *p_used = dn;
+    if (0u != dn)
+    {
+        /* Cast: a mean of 12-bit samples fits 16 bits */
+        p_rd->last = (uint16_t)((ds + (dn / 2u)) / dn);
+    }
+    p_rd->sum = sum;
+    p_rd->n   = n;
+    return p_rd->last;
+}
+
 /*** end of file ***/
