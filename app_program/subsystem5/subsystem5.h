@@ -131,8 +131,8 @@ typedef enum
     S5_EVT_PROFILE_READY,         /* profile filled in              */
     S5_EVT_MOTION_REQ,            /* please execute motion          */
     S5_EVT_LINE_REACQUIRED,       /* bypass done, back on the line  */
-    S5_EVT_AVOID_FAILED,          /* recoverable: line not found    */
-    S5_EVT_FAULT                  /* sensor/servo fault, see code   */
+    S5_EVT_AVOID_FAILED,          /* bypass/recovery failed, stop   */
+    S5_EVT_FAULT                  /* sensor or motion fault         */
 } s5_evt_type_t;
 
 typedef enum
@@ -141,7 +141,8 @@ typedef enum
     S5_FAULT_ECHO_TIMEOUT,   /* sensor silent N times in a row */
     S5_FAULT_MOTION_TIMEOUT, /* no MOTION_DONE in time         */
     S5_FAULT_NO_PROFILE,     /* scan did not finish            */
-    S5_FAULT_BLOCKED         /* no side has enough clearance   */
+    S5_FAULT_BLOCKED,        /* no side has enough clearance   */
+    S5_FAULT_LINE_NOT_FOUND  /* search ended without a line    */
 } s5_fault_code_t;
 
 typedef struct
@@ -200,7 +201,8 @@ extern ER s5_get_status_packed(uint16_t * p_word);
 
 /* Hooks to other subsystems.  Defined __attribute__((weak)) in
    s5_ports.c; the owning subsystem overrides them with a real one. */
-extern bool s5_port_line_detected(void); /* S3: any IR sees line */
+extern bool s5_port_line_detected(void); /* S3: C or R sees black */
+extern void s5_port_set_line_search(bool b_active); /* S3: sample only for this search */
 
 #endif /* SUBSYSTEM5_H */
 

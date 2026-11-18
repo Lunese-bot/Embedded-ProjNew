@@ -407,6 +407,56 @@ static void test_line(void)
     }
 }
 
+static void test_rejoin_junction(void)
+{
+    const uint16_t both_black[S3_IR_COUNT] = { 0u, 1000u, 1000u };
+    const uint16_t right_black[S3_IR_COUNT] = { 0u, 0u, 1000u };
+    line_params_t params;
+    line_tracker_t tracker;
+    uint16_t sample;
+    int junctions = 0;
+
+    line_params_default(&params);
+    params.junction_mask = S3_MASK_C | S3_MASK_R;
+    params.straddle = true;
+    line_tracker_reset(&tracker);
+    tracker.rejoin_clear_left = S3_REJOIN_CLEAR_SAMPLES;
+
+    for (sample = 0; sample < 2u * S3_REJOIN_CLEAR_SAMPLES; sample++)
+    {
+        junctions += LINE_EVT_JUNCTION ==
+                     line_tracker_step(&tracker, &params, both_black, false);
+    }
+    CHECK("H-L25", (junctions == 0) && (LINE_STATE_FOLLOW == tracker.state) &&
+                      (0 == tracker.steering),
+          "coincident black on the rejoin keeps following without a turn");
+
+    for (sample = 0; sample < S3_REJOIN_CLEAR_SAMPLES - 1u; sample++)
+    {
+        (void)line_tracker_step(&tracker, &params, right_black, false);
+    }
+    CHECK("H-L26", tracker.steering > 0,
+          "ordinary steering is available before junctions are rearmed");
+    for (sample = 0; sample < S3_JUNCTION_SAMPLES; sample++)
+    {
+        junctions += LINE_EVT_JUNCTION ==
+                     line_tracker_step(&tracker, &params, both_black, false);
+    }
+    CHECK("H-L27", junctions == 0, "a short gap does not rearm junctions");
+
+    for (sample = 0; sample < S3_REJOIN_CLEAR_SAMPLES; sample++)
+    {
+        (void)line_tracker_step(&tracker, &params, right_black, false);
+    }
+    for (sample = 0; sample < S3_JUNCTION_SAMPLES; sample++)
+    {
+        junctions += LINE_EVT_JUNCTION ==
+                     line_tracker_step(&tracker, &params, both_black, false);
+    }
+    CHECK("H-L28", (junctions == 1) && (LINE_STATE_JUNCTION == tracker.state),
+          "a new junction is detected after the sensors settle");
+}
+
 /* ---- barcode edge finder (bc_edge_step) ---------------------------- */
 /* MY's real L trace over 'A', 2026-11-05 05:59, raw every 10 ms */
 static uint16_t const g_trace_a[] = {
@@ -1017,6 +1067,7 @@ int main(void)
 {
     test_code39();
     test_line();
+    test_rejoin_junction();
     test_bc_edge();
     test_bc_distance();
     test_partial();

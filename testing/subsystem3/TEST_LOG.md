@@ -12,6 +12,7 @@ Define a test here before running it. Test IDs never change.
 |---|---|---|---|---|---|
 | H-C01..H-C08 | Code 39 decoder: all characters both directions, 2:1 ratio, ±20 % jitter, 2× speed ramp, bad length / contrast / framing / overflow rejected | FR2 | auto (PC) | `cd testing/subsystem3/host_test && make` | `[TEST] H-Cxx PASS` ×8 |
 | H-L01..H-L05c | Line tracker: FOLLOW, steer sign, LOST after 5 samples with last side, junction + inhibit, calibration accept/reject | FR1, NFR9 | auto (PC) | same | `[TEST] H-Lxx PASS` ×8 |
+| H-L25..H-L28 | Double black during rejoin and junction rearming | FR1, FR4 | auto (PC) | Feed double black, a brief gap, and a clear stretch to the line tracker | Keep steering during rejoin, classify a new junction after ten clear samples |
 | S3-U01 / U01b | Code 39 `*L*` decodes forwards and backwards on the Pico | FR2 | auto | `make TEST=1`, `subsystem3_test.c` | PASS |
 | S3-U02 | corrupted barcode rejected on the Pico | FR2 | auto | same | PASS |
 | S3-U03 | line on right → +1000, steer right | FR1 | auto | same | PASS |
@@ -33,3 +34,5 @@ Add a new row for every run. Never edit or delete old rows.
 |---|---|---|---|---|---|---|
 | 2026-10-15 | H-C01..H-L05c | base code | Claude (PC, gcc) | PASS 16/16 | `make` in `host/` | algorithms only, no robot |
 | YYYY-MM-DD | S3-U01 | `abc1234` | | PASS / FAIL | `logs/YYYY-MM-DD_….txt` | |
+| 2026-11-18 | host suite including H-L25..H-L28 | dffa830 + working tree | Codex | PASS 82/82 | [host log](logs/2026-11-18_ir_rejoin.txt) | The line tracker steers through the rejoin and detects the next junction after the sensors clear. |
+| 2026-11-18 | host regression suite | dffa830 + working tree | Codex | PASS 82/82 | [host log](logs/2026-11-18_straight_junction.txt) | Line steering, junction inhibition and barcode algorithms pass. |

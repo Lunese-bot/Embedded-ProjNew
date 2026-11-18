@@ -1,0 +1,103 @@
+/* Exercise queued junctions through the production S3 bridge. */
+#include <assert.h>
+#include <stdio.h>
+#define APP_H
+#define VEHICLE_CONTROLLER_H
+#define VC_HOST_TEST
+#include "../vc_types.h"
+
+typedef int ID;
+typedef int ER;
+typedef int TMO;
+typedef struct { uint32_t lo; } SYSTIM;
+#define E_OK 0
+#define E_TMOUT (-1)
+#define TMO_POL 0
+
+#include "../../subsystem3/subsystem3.h"
+
+ID g_mbf_s3_events = 1;
+volatile uint32_t g_s2_odo_ticks;
+volatile int32_t g_lt_bc_en, g_lt_lost_en, g_lt_next_nav = NAV_LEFT;
+char g_lt_bc_text[16], g_lt_bc_hist[48];
+static s3_line_status_t line_status;
+static s3_event_t queued_event;
+static bool event_ready;
+static bool bypass_active;
+static uint32_t clock_ms;
+
+static int32_t tk_rcv_mbf(ID id, void *out, TMO timeout)
+{
+    assert(g_mbf_s3_events == id && TMO_POL == timeout);
+    if (!event_ready)
+    {
+        return E_TMOUT;
+    }
+    *(s3_event_t *)out = queued_event;
+    event_ready = false;
+    return sizeof(s3_event_t);
+}
+
+static void tm_printf(const uint8_t *fmt, ...) { (void)fmt; }
+static void tk_get_tim(SYSTIM *time) { time->lo = clock_ms; }
+void s3_set_obstacle_mode(bool active) { bypass_active = active; }
+ER s3_get_line_status(s3_line_status_t *out) { *out = line_status; return E_OK; }
+ER s3_request(uint32_t request) { (void)request; return E_OK; }
+
+vc_source_t vc_sm_motion_owner(vc_state_t state)
+{
+    return (VC_ST_FOLLOW_LINE == state) ? VC_SRC_LINE : VC_SRC_NONE;
+}
+
+#include "../vc_bridge_s3.c"
+
+static void queue_junction(uint32_t time_ms)
+{
+    queued_event = (s3_event_t){ .type = S3_EVT_JUNCTION, .time_ms = time_ms };
+    event_ready = true;
+}
+
+int main(void)
+{
+    vc_event_t event;
+
+    clock_ms = 100;
+    vc_bridge_s3_set_obstacle_mode(true);
+    assert(bypass_active);
+    queue_junction(101);
+    assert(!vc_bridge_s3_next(&event, VC_ST_AVOID_OBSTACLE));
+
+    clock_ms = 300;
+    queue_junction(299); /* Queued before the handoff, processed afterward. */
+    vc_bridge_s3_set_obstacle_mode(false);
+    assert(!bypass_active);
+    line_status = (s3_line_status_t){ .seq = 1, .time_ms = 99,
+                                     .line_state = LINE_STATE_FOLLOW, .steering = 200 };
+    assert(!vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE) && !event_ready);
+    line_status.seq++;
+    line_status.time_ms = 301;
+    assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
+    assert(VC_EV_MOVE_REQUEST == event.type && VC_MOVE_STEER == event.p1);
+    assert(200 == event.p2 && !event_ready);
+    puts("[TEST] S6-OBS06 PASS  queued junctions and stale steering are discarded at handoff");
+
+    queue_junction(500);
+    assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
+    assert(VC_EV_BARCODE_DECODED == event.type && NAV_LEFT == event.p1);
+    assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
+    assert(VC_EV_JUNCTION == event.type);
+    puts("[TEST] S6-OBS07 PASS  a later junction keeps the configured navigation action");
+
+    queue_junction(600);
+    assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
+    assert(VC_EV_BARCODE_DECODED == event.type && NAV_LEFT == event.p1);
+    g_lt_next_nav = NAV_STRAIGHT;
+    queue_junction(601);
+    line_status.seq++;
+    line_status.time_ms = 602;
+    assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
+    assert(VC_EV_MOVE_REQUEST == event.type && VC_MOVE_STEER == event.p1);
+    assert(!vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE) && !event_ready);
+    puts("[TEST] S6-OBS10 PASS  straight mode preserves steering through a junction");
+    return 0;
+}

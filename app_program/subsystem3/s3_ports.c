@@ -8,9 +8,15 @@
 
 #include "subsystem3.h"
 
+/* Enable IR sampling while S5 is actively searching for the line. */
+void s5_port_set_line_search(bool b_active)
+{
+    s3_set_obstacle_line_search(b_active);
+}
+
 /*
- * IF-S5d (subsystem 5 obstacle avoidance, s5_ports.c): TRUE when any
- * IR sensor sees the line.  Called every 20 ms from s5_avoid_task while
+ * IF-S5d (subsystem 5 obstacle avoidance, s5_ports.c): TRUE when C or R
+ * sees the line. Called every 20 ms from s5_avoid_task while
  * it searches for the line after a bypass, so it must not block: it
  * reads the mask line_task stores every 10 ms, without the mutex.
  */

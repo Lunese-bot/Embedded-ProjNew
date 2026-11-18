@@ -90,11 +90,11 @@ static int32_t sweep(const int8_t * p_deg, int32_t count, s5_sample_t * p_out)
 static void print_profile(const char * p_tag, const s5_profile_t * p_profile)
 {
     tm_printf((uint8_t *)"s5: %s d=%dmm edges R%d..L%d deg w=%dmm "
-                         "clrL=%d clrR=%d side=%d\n",
+                         "clrL=%d clrR=%d side=%d centre=%d\n",
               p_tag, p_profile->distance_mm, p_profile->right_edge_deg,
               p_profile->left_edge_deg, p_profile->width_mm,
               p_profile->clear_left_mm, p_profile->clear_right_mm,
-              p_profile->bypass_side);
+              p_profile->bypass_side, p_profile->centre_deg);
 }
 
 /* Coarse then fine scan.  Leaves the profile in the status snapshot

@@ -246,10 +246,21 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
 
         case VC_ST_FOLLOW_LINE:
             p_sm->retries = 0;
+            p_sm->rejoin_steer_left = (VC_ST_AVOID_OBSTACLE == prev)
+                                         ? VC_REJOIN_STEER_SAMPLES : 0u;
             request(p_out, VC_SRC_OBST, VC_REQ_OBST_MONITOR, 0);
             request(p_out, VC_SRC_LINE, VC_REQ_LINE_FOLLOW, 0);
-            move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS);
-            move(p_out, VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS);
+            if (0u != p_sm->rejoin_steer_left)
+            {
+                /* S5 finished at rest. The first fresh steering sample
+                   starts the car moving. */
+                move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS);
+            }
+            else
+            {
+                move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS);
+                move(p_out, VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS);
+            }
             break;
 
         case VC_ST_JUNCTION_STOP:
@@ -350,6 +361,20 @@ static void move_request(vc_sm_t * p_sm, const vc_event_t * p_event,
         if ((VC_ST_DECODE_BARCODE == state) || (VC_ST_TERRAIN_CHECK == state))
         {
             value = clamp_slow(move_cmd, value);
+        }
+        if ((VC_SRC_OBST == src) && (VC_MOVE_STOP == move_cmd))
+        {
+            /* S5 waits for both wheels to stop before leaving a search leg. */
+            move_cmd = VC_MOVE_STOP_CONFIRM;
+        }
+        if ((VC_ST_FOLLOW_LINE == state) && (VC_MOVE_STEER == move_cmd) &&
+            (0u != p_sm->rejoin_steer_left))
+        {
+            p_sm->rejoin_steer_left--;
+            if (0u == p_sm->rejoin_steer_left)
+            {
+                move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS);
+            }
         }
         move(p_out, move_cmd, value);
     }
@@ -630,11 +655,8 @@ static void on_avoid_obstacle(vc_sm_t * p_sm, const vc_event_t * p_event,
     }
     else if (VC_EV_AVOID_FAILED == type)
     {
-        /* recoverable (FR8): one more bounded search for the line
-           with S3; LOST_LINE ends in FAULT if that fails too */
-        report(p_sm, p_out, VC_SRC_OBST, VC_FAULT_RECOVERABLE,
-               VC_FC_AVOID_FAILED);
-        enter(p_sm, VC_ST_LOST_LINE, now_ms, p_out);
+        /* S5 has already searched around the obstacle. Stop here. */
+        go_fault(p_sm, VC_SRC_OBST, VC_FC_AVOID_FAILED, now_ms, p_out);
     }
     else if ((VC_EV_TICK == type) && (in_state >= VC_AVOID_MS))
     {

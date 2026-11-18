@@ -21,7 +21,8 @@
  *  design review 8.3 "recovery limits ... need validation").
  * --------------------------------------------------------------------- */
 #define VC_SPEED_CRUISE_MMS 120 /* normal line following (tuned 2026-11-04: was 200 at 60%) */
-#define VC_SPEED_SLOW_MMS   60  /* barcode reading, humps (scaled with cruise) */
+#define VC_SPEED_SLOW_MMS   60  /* barcode reading, humps and post-bypass follow */
+#define VC_REJOIN_STEER_SAMPLES 50 /* 500 ms of fresh steering before cruise */
 /* Slow down in curves: forward speed is cut by up to this much (permille)
    at full steering, in proportion to how hard S3 steers.  400 = at a full
    turn the robot drives at 60 % of cruise; a small nudge barely slows it.
@@ -131,6 +132,7 @@ typedef struct
     uint8_t              attempts;         /* LOST_LINE search attempts */
     uint8_t              retries;          /* barcode read retries */
     bool                 avoid_wait_stop; /* wheels must stop before scanning */
+    uint8_t              rejoin_steer_left; /* slow steering samples left after bypass */
     uint32_t             junction_stop_ms; /* JUNCTION_STOP: when S2 confirmed the stop */
     uint8_t              junction_stopped; /* JUNCTION_STOP: 1 = standing, holding */
     uint8_t              exec_phase;       /* EXECUTE_ACTION: 1 = advancing before the turn */

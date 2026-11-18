@@ -41,16 +41,33 @@ a real Pico yet.
 ```
 
 1. Scan task pings straight ahead every 20 ms. 3 readings in a row under
-   250 mm → `S5_EVT_OBSTACLE_DETECTED`.
+   225 mm → `S5_EVT_OBSTACLE_DETECTED`.
 2. The controller stops the car and sends `S5_CMD_START_AVOID`.
 3. Coarse scan (−60…+60° in 30° steps), then fine scan (5° steps, 20° past
    each edge) → profile: distance, edges, width, left/right clearance, side.
+   If the scan places the centre of the obstacle at least 10° to one side,
+   the first turn is toward the opposite side if it has enough clearance.
+   If that side is blocked, the car stops and backs away.
 4. The bypass is sent as `S5_EVT_MOTION_REQ` steps (stop, turn 45°, diagonal,
-   turn back, pass, turn in, search). Each waits for `S5_CMD_MOTION_DONE`
+   turn back, pass, turn inward 30°, search). Each waits for `S5_CMD_MOTION_DONE`
    with the same `seq`. S5 never drives the motors (design review 8.3).
-5. Search steps stop early when the line is seen. Then S5 turns back to the
-   original heading → `S5_EVT_LINE_REACQUIRED`. If not found: up to 3 wider
-   searches → `S5_EVT_AVOID_FAILED`; the controller decides retry or Safe Stop (FR8).
+5. The return search covers the outbound offset plus 90 mm sideways. When
+   the sensors see black, S5 waits for the wheels to stop, realigns, and checks
+   again. If it sees black, S5 creeps forward 25 mm, stops, and checks for black
+   once more before handing control back. S5 checks 15° to each side if it
+   cannot confirm the line at the approach heading. If the first probe is
+   white, it can crawl up to 100 mm toward the last sighting. If these checks
+   miss, S5 returns to its approach heading and can make up to
+   three slow search passes. If these passes end without a line,
+   `S5_EVT_AVOID_FAILED` puts the controller in Safe Stop until reset.
+   The line task pauses IR sampling during the scan, detour and pivots. S5
+   enables sampling for the search passes and the checks after alignment.
+   The first fresh steering command restarts line following at 60 mm/s nominal.
+   The controller allows about half a second of steering before restoring cruise.
+   The default Straight junction setting keeps line following active through
+   crossings. For the dashboard's other junction actions, detection rearms
+   after normal tracking resumes and C and R have gone ten samples without
+   both seeing black.
 
 ## What is stubbed or still to do
 

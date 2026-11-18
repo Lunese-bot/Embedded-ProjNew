@@ -14,7 +14,7 @@
 #include "subsystem5.h"
 
 /* ---- Detection -------------------------------------------------- */
-#define S5_DETECT_MM      250 /* obstacle closer than this ...   */
+#define S5_DETECT_MM      225 /* obstacle closer than this ...   */
 #define S5_DETECT_COUNT   3   /* ... this many pings in a row     */
 #define S5_HIT_RANGE_MM   500 /* during a scan: "part of it"      */
 #define S5_SCAN_MAX_DEG   60  /* scan no wider than this (= SERVO_MAX_DEG) */
@@ -35,7 +35,7 @@
  *  The build fails if the detect distance stops covering the total. */
 #define S5_TOP_SPEED_MM_S      400 /* = S2_MAX_SPEED_MM_S (subsystem2.h) */
 #define S5_LATENCY_MS          ((S5_DETECT_COUNT * 20) + 12 + 10)
-#define S5_REACTION_MM         ((S5_TOP_SPEED_MM_S * S5_LATENCY_MS) / 1000)
+#define S5_REACTION_MM         ((S5_TOP_SPEED_MM_S * S5_LATENCY_MS + 999) / 1000)
 #define S5_BRAKING_MM          100 /* TODO measure at top speed (S5-U22) */
 #define S5_STOP_MARGIN_MM      50
 #define S5_STOP_NEEDED_MM \
@@ -50,19 +50,23 @@ _Static_assert(S5_DETECT_MM >= S5_STOP_NEEDED_MM,
 #define S5_SIDE_MARGIN_MM      60  /* extra gap beside the obstacle    */
 #define S5_OBSTACLE_DEPTH_MM   150 /* assumed: ultrasonic can't see it */
 #define S5_MIN_CLEAR_MM        300 /* free range needed on bypass side */
+#define S5_SIDE_BIAS_DEG        10 /* obstacle centre clearly to one side */
 
 /* ---- Bypass manoeuvre ------------------------------------------- */
 #define S5_BYPASS_TURN_DEG   45
+#define S5_RETURN_TURN_DEG   30
 #define S5_BYPASS_SPEED_MM_S 60
 #define S5_SEARCH_SPEED_MM_S 60
-#define S5_SEARCH_EXTRA_MM   100 /* drive this far past expected line */
+#define S5_SEARCH_MARGIN_MM   90 /* extra sideways reach on the return search */
+#define S5_REJOIN_PROBE_DEG   15 /* check to either side after alignment */
+#define S5_REJOIN_SEARCH_MM  100 /* short drive toward the last sighting */
+#define S5_REJOIN_CHECK_MM    25 /* creep before confirming the line */
 #define S5_REVERSE_MM        150 /* when no side is safe              */
 
 /* ---- Line recovery (bounded, NFR5) ------------------------------ */
 #define S5_MAX_RECOVERY      3
-#define S5_RECOVERY_TURN_DEG 20
-#define S5_RECOVERY_BASE_MM  100
-#define S5_RECOVERY_STEP_MM  50
+#define S5_RECOVERY_SIDE_MM      70 /* sideways reach of the first pass */
+#define S5_RECOVERY_STRAIGHT_MM 150 /* last pass along the original heading */
 
 /* One ultrasonic sample taken during a scan */
 typedef struct
@@ -105,8 +109,10 @@ extern int32_t s5_lateral_needed_mm(const s5_profile_t * p_profile,
 extern int32_t s5_plan_bypass(const s5_profile_t * p_profile,
                               s5_step_t * p_plan, int32_t max);
 
-/* Steps of recovery attempt (0-based) after the line was not found. */
+/* Steps of recovery attempt (0-based), from heading_deg relative to the
+   heading before the bypass. */
 extern int32_t s5_plan_recovery(s5_side_t side, int32_t attempt,
+                                int32_t heading_deg,
                                 s5_step_t * p_plan, int32_t max);
 
 /* Angles for the coarse scan, and the fine scan around a profile */

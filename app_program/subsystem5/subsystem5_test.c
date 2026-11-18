@@ -93,16 +93,17 @@ void subsystem5_test(void)
     TEST_CHECK("S5-U08",
                (7 == count) && (S5_MOVE_STOP == plan[0].m.kind) &&
                    (-S5_BYPASS_TURN_DEG == plan[1].m.angle_deg) &&
-                   (S5_BYPASS_TURN_DEG == plan[5].m.angle_deg) &&
+                   (S5_RETURN_TURN_DEG == plan[5].m.angle_deg) &&
                    (1U == plan[6].search_line),
-               "plan: right bypass = stop, R45, fwd, L45, fwd, L45, search");
+               "plan: right bypass returns at a shallower angle");
 
-    count = s5_plan_recovery(S5_SIDE_RIGHT, 2, plan, S5_PLAN_MAX);
+    count = s5_plan_recovery(S5_SIDE_RIGHT, 2, S5_RETURN_TURN_DEG, plan,
+                             S5_PLAN_MAX);
     TEST_CHECK("S5-U09",
-               (2 == count) && (0U != plan[1].search_line) &&
-                   ((S5_RECOVERY_BASE_MM + (2 * S5_RECOVERY_STEP_MM)) ==
-                    plan[1].m.distance_mm),
-               "recovery: attempt 3 searches further");
+               (2 == count) && (-S5_RETURN_TURN_DEG == plan[0].m.angle_deg) &&
+                   (0U != plan[1].search_line) &&
+                   (S5_RECOVERY_STRAIGHT_MM == plan[1].m.distance_mm),
+               "recovery: final attempt returns to forward heading");
 
     tk_dly_tsk(300); /* let the scan task run a few periods */
     TEST_CHECK("S5-U10",

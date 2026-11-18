@@ -1,0 +1,19 @@
+﻿PASS stop confirmation ignores stale flags and forwards fresh motor stop
+PASS obstacle pivots stay slow at dashboard speed 50..200 percent
+PASS normal mission turns and line-follow speed remain unchanged
+PASS fine scan retains clear sides measured by coarse scan
+PASS both bypass directions stop first, drive slowly and search for black line
+[TEST] S5-H09 PASS  missing line on either side exhausts three slow passes
+[TEST] S5-H10 PASS  lost line during alignment retries and finds it again
+[TEST] S5-H11 PASS  only physical stop completes the search stop request
+SUMMARY 8 navigation regression groups passed
+
+[TEST] S5-H01 PASS  round trip 230 mm, state 2, det
+[TEST] S5-H02 PASS  bit layout det|state|mm
+[TEST] S5-H03 PASS  no echo, IDLE, no obstacle = 0x0000
+[TEST] S5-H04 PASS  max range 2000 mm, ERROR state
+[TEST] S5-H05 PASS  distance above 2047 saturates
+[TEST] S5-H06 PASS  bad state cannot spill into other fields
+[TEST] S5-H07 PASS  all 65536 combinations round-trip exactly
+[TEST] S5-H08 PASS  word is 2 bytes
+[TEST] subsystem5 host SUMMARY 8 passed, 0 failed

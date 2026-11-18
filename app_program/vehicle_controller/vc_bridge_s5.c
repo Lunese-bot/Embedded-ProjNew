@@ -6,13 +6,13 @@
  *        OBSTACLE_DETECTED  -> VC_EV_OBSTACLE (p1 = distance mm)
  *        MOTION_REQ         -> VC_EV_MOVE_REQUEST(s); S5 waits for
  *                              MOTION_DONE with the same seq:
- *                                STOP          answered at once
+ *                                STOP          answered on MOTION_STOPPED
  *                                TURN +/-deg   answered on MANOEUVRE_DONE
  *                                FORWARD       SET_SPEED + DRIVE_DIST, ditto
  *                                REVERSE       SET_SPEED + REVERSE, ditto
  *                              a refused request is answered with ok = 0
  *        LINE_REACQUIRED    -> VC_EV_AVOID_DONE
- *        AVOID_FAILED       -> VC_EV_AVOID_FAILED (bounded line search),
+ *        AVOID_FAILED       -> VC_EV_AVOID_FAILED (stop after recovery),
  *                              or a CRITICAL fault if no side was clear
  *        FAULT              -> VC_EV_FAULT CRITICAL, code 0x50nn: without
  *                              the sensor the robot cannot see obstacles
@@ -45,7 +45,7 @@
 
 static vc_event_t g_pending[PENDING_MAX]; /* converted, not yet handed out */
 static int32_t    g_pending_n;
-static bool       g_b_wait_done; /* an S5 motion is in progress */
+static vc_event_type_t g_wait_event; /* completion expected for g_wait_seq */
 static uint16_t   g_wait_seq;
 
 static void push(vc_event_type_t type, int32_t param1, int32_t param2,
@@ -80,10 +80,13 @@ static void send_cmd(s5_cmd_type_t type, uint8_t ok_flag, uint16_t seq)
 
 static void convert_motion(const s5_motion_req_t * p_req, uint32_t time_ms)
 {
+    vc_event_type_t completion = VC_EV_MANOEUVRE_DONE;
+
     switch (p_req->kind)
     {
         case S5_MOVE_STOP:
             push(VC_EV_MOVE_REQUEST, VC_MOVE_STOP, 0, time_ms);
+            completion = VC_EV_MOTION_STOPPED;
             break;
         case S5_MOVE_TURN:
             if (p_req->angle_deg >= 0)
@@ -111,14 +114,10 @@ static void convert_motion(const s5_motion_req_t * p_req, uint32_t time_ms)
             break;
         default:
             send_cmd(S5_CMD_MOTION_DONE, 0, p_req->seq); /* unknown: refuse */
-            break;
+            return;
     }
-    if ((S5_MOVE_STOP == p_req->kind) || (S5_MOVE_TURN == p_req->kind) ||
-        (S5_MOVE_FORWARD == p_req->kind) || (S5_MOVE_REVERSE == p_req->kind))
-    {
-        g_b_wait_done = true;
-        g_wait_seq    = p_req->seq;
-    }
+    g_wait_event = completion;
+    g_wait_seq   = p_req->seq;
 }
 
 /* One S5 event -> zero, one or two pending controller events */
@@ -207,32 +206,22 @@ void vc_bridge_s5_after(const vc_event_t * p_event, vc_state_t state_after,
     {
         send_cmd(S5_CMD_ABORT, 0, 0); /* we will not act on it */
     }
-    else if ((VC_EV_MOVE_REQUEST != p_event->type) || (!g_b_wait_done))
+    else if ((VC_EV_MOVE_REQUEST == p_event->type) &&
+             (VC_EV_NONE != g_wait_event) && b_rejected)
     {
-        /* not a motion request we are waiting on */
-    }
-    else if (b_rejected)
-    {
-        g_pending_n   = 0; /* drop the rest of this request */
-        g_b_wait_done = false;
+        g_pending_n  = 0; /* drop the rest of this request */
+        g_wait_event = VC_EV_NONE;
         send_cmd(S5_CMD_MOTION_DONE, 0, g_wait_seq);
-    }
-    else if ((int32_t)VC_MOVE_STOP == p_event->p1)
-    {
-        g_b_wait_done = false; /* a stop is done at once */
-        send_cmd(S5_CMD_MOTION_DONE, 1, g_wait_seq);
-    }
-    else
-    {
-        /* MOTION_DONE is sent when S2 reports the manoeuvre */
     }
 }
 
-void vc_bridge_s5_manoeuvre_done(bool b_ok)
+void vc_bridge_s5_motion_event(const vc_event_t * p_event)
 {
-    if (g_b_wait_done)
+    if ((VC_EV_NONE != g_wait_event) && (g_wait_event == p_event->type))
     {
-        g_b_wait_done = false;
+        /* A distance move may finish just as S5 asks to stop for the line. */
+        bool b_ok = (VC_EV_MOTION_STOPPED == p_event->type) || (0 != p_event->p1);
+        g_wait_event = VC_EV_NONE;
         send_cmd(S5_CMD_MOTION_DONE, b_ok ? 1 : 0, g_wait_seq);
     }
 }
@@ -257,12 +246,12 @@ ER vc_bridge_s5_request(vc_request_t req, int32_t arg)
             }
             break;
         case VC_REQ_OBST_AVOID:
-            g_b_wait_done = false;
+            g_wait_event = VC_EV_NONE;
             send_cmd(S5_CMD_START_AVOID, 0, 0);
             break;
         case VC_REQ_STOP_ALL:
-            g_pending_n   = 0;
-            g_b_wait_done = false;
+            g_pending_n  = 0;
+            g_wait_event = VC_EV_NONE;
             send_cmd(S5_CMD_ABORT, 0, 0);
             send_cmd(S5_CMD_DISABLE, 0, 0);
             break;
@@ -288,9 +277,9 @@ void vc_bridge_s5_after(const vc_event_t * p_event, vc_state_t state_after,
     (void)b_rejected;
 }
 
-void vc_bridge_s5_manoeuvre_done(bool b_ok)
+void vc_bridge_s5_motion_event(const vc_event_t * p_event)
 {
-    (void)b_ok;
+    (void)p_event;
 }
 
 ER vc_bridge_s5_request(vc_request_t req, int32_t arg)

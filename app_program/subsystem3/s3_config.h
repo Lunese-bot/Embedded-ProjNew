@@ -235,6 +235,7 @@
 #endif
 #define S3_FOUND_SAMPLES    2 /* 20 ms with line   -> FOLLOW    */
 #define S3_JUNCTION_SAMPLES 3 /* 30 ms all black   -> JUNCTION  */
+#define S3_REJOIN_CLEAR_SAMPLES 10u /* about 100 ms without C + R overlap */
 
 /* PD steering: steering = (KP*err + KD*(err - prev_err)) / GAIN_DEN,
    clamped to +-1000 (positive = steer right).  TUNE. */

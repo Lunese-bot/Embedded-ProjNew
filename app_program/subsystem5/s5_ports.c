@@ -11,8 +11,13 @@
 
 #include "subsystem5.h"
 
+__attribute__((weak)) void s5_port_set_line_search(bool b_active)
+{
+    (void)b_active;
+}
+
 /*
- * Line Following (Buddy 3): TRUE when any IR sensor currently sees the
+ * Line Following (Buddy 3): TRUE when C or R currently sees the
  * line.  Called every 20 ms while searching for the line after a
  * bypass, from s5_avoid_task, so it must not block.
  *

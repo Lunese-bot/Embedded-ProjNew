@@ -104,9 +104,15 @@ static void handle(const vc_event_t * p_event, uint32_t now, bool b_from_s5)
 {
     vc_state_t before   = g_vc_sm.st.state;
     uint32_t   rejected = g_vc_sm.st.moves_rejected;
+    bool       b_avoiding;
 
     vc_sm_handle(&g_vc_sm, p_event, now, &g_vc_actions);
-    vc_bridge_s2_set_obstacle_mode(VC_ST_AVOID_OBSTACLE == g_vc_sm.st.state);
+    b_avoiding = (VC_ST_AVOID_OBSTACLE == g_vc_sm.st.state);
+    vc_bridge_s2_set_obstacle_mode(b_avoiding);
+    if ((VC_ST_AVOID_OBSTACLE == before) != b_avoiding)
+    {
+        vc_bridge_s3_set_obstacle_mode(b_avoiding);
+    }
     run_actions(&g_vc_actions);
 
     if (b_from_s5)
@@ -114,10 +120,9 @@ static void handle(const vc_event_t * p_event, uint32_t now, bool b_from_s5)
         vc_bridge_s5_after(p_event, g_vc_sm.st.state,
                            g_vc_sm.st.moves_rejected != rejected);
     }
-    if ((VC_EV_MANOEUVRE_DONE == p_event->type) &&
-        (VC_ST_AVOID_OBSTACLE == before))
+    if ((VC_SRC_MOTION == p_event->src) && (VC_ST_AVOID_OBSTACLE == before))
     {
-        vc_bridge_s5_manoeuvre_done(p_event->p1 != 0);
+        vc_bridge_s5_motion_event(p_event);
     }
     publish_status(before != g_vc_sm.st.state);
 }
