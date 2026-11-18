@@ -31,6 +31,8 @@ static line_tracker_t g_tracker;
 static line_cal_t     g_cal;      /* accepted calibration */
 static line_cal_t     g_cal_work; /* calibration in progress */
 static bool           g_b_calibrating;
+static volatile bool  g_b_obstacle_mode; /* set by the Vehicle Controller */
+static volatile bool  g_b_obstacle_line_search; /* set by S5 */
 static uint32_t       g_cal_start_ms;
 static uint8_t        g_bc_level; /* barcode sensor: 1 = black */
 #if S3_BC_EDGE
@@ -48,6 +50,16 @@ static int32_t        g_bc_edge_was_on = 1;
 #endif
 static uint32_t       g_bc_run_start_us;
 static uint32_t       g_bc_run_start_pos; /* wheel counts when the run began */
+
+void s3_set_obstacle_mode(bool b_active)
+{
+    g_b_obstacle_mode = b_active;
+}
+
+void s3_set_obstacle_line_search(bool b_active)
+{
+    g_b_obstacle_line_search = b_active;
+}
 
 /* wheel position for barcode widths: S2's L + R encoder counts */
 uint32_t s3_bc_pos(void)
@@ -250,11 +262,50 @@ static void publish_status(const uint16_t p_raw[S3_IR_COUNT])
     tk_unl_mtx(g_mtx_s3_status);
 }
 
+/* Sample only the black mask used by S5. No steering or navigation events. */
+static void search_step(const uint16_t p_raw[S3_IR_COUNT])
+{
+    uint16_t norm[S3_IR_COUNT];
+    uint8_t mask = 0u;
+
+    line_normalise(&g_cal, (uint8_t)DRV_IR_ANALOG_MASK,
+                   (0 != S3_ADC_BLACK_IS_HIGH), (uint8_t)S3_IR_BLACK_LEVEL,
+                   p_raw, norm);
+    if (norm[S3_IR_C] >= g_params.black_threshold)
+    {
+        mask |= S3_MASK_C;
+    }
+    if (norm[S3_IR_R] >= g_params.black_threshold)
+    {
+        mask |= S3_MASK_R;
+    }
+    g_s3_black_mask_live = mask;
+}
+
 /* One normal 10 ms step: track the line, report events, feed barcodes */
-static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us)
+static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us,
+                        bool b_rejoining)
 {
     uint16_t   norm[S3_IR_COUNT];
     line_evt_t evt;
+
+    if (b_rejoining)
+    {
+        line_tracker_reset(&g_tracker);
+        g_tracker.rejoin_clear_left = S3_REJOIN_CLEAR_SAMPLES;
+
+        /* Start a new barcode run at this sample instead of including
+           the time and distance travelled with IR sampling paused. */
+        g_bc_level         = 0u;
+        g_bc_run_start_us  = t_us;
+        g_bc_run_start_pos = s3_bc_pos();
+#if S3_BC_EDGE
+        bc_edge_reset_pos(&g_bc_edge, (int32_t)p_raw[S3_BC_SENSOR], t_us,
+                           g_bc_run_start_pos);
+#endif
+        g_tr_last_l = g_s2_ticks_l;
+        g_tr_last_r = g_s2_ticks_r;
+    }
 
     /* Cast: the analog mask and the digital black level fit in 8 bits. */
     line_normalise(&g_cal, (uint8_t)DRV_IR_ANALOG_MASK,
@@ -293,7 +344,13 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us)
         static uint32_t end_pos = 0U;
         bool            b_scan  = g_b_s3_bc_bars; /* not the first bar:
                                    that may be a junction's side arm */
+        const bool b_follow_straight = live_tune_straight_at_junction();
 
+        if (b_rejoining)
+        {
+            b_was  = false;
+            b_hold = false;
+        }
         if (b_was && !b_scan && (S3_BC_AFTER_HOLD_COUNTS > 0u))
         {
             b_hold  = true;
@@ -305,7 +362,13 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us)
         }
         b_was = b_scan;
         evt   = line_tracker_step(&g_tracker, &g_params, norm,
-                                  b_scan || b_hold);
+                                  b_scan || b_hold || b_follow_straight);
+        if (b_follow_straight && !g_params.straddle &&
+            ((g_tracker.black_mask & (S3_MASK_C | S3_MASK_R)) ==
+             (S3_MASK_C | S3_MASK_R)))
+        {
+            g_tracker.steering = 0;
+        }
 #if S3_BC_LOCK
         {
             /* slow from the first bar until past the barcode (the slow
@@ -385,6 +448,7 @@ void line_task(int32_t stacd, void * p_exinf)
     uint16_t raw[S3_IR_COUNT] = { 0 };
     uint32_t t_us;
     ER       ercd;
+    bool     b_rejoining = false;
 
     (void)stacd;
     (void)p_exinf;
@@ -405,6 +469,8 @@ void line_task(int32_t stacd, void * p_exinf)
 
     for (;;)
     {
+        bool b_avoiding;
+
         tk_slp_tsk(TMO_FEVR); /* woken by s3_line_cyclic_isr */
         g_s3_line_wakeups++;
         if (tk_can_wup(TSK_SELF) > 0)
@@ -412,12 +478,30 @@ void line_task(int32_t stacd, void * p_exinf)
             g_s3_line_overruns++; /* a period was missed */
         }
 
-        handle_requests();
+        b_avoiding = g_b_obstacle_mode;
+        if (b_avoiding)
+        {
+            b_rejoining = true;
+            if (!g_b_obstacle_line_search)
+            {
+                g_s3_black_mask_live = 0u;
+                continue;
+            }
+        }
+        else
+        {
+            handle_requests();
+        }
 
         t_us = drv_ir_time_us();
         if (drv_ir_read(raw) < E_OK)
         {
+            g_s3_black_mask_live = 0u;
             g_s3_line_read_errors++; /* TODO: report S3 fault */
+        }
+        else if (b_avoiding)
+        {
+            search_step(raw);
         }
         else if (g_b_calibrating)
         {
@@ -426,7 +510,8 @@ void line_task(int32_t stacd, void * p_exinf)
         }
         else
         {
-            follow_step(raw, t_us);
+            follow_step(raw, t_us, b_rejoining);
+            b_rejoining = false;
         }
     }
 }

@@ -41,9 +41,11 @@
 static uint32_t g_last_seq;
 static uint32_t g_exec_seq; /* last S3 sample reported during a junction turn */
 static bool     g_b_ready_pending;
+static bool     g_b_bypass_ended;
+static uint32_t g_bypass_end_ms;
 
 #if S2_WEBDEBUG
-/* Bench: "At every junction Left / Right / Straight" on the dashboard.  The
+/* Bench: "At every junction Left / Right" on the dashboard. The
    junction is held back for one call and a BARCODE_DECODED carrying that
    action goes first, so the controller turns exactly as if a barcode had
    been read (same code path, no change to vc_sm.c). */
@@ -191,8 +193,13 @@ static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
     return b_event;
 }
 
+static bool predates_bypass_handoff(uint32_t time_ms)
+{
+    return g_b_bypass_ended && ((int32_t)(time_ms - g_bypass_end_ms) <= 0);
+}
+
 /* Read S3 events until one matters to the controller or none are left */
-static bool next_s3_event(vc_event_t * p_event)
+static bool next_s3_event(vc_event_t * p_event, vc_state_t state)
 {
     s3_event_t s3_evt;
     int32_t    len;
@@ -205,6 +212,15 @@ static bool next_s3_event(vc_event_t * p_event)
         /* Cast: sizeof of a small struct vs the signed receive size. */
         if ((int32_t)sizeof(s3_evt) == len)
         {
+            /* Discard junction events in straight-through mode or before
+               the bypass hands motion back to line following. */
+            if ((S3_EVT_JUNCTION == s3_evt.type) &&
+                (live_tune_straight_at_junction() ||
+                 (VC_ST_AVOID_OBSTACLE == state) ||
+                 predates_bypass_handoff(s3_evt.time_ms)))
+            {
+                continue;
+            }
             b_event = map_s3_event(&s3_evt, p_event);
         }
         else
@@ -220,6 +236,12 @@ bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
     s3_line_status_t line_st;
     bool             b_event = false;
 
+#if S2_WEBDEBUG
+    if (live_tune_straight_at_junction())
+    {
+        g_b_junction_held = false;
+    }
+#endif
     if (g_b_ready_pending)
     {
         g_b_ready_pending = false;
@@ -235,21 +257,22 @@ bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
     }
 #endif
     /* 1. events first: a LINE_LOST must beat the next steering value */
-    else if (next_s3_event(p_event))
+    else if (next_s3_event(p_event, state))
     {
-        b_event = true;
 #if S2_WEBDEBUG
+        int32_t nav = g_lt_next_nav;
+
         if ((VC_EV_JUNCTION == p_event->type) &&
-            (g_lt_next_nav > (int32_t)NAV_NONE) &&
-            (g_lt_next_nav <= (int32_t)NAV_STRAIGHT))
+            ((NAV_LEFT == nav) || (NAV_RIGHT == nav)))
         {
             /* send the dashboard's action first, the junction next call */
             g_junction_held   = *p_event;
             g_b_junction_held = true;
-            make(p_event, VC_EV_BARCODE_DECODED, g_lt_next_nav, 0,
+            make(p_event, VC_EV_BARCODE_DECODED, nav, 0,
                  g_junction_held.time_ms);
         }
 #endif
+        b_event = true;
     }
     /* 1b. Controller is searching (LOST_LINE): with the straddle layout S3
        has no LOST state, so it never sends LINE_FOUND and the search could
@@ -279,6 +302,7 @@ bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
     else if ((VC_SRC_LINE == vc_sm_motion_owner(state)) &&
              (E_OK == s3_get_line_status(&line_st)) &&
              (line_st.seq != g_last_seq) &&
+             (!predates_bypass_handoff(line_st.time_ms)) &&
              (LINE_STATE_FOLLOW == line_st.line_state))
     {
         g_last_seq = line_st.seq;
@@ -293,6 +317,21 @@ bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
     return b_event;
 }
 
+void vc_bridge_s3_set_obstacle_mode(bool b_active)
+{
+#if S2_WEBDEBUG
+    g_b_junction_held = false;
+#endif
+    if (!b_active)
+    {
+        SYSTIM now;
+        tk_get_tim(&now);
+        g_bypass_end_ms  = now.lo;
+        g_b_bypass_ended = true;
+    }
+    s3_set_obstacle_mode(b_active);
+}
+
 ER vc_bridge_s3_request(vc_request_t req, int32_t arg)
 {
     s3_line_status_t line_st;
@@ -302,6 +341,7 @@ ER vc_bridge_s3_request(vc_request_t req, int32_t arg)
     switch (req)
     {
         case VC_REQ_SELF_CHECK:
+            g_b_bypass_ended = false;
             /* No calibration needed: analogue sensors use the white /
                black readings in s3_config.h until one is run. */
             if (E_OK == s3_get_line_status(&line_st))
@@ -335,6 +375,11 @@ bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
     (void)p_event;
     (void)state;
     return false;
+}
+
+void vc_bridge_s3_set_obstacle_mode(bool b_active)
+{
+    (void)b_active;
 }
 
 ER vc_bridge_s3_request(vc_request_t req, int32_t arg)

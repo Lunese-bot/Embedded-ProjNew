@@ -11,10 +11,10 @@
  *          2. drive L*sqrt2          -> L sideways, L forwards
  *          3. turn -s*45            -> parallel to the line, beside obstacle
  *          4. drive past the obstacle
- *          5. turn -s*45            -> head back towards the line
+ *          5. turn -s*30            -> head back towards the line
  *          6. drive (search) until an IR sensor sees the line
- *          7. turn  s*45            -> original heading; line follower takes
- * over L = lateral offset of the obstacle edge + half car width + margin.
+ *          7. turn  s*30            -> original heading, then check the line
+ * L = lateral offset of the obstacle edge + half car width + margin.
  */
 
 #include "obstacle_logic.h"
@@ -53,6 +53,23 @@ static bool is_hit(const s5_sample_t * p_sample)
 {
     return ((p_sample->mm != 0) && (p_sample->mm <= S5_HIT_RANGE_MM)) ? true
                                                                       : false;
+}
+
+int32_t s5_merge_samples(const s5_sample_t *a, int32_t na,
+                         const s5_sample_t *b, int32_t nb,
+                         s5_sample_t *out, int32_t max)
+{
+    int32_t i = 0, j = 0, n = 0;
+    while (n < max && (i < na || j < nb))
+    {
+        if (j >= nb || (i < na && a[i].deg < b[j].deg)) { out[n++] = a[i++]; }
+        else
+        {
+            if (i < na && a[i].deg == b[j].deg) { i++; }
+            out[n++] = b[j++];
+        }
+    }
+    return n;
 }
 
 static int32_t abs_i(int32_t value)
@@ -179,6 +196,17 @@ s5_side_t s5_choose_side(s5_profile_t * p_profile)
     bool b_r_ok = (p_profile->clear_right_mm >= S5_MIN_CLEAR_MM) ? true : false;
     s5_side_t side;
 
+    /* A clearly off-centre obstacle rules out starting towards it. For
+       a centred obstacle, use the available clearance and detour length. */
+    if (p_profile->centre_deg <= -S5_SIDE_BIAS_DEG)
+    {
+        b_r_ok = false;
+    }
+    else if (p_profile->centre_deg >= S5_SIDE_BIAS_DEG)
+    {
+        b_l_ok = false;
+    }
+
     if (b_l_ok && b_r_ok)
     {
         /* both safe: the shorter detour, then the larger clearance */
@@ -228,14 +256,24 @@ static int32_t add_step(s5_step_t * p_plan, int32_t count, int32_t max,
     return count + 1;
 }
 
+/* Round up to reach the full lateral offset at the chosen heading. */
+static int32_t diagonal_distance_mm(int32_t lateral_mm, int32_t angle_deg)
+{
+    int32_t sine = s5_sin1000(angle_deg);
+
+    return (lateral_mm * 1000 + sine - 1) / sine;
+}
+
 int32_t s5_plan_bypass(const s5_profile_t * p_profile, s5_step_t * p_plan,
                        int32_t max)
 {
     int32_t count = 0;
     int32_t sign;
     int32_t lat;
-    int32_t leg1;
-    int32_t leg2;
+    int32_t outbound_mm;
+    int32_t outbound_forward_mm;
+    int32_t pass_mm;
+    int32_t search_mm;
 
     count = add_step(p_plan, count, max, S5_MOVE_STOP, 0, 0, 0, 0);
 
@@ -249,43 +287,69 @@ int32_t s5_plan_bypass(const s5_profile_t * p_profile, s5_step_t * p_plan,
 
     sign = (S5_SIDE_LEFT == p_profile->bypass_side) ? 1 : -1;
     lat  = s5_lateral_needed_mm(p_profile, (s5_side_t)p_profile->bypass_side);
-    leg1 = (lat * 1000) / s5_sin1000(S5_BYPASS_TURN_DEG);
-    /* forwards already covered by leg 1 = lat (45 deg) */
-    leg2 = (int32_t)p_profile->distance_mm + S5_OBSTACLE_DEPTH_MM +
-           S5_ROBOT_LENGTH_MM - lat;
-    if (leg2 < 50)
+    outbound_mm = diagonal_distance_mm(lat, S5_BYPASS_TURN_DEG);
+    outbound_forward_mm =
+        (outbound_mm * s5_sin1000(90 - S5_BYPASS_TURN_DEG)) / 1000;
+    pass_mm = (int32_t)p_profile->distance_mm + S5_OBSTACLE_DEPTH_MM +
+              S5_ROBOT_LENGTH_MM - outbound_forward_mm;
+    if (pass_mm < 50)
     {
-        leg2 = 50;
+        pass_mm = 50;
     }
+    search_mm = diagonal_distance_mm(lat + S5_SEARCH_MARGIN_MM,
+                                     S5_RETURN_TURN_DEG);
 
     count = add_step(p_plan, count, max, S5_MOVE_TURN,
                      sign * S5_BYPASS_TURN_DEG, 0, 0, 0);
-    count = add_step(p_plan, count, max, S5_MOVE_FORWARD, 0, leg1,
+    count = add_step(p_plan, count, max, S5_MOVE_FORWARD, 0, outbound_mm,
                      S5_BYPASS_SPEED_MM_S, 0);
     count = add_step(p_plan, count, max, S5_MOVE_TURN,
                      -sign * S5_BYPASS_TURN_DEG, 0, 0, 0);
-    count = add_step(p_plan, count, max, S5_MOVE_FORWARD, 0, leg2,
+    count = add_step(p_plan, count, max, S5_MOVE_FORWARD, 0, pass_mm,
                      S5_BYPASS_SPEED_MM_S, 0);
     count = add_step(p_plan, count, max, S5_MOVE_TURN,
-                     -sign * S5_BYPASS_TURN_DEG, 0, 0, 0);
+                     -sign * S5_RETURN_TURN_DEG, 0, 0, 0);
     count = add_step(p_plan, count, max, S5_MOVE_FORWARD, 0,
-                     leg1 + S5_SEARCH_EXTRA_MM, S5_SEARCH_SPEED_MM_S, 1);
+                     search_mm, S5_SEARCH_SPEED_MM_S, 1);
     return count;
 }
 
-int32_t s5_plan_recovery(s5_side_t side, int32_t attempt, s5_step_t * p_plan,
-                         int32_t max)
+int32_t s5_plan_recovery(s5_side_t side, int32_t attempt, int32_t heading_deg,
+                         s5_step_t * p_plan, int32_t max)
 {
+    const int32_t side_mm = diagonal_distance_mm(S5_RECOVERY_SIDE_MM,
+                                                  S5_RETURN_TURN_DEG);
+    const struct
+    {
+        int8_t heading_deg;
+        int32_t distance_mm;
+    } passes[] = {
+        { +S5_RETURN_TURN_DEG, side_mm },
+        { -S5_RETURN_TURN_DEG, 2 * side_mm },
+        { 0, S5_RECOVERY_STRAIGHT_MM },
+    };
+    _Static_assert(S5_MAX_RECOVERY == sizeof(passes) / sizeof(passes[0]),
+                   "S5_MAX_RECOVERY must match the recovery plan");
+    int32_t turn_deg;
     int32_t count = 0;
     int32_t sign  = (S5_SIDE_LEFT == side) ? 1 : -1;
 
-    /* turn a little more towards the line each time, then search */
-    count = add_step(p_plan, count, max, S5_MOVE_TURN,
-                     -sign * S5_RECOVERY_TURN_DEG, 0, 0, 0);
-    count = add_step(p_plan, count, max, S5_MOVE_FORWARD, 0,
-                     S5_RECOVERY_BASE_MM + attempt * S5_RECOVERY_STEP_MM,
-                     S5_SEARCH_SPEED_MM_S, 1);
-    return count;
+    if ((attempt < 0) || (attempt >= S5_MAX_RECOVERY) || (S5_SIDE_NONE == side))
+    {
+        return 0;
+    }
+
+    /* The return leg may have overshot the line. Search back towards the
+       bypass side, then across the other way, then straight ahead. Use
+       absolute headings relative to the bypass so no pass points back
+       towards the obstacle, even if a failed alignment changed heading. */
+    turn_deg = sign * passes[attempt].heading_deg - heading_deg;
+    if (turn_deg != 0)
+    {
+        count = add_step(p_plan, count, max, S5_MOVE_TURN, turn_deg, 0, 0, 0);
+    }
+    return add_step(p_plan, count, max, S5_MOVE_FORWARD, 0,
+                    passes[attempt].distance_mm, S5_SEARCH_SPEED_MM_S, 1);
 }
 
 int32_t s5_coarse_angles(int8_t * p_deg, int32_t max)

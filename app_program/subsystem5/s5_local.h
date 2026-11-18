@@ -41,7 +41,7 @@
                                     with gentle servo ramps ~5.2 s (wide
                                     obstacle, 25 fine angles); was 4000,
                                     which a wide scan could overrun */
-#define S5_TURN_TMO_MS      3000 /* a TURN must finish within      */
+#define S5_TURN_TMO_MS      6000 /* allow slow turns to finish */
 #define S5_MOVE_SLACK_MS    2000 /* added to distance/speed        */
 /* Silent pings in a row -> fault (only counted while scanning, open
    space also gives no echo) */

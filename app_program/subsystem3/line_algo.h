@@ -68,6 +68,7 @@ typedef struct
     uint16_t     lost_count;
     uint16_t     found_count;
     uint16_t     junction_count;
+    uint16_t     rejoin_clear_left; /* clear samples before rearming junctions */
     int16_t      prev_error;
     int8_t       corr_side;  /* straddle: side being corrected, 0 = none */
     uint16_t     corr_count; /* straddle: samples that side has been black */

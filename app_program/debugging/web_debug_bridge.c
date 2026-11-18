@@ -309,8 +309,8 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
             er           = obst_stop();
             break;
         case 'G':
-            g_lt_obst_en = 1; /* the next mission start enables it again */
-            er           = E_OK;
+            g_lt_obst_en = 1;
+            er           = monitoring_on();
             break;
         case 'y': er = s3_request(S3_REQ_CALIBRATE); break;
         case 'Y': er = s3_request(S3_REQ_RESET_LINE); break;

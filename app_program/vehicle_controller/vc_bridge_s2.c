@@ -76,8 +76,13 @@ static int32_t sent_speed(void)
    slowing the mission also slows the spinning; never below what a wheel
    can turn smoothly. */
 #define VC_TURN_MIN_MMS 60
+static bool g_obstacle_mode;
+void vc_bridge_s2_set_obstacle_mode(bool active) { g_obstacle_mode = active; }
+
 static int32_t sent_turn_speed(void)
 {
+    /* Only obstacle turns have a fixed slow cap. Normal turns are unchanged. */
+    if (g_obstacle_mode) { return VC_TURN_MIN_MMS; }
 #if S2_WEBDEBUG
     int32_t v = (VC_TURN_SPEED_MMS * g_lt_speed_pct) / 100;
     return (v < VC_TURN_MIN_MMS) ? VC_TURN_MIN_MMS : v;
@@ -282,6 +287,8 @@ ER vc_bridge_s2_request(vc_request_t req, int32_t arg)
 }
 
 #else /* only the S2 example: log the command, S2 not bound yet */
+
+void vc_bridge_s2_set_obstacle_mode(bool active) { (void)active; }
 
 ER vc_bridge_s2_move(vc_move_t move, int32_t value)
 {

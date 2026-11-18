@@ -1,0 +1,10 @@
+﻿PASS stop confirmation ignores stale flags and forwards fresh motor stop
+PASS obstacle pivots stay slow at dashboard speed 50..200 percent
+PASS normal mission turns and line-follow speed remain unchanged
+PASS fine scan retains clear sides measured by coarse scan
+PASS both bypass directions stop first, drive slowly and search for black line
+[TEST] S5-H09 PASS  missing line on either side exhausts three slow passes
+[TEST] S5-H10 PASS  lost line during alignment retries and finds it again
+[TEST] S5-H12 PASS  IR is requested for line checks and released before pivots and handoff
+[TEST] S5-H11 PASS  only physical stop completes the search stop request
+SUMMARY 9 navigation regression groups passed

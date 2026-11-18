@@ -7,13 +7,15 @@
  *        g_lt_line_kp / g_lt_line_kd       line steering PD  (task_line.c)
  *        g_lt_speed_pct                    mission speed %   (vc_bridge_s2.c)
  *        g_lt_obst_en                      obstacle checking (vc_bridge_s5.c)
- *      With S2_WEBDEBUG = 0 this header is empty and nothing changes.
+ *      Without the dashboard, line following continues through junctions.
  */
 
 #ifndef LIVE_TUNE_H
 #define LIVE_TUNE_H
 
+#include <stdbool.h>
 #include <stdint.h>
+#include "../robot_types.h"
 #include "../subsystem2/s2_config.h"
 
 #if S2_WEBDEBUG
@@ -46,6 +48,15 @@ extern volatile int32_t g_lt_bc_floor;  /* S3_BC_EDGE_FLOOR (raw) */
 extern volatile int32_t g_lt_steer_hold; /* 0 steer normally, 1 straight while reading a barcode, 2 never steer */
 extern volatile int32_t g_lt_trim_step; /* trim change per button press, permille */
 #endif
+
+static inline bool live_tune_straight_at_junction(void)
+{
+#if S2_WEBDEBUG
+    return (NAV_STRAIGHT == g_lt_next_nav);
+#else
+    return true;
+#endif
+}
 
 #endif /* LIVE_TUNE_H */
 

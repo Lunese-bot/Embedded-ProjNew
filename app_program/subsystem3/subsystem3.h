@@ -179,6 +179,11 @@ extern ID g_mbf_s3_events;
 
 extern ER s3_request(uint32_t req);
 
+/* Controller pauses normal IR processing while S5 owns motion. */
+extern void s3_set_obstacle_mode(bool b_active);
+/* S5 temporarily requests IR samples to locate the line. */
+extern void s3_set_obstacle_line_search(bool b_active);
+
 /* ---------------------------------------------------------------------
  *  Private to subsystem 3 (shared between its own .c files)
  * --------------------------------------------------------------------- */

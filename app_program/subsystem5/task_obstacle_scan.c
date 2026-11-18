@@ -63,6 +63,7 @@ static void point_and_wait(int32_t deg)
         tk_dly_tsk(S5_SERVO_STEP_MS);
         steps++;
     }
+    servo_set_deg(deg); /* also restore pulses when already centred */
     /* a single small step barely shakes the mount: settle less */
     tk_dly_tsk((steps <= 1) ? S5_SERVO_SETTLE_SHORT_MS : S5_SERVO_SETTLE_MS);
 }
@@ -89,11 +90,11 @@ static int32_t sweep(const int8_t * p_deg, int32_t count, s5_sample_t * p_out)
 static void print_profile(const char * p_tag, const s5_profile_t * p_profile)
 {
     tm_printf((uint8_t *)"s5: %s d=%dmm edges R%d..L%d deg w=%dmm "
-                         "clrL=%d clrR=%d side=%d\n",
+                         "clrL=%d clrR=%d side=%d centre=%d\n",
               p_tag, p_profile->distance_mm, p_profile->right_edge_deg,
               p_profile->left_edge_deg, p_profile->width_mm,
               p_profile->clear_left_mm, p_profile->clear_right_mm,
-              p_profile->bypass_side);
+              p_profile->bypass_side, p_profile->centre_deg);
 }
 
 /* Coarse then fine scan.  Leaves the profile in the status snapshot
@@ -102,9 +103,12 @@ static void do_scan(void)
 {
     int8_t       ang[SCAN_MAX_SAMPLES];
     s5_sample_t  smp[SCAN_MAX_SAMPLES];
+    static s5_sample_t csmp[SCAN_MAX_SAMPLES];
+    static s5_sample_t merged[SCAN_MAX_SAMPLES];
     s5_profile_t prof;
     s5_profile_t coarse;
     int32_t      count;
+    int32_t      coarse_count;
     s5_evt_t     evt = { 0 };
 
     g_silent_in_scan = 0;
@@ -112,8 +116,8 @@ static void do_scan(void)
     /* 1. coarse */
     s5_set_state(S5_ST_COARSE_SCAN);
     count = s5_coarse_angles(ang, SCAN_MAX_SAMPLES);
-    count = sweep(ang, count, smp);
-    if (!s5_build_profile(smp, count, &prof))
+    coarse_count = sweep(ang, count, csmp);
+    if (!s5_build_profile(csmp, coarse_count, &prof))
     {
         tm_printf((uint8_t *)"s5: coarse scan found nothing\n");
     }
@@ -126,7 +130,8 @@ static void do_scan(void)
         s5_set_state(S5_ST_FINE_SCAN);
         count = s5_fine_angles(&prof, ang, SCAN_MAX_SAMPLES);
         count = sweep(ang, count, smp);
-        if (s5_build_profile(smp, count, &prof))
+        count = s5_merge_samples(csmp, coarse_count, smp, count, merged, SCAN_MAX_SAMPLES);
+        if (s5_build_profile(merged, count, &prof))
         {
             print_profile("fine", &prof);
         }

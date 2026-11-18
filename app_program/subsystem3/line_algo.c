@@ -180,6 +180,7 @@ void line_tracker_reset(line_tracker_t * p_trk)
     p_trk->lost_count     = 0u;
     p_trk->found_count    = 0u;
     p_trk->junction_count = 0u;
+    p_trk->rejoin_clear_left = 0u;
     p_trk->prev_error     = 0;
     p_trk->corr_side      = 0;
     p_trk->corr_count     = 0u;
@@ -280,6 +281,24 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
     }
     p_trk->black_mask = mask;
 
+    /* C and R can both see black where the bypass rejoins the line. Keep
+       tracking the line, but wait for a clean stretch before a junction
+       can be reported. A brief gap between two strips does not rearm it. */
+    if (0u != p_trk->rejoin_clear_left)
+    {
+        const uint8_t rejoin_mask = S3_MASK_C | S3_MASK_R;
+
+        b_junction_inhibit = true;
+        if ((mask & rejoin_mask) == rejoin_mask)
+        {
+            p_trk->rejoin_clear_left = S3_REJOIN_CLEAR_SAMPLES;
+        }
+        else
+        {
+            p_trk->rejoin_clear_left--;
+        }
+    }
+
     b_line_seen = (0u != (mask & p_params->line_mask));
     b_junction =
         (0u != p_params->junction_mask) && /* 0 = junction detection off */
@@ -354,9 +373,9 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
         /* Barcode bar across the line: L, C and R all black at once (L
            judged on its RAW reading, since its cut-off is set low for
            barcodes and white paper can cross it), or C and R black while
-           a barcode is being read.  Drive straight and
-           forget the turn, so a thick bar does not build up a big
-           correction (or start the curve memory) and yank the robot. */
+           a barcode is being read or the car is rejoining after a bypass.
+           Drive straight and forget the turn so a patch of black cannot
+           build up a strong steering correction. */
         bool    b_bar = (0 != S3_STRADDLE_BAR_STRAIGHT) && b_c && b_r &&
                         ((p_trk->l_raw >= (uint16_t)S3_BAR_L_RAW) ||
                          b_junction_inhibit);

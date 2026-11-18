@@ -137,6 +137,7 @@ void vehicle_controller_test(void)
                (VC_ST_AVOID_OBSTACLE == g_t_sm.st.state) && (0 == g_t_out.n) &&
                    (1 == g_t_sm.st.moves_rejected),
                "AVOID: move request from S3 rejected");
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     feed(VC_SRC_OBST, VC_EV_MOVE_REQUEST, VC_MOVE_TURN_RIGHT, 45);
     TEST_CHECK("VC-U10", has_move(VC_MOVE_TURN_RIGHT),
                "AVOID: move request from S5 forwarded");
