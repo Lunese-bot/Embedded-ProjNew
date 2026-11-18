@@ -8,19 +8,19 @@
  *      So subsystem 1 is split in two halves joined by kernel objects:
  *
  *        telemetry_task (this folder, priority 12)
- *          every 200 ms (NFR2) builds a JSON telemetry line from every
- *          subsystem's status snapshot and queues it in g_mbf_telemetry; also
- *          watches the WiFi link (cyw43_utk_get_status, always safe).
+ *          every 200 ms (NFR2) packs a binary MQTT telemetry frame from
+ *          subsystem status and queues it in g_mbf_telemetry. It also prints
+ *          a JSON diagnostic line to USB while MQTT is down.
  *
  *        s1_bridge.c (this folder, called FROM the WiFi service task)
- *          s1_bridge_pop()  takes queued lines without blocking, and
- *          s1_bridge_on_command() turns an MQTT command into a Vehicle
+ *          s1_bridge_pop()  takes queued binary payloads without blocking,
+ *          and s1_bridge_on_command() turns a binary MQTT command into a Vehicle
  *          Controller event.
  *          lib/liblwip/sysdepend/pico_rp2040/mqtt_utk.c calls them
  *          (build with NET=lwip MQTT=1).
  *
  *      Public interface (TEAM.md section 5):
- *        IF-T1  s1_post(topic, text)   any task -> S1 (g_mbf_telemetry)
+ *        IF-T1  s1_post(topic, data, len) any task -> S1 (g_mbf_telemetry)
  *        S1 -> VC  vc_post_event(VC_SRC_COMMS, VC_EV_CMD_START / CMD_STOP /
  *                  CMD_RESET / WIFI_UP / WIFI_DOWN)                 (IF-06)
  */
@@ -35,14 +35,15 @@
 #define S1_PERIOD_MS     200
 #define S1_LINE_MAX      S1_BRIDGE_LINE_MAX /* topic + payload */
 #define S1_QUEUE_LINES   8
+#define S1_CONSOLE_LINE_MAX 224
 /* Also print telemetry on the console every 5 x 200 ms = 1 s while MQTT
    is not connected (read by tools/dashboard.html). */
 #define S1_CONSOLE_EVERY 5
 
-/* IF-T1: queue one message for MQTT.  topic is the suffix after
-   S1_TOPIC_ROOT ("event", "telemetry", "fault", ...).  Never blocks;
-   if the queue is full the OLDEST line is dropped and counted. */
-extern ER s1_post(const char * p_topic, const char * p_text);
+/* IF-T1: queue one MQTT message. The payload may contain any byte value.
+   topic is the suffix after S1_TOPIC_ROOT (for example "t", "ack", "fault").
+   Never blocks; if the queue is full, the oldest message is dropped. */
+extern ER s1_post(const char * p_topic, const void * p_data, int32_t len);
 
 typedef struct
 {

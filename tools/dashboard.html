@@ -12,7 +12,7 @@
   - "Open log file" replays a saved console log.
   - "Connect MQTT" subscribes to robot/g10/# over a WebSocket broker
     (MQTT build), e.g. ws://<laptop-ip>:9001 for mosquitto with a
-    websockets listener.  Can also send start / stop / reset.
+    websockets listener. Telemetry and start / stop / reset use binary payloads.
 -->
 <style>
 :root {
@@ -156,6 +156,13 @@ canvas { width: 100%; height: 90px; display: block; }
   const series = { vl: [], vr: [], line: [], us: [], pitch: [] };
   const allLines = [];
   let lastTlm = 0, mqttClient = null, port = null, reader = null;
+  const STATES = ["IDLE", "MISSION_START", "FOLLOW_LINE", "LOST_LINE", "AVOID_OBSTACLE",
+                  "DECODE_BARCODE", "EXECUTE_ACTION", "TERRAIN_CHECK", "FAULT",
+                  "MISSION_COMPLETE"];
+  const CMD_CODES = { start: 0, stop: 1, reset: 2 };
+  const ACK_RESULTS = ["queued", "busy", "rejected", "reserved"];
+  let mqttCommandSeq = 0, lastMqttTlmSeq = null;
+  const pendingCommands = new Map();
 
   /* ---------- status ---------- */
   function setStatus(text, on) { $("statusText").textContent = text; $("dot").classList.toggle("on", !!on); }
@@ -200,6 +207,41 @@ canvas { width: 100%; height: 90px; display: block; }
   /* ---------- telemetry ---------- */
   function push(arr, t, v) { arr.push([t, v]); while (arr.length && arr[0][0] < t - WINDOW_MS) arr.shift(); }
   function txt(id, v) { $(id).textContent = v; }
+  function decodeBinaryTelemetry(payload) {
+    const bytes = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+    if (bytes.length !== 14) return null;
+    let bit = 0;
+    const read = width => {
+      let value = 0;
+      for (let i = 0; i < width; i++, bit++) {
+        value = value * 2 + ((bytes[bit >> 3] >> (7 - (bit & 7))) & 1);
+      }
+      return value;
+    };
+    const signed = width => {
+      const value = read(width);
+      return value >= 2 ** (width - 1) ? value - 2 ** width : value;
+    };
+    if (read(3) !== 1) return null;
+    const j = {};
+    j.seq = read(8);
+    j.st = STATES[read(4)] || "UNKNOWN";
+    j.v = [signed(8) * 4, signed(8) * 4];
+    j.odo = read(16);
+    j.line = signed(8) * 8;
+    const obsCm = read(7);
+    j.obsDetected = !!read(1);
+    j.obs = read(4);
+    j.us = obsCm === 127 ? 0 : obsCm * 10;
+    j.nav = read(3);
+    j.bc = read(4);
+    j.pitch = signed(8) * 50;
+    j.hump = read(6) * 0.5;
+    j.maxhump = read(6) * 0.5;
+    j.fault = read(16);
+    j.wifi = !!read(1);
+    return j;
+  }
   function onTelemetry(j) {
     const t = Date.now(); lastTlm = t;
     const st = String(j.st ?? "–");
@@ -379,10 +421,42 @@ canvas { width: 100%; height: 90px; display: block; }
     mqttClient.on("error", e => setStatus("MQTT: " + e.message, false));
     mqttClient.on("close", () => { if (mqttClient) setStatus("MQTT reconnecting…", false); });
     mqttClient.on("message", (topic, payload) => {
+      const bytes = payload instanceof Uint8Array ? payload :
+        new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
       const s = payload.toString();
-      if (topic.endsWith("/telemetry")) handleLine(s);
-      else if (topic.endsWith("/fault")) { addEvent("fault " + s); allLines.push("[mqtt " + topic + "] " + s); scheduleLog(); }
-      else { allLines.push("[mqtt " + topic + "] " + s); scheduleLog(); }
+      if (topic.endsWith("/t")) {
+        const j = decodeBinaryTelemetry(bytes);
+        if (!j) {
+          addEvent("invalid binary telemetry frame (" + bytes.length + " bytes)");
+          return;
+        }
+        if (lastMqttTlmSeq !== null && j.seq !== ((lastMqttTlmSeq + 1) & 255)) {
+          addEvent("telemetry gap: seq " + lastMqttTlmSeq + " -> " + j.seq);
+        }
+        lastMqttTlmSeq = j.seq;
+        onTelemetry(j);
+      } else if (topic.endsWith("/telemetry")) {
+        handleLine(s);
+      } else if (topic.endsWith("/ack")) {
+        if (bytes.length !== 1) {
+          addEvent("invalid command acknowledgement");
+          return;
+        }
+        const result = bytes[0] >> 6, seq = bytes[0] & 63;
+        const command = pendingCommands.get(seq) || "unknown command";
+        pendingCommands.delete(seq);
+        const message = "ack " + command + ": " + ACK_RESULTS[result] + " (seq " + seq + ")";
+        addEvent(message);
+        allLines.push("[mqtt " + topic + "] " + message);
+        scheduleLog();
+      } else if (topic.endsWith("/fault")) {
+        addEvent("fault " + s);
+        allLines.push("[mqtt " + topic + "] " + s);
+        scheduleLog();
+      } else {
+        allLines.push("[mqtt " + topic + "] " + s);
+        scheduleLog();
+      }
     });
   };
   function mqttUi(on) {
@@ -391,8 +465,12 @@ canvas { width: 100%; height: 90px; display: block; }
   }
   document.querySelectorAll(".cmd").forEach(b => b.onclick = () => {
     if (b.dataset.cmd === "start" && !confirm("Start the mission? The wheels will turn.")) return;
-    mqttClient && mqttClient.publish("robot/g10/cmd", b.dataset.cmd);
-    addEvent("sent " + b.dataset.cmd);
+    const code = CMD_CODES[b.dataset.cmd];
+    if (code == null || !mqttClient) return;
+    mqttCommandSeq = (mqttCommandSeq + 1) & 63;
+    pendingCommands.set(mqttCommandSeq, b.dataset.cmd);
+    mqttClient.publish("robot/g10/cmd", new Uint8Array([(code << 6) | mqttCommandSeq]));
+    addEvent("sent " + b.dataset.cmd + " (seq " + mqttCommandSeq + ")");
   });
 
   renderTests(); drawAll();

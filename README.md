@@ -250,6 +250,10 @@ Each option goes through the same steps:
 The makefile also has `NET=lwip` and `MQTT=1` (TCP/IP and MQTT over WiFi).
 They need the SDK's `lib/lwip` submodule and a `config/wifi_secrets.h`
 (copy `config/wifi_secrets.example.h`). This guide does not cover them.
+With MQTT enabled, Subsystem 1 publishes versioned 14-byte telemetry frames
+to `robot/g10/t`. The dashboard sends one-byte `start`, `stop`, and `reset`
+commands to `robot/g10/cmd` and receives one-byte queue-status acknowledgements
+on `robot/g10/ack`. The bit layout and scales are documented in `TEAM.md`.
 
 ---
 
