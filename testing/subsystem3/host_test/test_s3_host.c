@@ -1092,6 +1092,312 @@ static void test_geom_try(void)
     CHECK("H-G09", b_ok, "shape: bad arguments report try 0");
 }
 
+/* ---- H-R: real pass 2026-11-18 18:23 (review R4) --------------------- */
+/* The dashboard barcode log's frozen trace of the moving pass, 700
+   samples (10 ms): L raw, wheel steps L + R, R - L.  Big print, dark bars
+   on white, robot at ~36 mm/s.  The thick bars only reach 730-1180 and
+   the thin bars ~200 over a white of 140-215, so at the robot's edge
+   thresholds (300 / 400) only the 6 thick bars are seen.  The letter on
+   the track is not confirmed yet: X backwards, Q backwards and J forwards
+   share these thick-bar positions; the faint thin bars match Q backwards
+   (inferred).  Kept only as a safety check (never X or J); its other
+   outputs are not targets, because the sensor output varies. */
+#define R18_N 700u
+static uint16_t const g_r18_l[R18_N] = {
+    168, 158, 164, 158, 156, 178, 186, 164, 185, 179, 200, 219, 234, 252,
+    278, 341, 494, 643, 706, 725, 727, 670, 602, 533, 502, 468, 439, 409,
+    374, 334, 304, 284, 277, 263, 247, 242, 224, 217, 222, 207, 204, 201,
+    180, 185, 169, 183, 178, 167, 165, 175, 167, 155, 165, 159, 166, 155,
+    177, 188, 174, 179, 186, 187, 181, 206, 206, 213, 205, 216, 243, 243,
+    238, 264, 267, 280, 275, 319, 368, 484, 562, 667, 748, 780, 811, 850,
+    869, 881, 881, 872, 839, 802, 740, 559, 337, 276, 246, 249, 230, 209,
+    214, 202, 188, 190, 174, 181, 181, 180, 186, 175, 170, 165, 157, 159,
+    171, 162, 163, 158, 160, 188, 197, 180, 184, 183, 184, 180, 186, 197,
+    183, 186, 183, 193, 187, 205, 190, 184, 185, 172, 171, 173, 162, 166,
+    173, 154, 158, 168, 159, 166, 161, 153, 146, 149, 158, 165, 160, 161,
+    148, 156, 152, 160, 150, 150, 164, 160, 157, 162, 156, 149, 149, 151,
+    167, 157, 157, 168, 160, 155, 161, 166, 172, 161, 169, 169, 164, 167,
+    179, 187, 189, 207, 197, 184, 198, 210, 197, 188, 184, 189, 192, 189,
+    179, 175, 174, 188, 171, 169, 171, 180, 173, 183, 164, 177, 175, 180,
+    179, 178, 183, 197, 191, 200, 213, 198, 230, 225, 249, 256, 280, 299,
+    339, 444, 555, 625, 713, 737, 762, 766, 764, 753, 736, 742, 716, 712,
+    714, 713, 699, 646, 542, 390, 309, 266, 237, 252, 246, 217, 218, 219,
+    201, 207, 194, 192, 189, 172, 173, 189, 154, 143, 162, 155, 160, 164,
+    167, 174, 143, 154, 143, 147, 151, 143, 164, 160, 160, 163, 159, 166,
+    160, 171, 152, 149, 153, 152, 154, 153, 164, 151, 155, 158, 164, 176,
+    154, 163, 159, 176, 178, 182, 186, 171, 198, 176, 191, 208, 201, 213,
+    209, 236, 236, 240, 255, 298, 334, 397, 564, 677, 810, 931, 1011, 1056,
+    1129, 1160, 1173, 1183, 1184, 1182, 1149, 1111, 1047, 912, 686, 464, 300, 269,
+    252, 234, 234, 214, 210, 198, 195, 201, 186, 182, 170, 185, 169, 162,
+    174, 185, 179, 176, 170, 164, 162, 167, 171, 166, 175, 172, 177, 194,
+    198, 185, 192, 188, 215, 199, 190, 210, 197, 180, 189, 189, 180, 168,
+    167, 175, 178, 155, 165, 180, 188, 165, 169, 162, 152, 171, 172, 167,
+    179, 193, 191, 185, 207, 194, 191, 193, 214, 206, 186, 199, 192, 190,
+    182, 182, 171, 175, 171, 182, 167, 165, 172, 164, 175, 171, 174, 168,
+    170, 189, 194, 189, 200, 191, 202, 197, 195, 203, 204, 194, 194, 192,
+    187, 182, 186, 175, 173, 156, 177, 160, 172, 183, 165, 166, 172, 172,
+    160, 168, 165, 193, 174, 191, 185, 188, 189, 193, 206, 200, 196, 183,
+    195, 209, 198, 195, 163, 181, 196, 167, 176, 167, 163, 183, 164, 176,
+    169, 168, 171, 166, 172, 177, 173, 194, 197, 194, 202, 204, 225, 221,
+    204, 220, 241, 238, 275, 289, 316, 419, 606, 760, 897, 987, 1056, 1099,
+    1139, 1147, 1158, 1170, 1158, 1151, 1119, 1090, 1055, 991, 885, 699, 411, 295,
+    258, 235, 220, 199, 212, 206, 193, 199, 186, 180, 183, 180, 171, 171,
+    166, 172, 154, 161, 168, 175, 181, 168, 182, 181, 179, 171, 183, 185,
+    192, 186, 209, 221, 212, 237, 250, 253, 277, 280, 326, 428, 571, 707,
+    813, 912, 979, 1020, 1056, 1056, 1057, 1046, 1027, 1014, 991, 948, 896, 797,
+    699, 541, 347, 288, 276, 253, 245, 216, 214, 215, 203, 200, 179, 184,
+    166, 184, 168, 166, 181, 152, 154, 173, 163, 170, 175, 169, 174, 173,
+    161, 173, 200, 188, 202, 190, 194, 198, 205, 200, 198, 196, 185, 191,
+    170, 187, 171, 163, 170, 164, 159, 161, 169, 159, 155, 157, 136, 158,
+    148, 139, 162, 150, 142, 151, 155, 146, 136, 166, 147, 152, 161, 143,
+    147, 159, 153, 145, 158, 140, 150, 149, 143, 148, 158, 158, 152, 151,
+    165, 159, 163, 172, 164, 169, 182, 194, 194, 202, 187, 205, 192, 196,
+    211, 197, 182, 179, 188, 186, 166, 157, 167, 166, 168, 151, 168, 152,
+    164, 161, 162, 148, 159, 157, 153, 162, 141, 147, 153, 157, 156, 157
+};
+static uint8_t const g_r18_f[R18_N] = {
+    6, 4, 6, 4, 5, 5, 4, 5, 5, 4, 5, 4, 4, 4, 6, 4, 5, 4, 6, 4, 5, 4, 4, 2, 3,
+    2, 2, 1, 2, 2, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 2, 3, 2, 3, 3, 2, 3, 3, 2,
+    3, 2, 3, 2, 2, 1, 3, 2, 2, 2, 2, 3, 2, 2, 4, 2, 3, 2, 2, 2, 3, 2, 2, 2, 4,
+    2, 2, 3, 2, 3, 3, 2, 2, 4, 2, 2, 2, 2, 3, 2, 2, 2, 3, 2, 2, 4, 2, 3, 2, 3,
+    3, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 3, 3, 2, 3, 2, 4, 2, 2, 3, 3, 2, 2, 2, 2,
+    2, 2, 2, 3, 2, 2, 4, 2, 3, 3, 3, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    3, 2, 3, 2, 3, 2, 3, 3, 2, 3, 2, 2, 2, 3, 2, 3, 2, 2, 2, 3, 3, 2, 3, 2, 3,
+    3, 2, 3, 2, 2, 2, 2, 3, 3, 2, 2, 3, 2, 2, 2, 2, 3, 3, 2, 2, 2, 2, 3, 3, 2,
+    2, 3, 3, 2, 3, 2, 3, 3, 2, 2, 3, 2, 2, 2, 2, 2, 4, 2, 3, 2, 3, 3, 2, 3, 2,
+    2, 2, 3, 3, 2, 2, 2, 2, 2, 2, 2, 4, 2, 2, 3, 2, 3, 3, 2, 3, 2, 2, 2, 3, 3,
+    2, 2, 2, 2, 4, 2, 2, 2, 3, 3, 3, 2, 2, 3, 2, 3, 2, 2, 3, 2, 2, 3, 2, 2, 3,
+    2, 3, 2, 3, 2, 2, 2, 4, 2, 2, 2, 3, 2, 2, 3, 2, 3, 3, 2, 4, 2, 2, 2, 3, 2,
+    3, 2, 2, 2, 2, 2, 3, 3, 2, 3, 3, 2, 3, 2, 3, 2, 2, 2, 3, 2, 2, 3, 2, 2, 2,
+    4, 2, 2, 4, 2, 2, 3, 2, 3, 2, 2, 2, 2, 4, 2, 2, 2, 4, 2, 4, 2, 2, 2, 3, 3,
+    2, 2, 2, 2, 2, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 2, 2, 4, 2, 1, 2, 4,
+    2, 2, 2, 3, 3, 3, 2, 3, 2, 3, 2, 3, 2, 2, 2, 2, 2, 4, 2, 2, 2, 3, 2, 3, 2,
+    3, 2, 2, 2, 3, 3, 2, 2, 2, 2, 4, 2, 3, 2, 2, 3, 2, 3, 2, 3, 2, 2, 3, 2, 2,
+    3, 2, 3, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 2, 2, 3, 2, 3, 3, 2, 3, 3, 2, 2, 3,
+    3, 2, 2, 2, 1, 2, 2, 3, 2, 2, 3, 2, 2, 3, 2, 3, 3, 2, 3, 3, 2, 2, 3, 2, 2,
+    2, 3, 2, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 2, 1, 2, 2, 3, 2, 2, 3, 2, 3, 2,
+    3, 2, 3, 3, 2, 2, 3, 2, 3, 2, 2, 3, 3, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 2,
+    2, 2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 4, 2, 2, 3, 3, 2, 2, 2, 3, 2, 3, 2, 2, 3,
+    3, 2, 3, 2, 3, 3, 3, 2, 2, 2, 2, 2, 3, 2, 3, 2, 2, 4, 2, 2, 4, 2, 4, 2, 2,
+    2, 3, 2, 3, 2, 2, 2, 2, 3, 2, 2, 4, 2, 2, 4, 2, 2, 3, 2, 2, 3, 3, 2, 2, 3,
+    2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 3, 2, 3, 2, 4, 2, 2, 2, 4, 2, 2, 2, 2, 2, 3,
+    2, 3, 2, 3, 2, 3, 3, 2, 2, 3, 3, 2, 2, 3, 2, 2, 2, 3, 2, 2, 3, 3, 3, 2, 2,
+    3, 2, 4, 2, 2, 2, 2, 2, 3, 2, 2, 2, 3, 2, 3, 2, 3, 2, 3, 2, 2, 2, 3, 3, 2,
+    2, 3, 3, 2, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 3, 2, 2, 3, 2, 3, 2, 2, 2, 2, 2
+};
+static int8_t const g_r18_y[R18_N] = {
+    0, 0, 0, 0, 1, -1, 0, -1, 1, -2, 1, -2, 0, 0, 0, 0, -1, 0, 0, 0,
+    1, 0, 0, 0, 1, 0, 0, -1, 0, 0, -1, 1, -1, 0, 0, 0, 0, 0, 0, 0,
+    1, 0, -1, 0, 1, -1, 0, -1, 1, 0, -1, 0, 1, 0, 0, 1, -1, 0, 0, 0,
+    0, -1, 0, 0, 0, 0, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, -1, 0, 1,
+    -1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0, 0, -1, 0, 1,
+    -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, -1, 1, 0, -1, 0, 0, 0, 0, -1,
+    1, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, -1, 1, -1, 0, 0, 0, 0,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, -1, 0, -1, 0, 1, -1, 0, 1,
+    0, 0, 0, 1, 0, -1, 0, 0, 0, -1, 1, 0, -1, 0, 1, -1, 0, 1, 0, 0,
+    0, 0, 1, -1, 0, 0, -1, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, -1, 1, 0,
+    0, -1, 1, 0, -1, 0, -1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, -1, 0,
+    1, -1, 0, 1, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1,
+    0, 1, -1, 0, 1, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1,
+    -1, 0, 0, 1, 0, -1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 1, 0, -1, 0,
+    0, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 1, -1, 0, 0, 0, 0, 0, 1, 0,
+    -1, 0, 0, 0, 0, 0, -1, 1, 0, -1, 1, 0, -1, 0, 1, 0, 0, 0, -1, 0,
+    2, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0, 1, 0, -1, 0,
+    1, 0, -1, 0, 1, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, -1, 1,
+    -1, 0, 1, 0, -1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 1, 0,
+    -1, 0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, -1, 0, 1,
+    0, 0, -1, 0, 0, 1, 0, -1, 1, 0, -1, 0, 1, 0, -1, 0, 1, 0, 0, 0,
+    -1, 0, 1, -1, 0, 1, -1, 0, 0, 1, -1, 0, 0, 0, 1, 0, 0, -1, 0, 0,
+    1, 0, 0, -1, 0, 1, -1, 0, 1, -1, 0, 0, 1, 0, 0, 0, -1, 0, 1, 0,
+    -1, 1, 0, -1, 1, 0, -1, 1, 0, 0, 1, 0, 0, -1, 0, 0, 1, 0, -1, 0,
+    1, 0, -1, 1, 0, 0, -1, 0, 1, 0, 0, -1, 1, 0, 0, 0, -1, 1, -1, 1,
+    0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1,
+    1, 0, 0, 0, 1, 0, -1, 0, 0, -1, 1, 0, -1, 0, 1, -1, 1, 0, 0, 0,
+    0, 0, 1, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, -1, 0,
+    0, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, -1, 1, 0, 0, -1,
+    0, 0, -1, 1, 0, 0, 1, -1, 0, 0, 1, 0, -1, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, -1, 0, 1, 0, -1, 0, 1, -1, 0, 0, 1, -1, 0, 0, 1, 0,
+    0, 0, -1, 0, 0, -1, 1, -1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, -1, 0,
+    0, 0, -1, 0, 1, 0, -1, 0, 1, 0, 0, 0, 1, -1, 0, 0, -1, 1, 0, 0,
+    -1, 0, 1, 0, 1, 0, -1, 0, -1, 1, 0, 0, -1, 0, 1, 0, 0, 0, 0, 0
+};
+
+/* Code 39 patterns (bar, space, bar, ...; '1' = wide) for A..Z and '*' */
+static const char * const g_c39_pat[27] = {
+    "100001001", "001001001", "101001000", "000011001", "100011000",
+    "001011000", "000001101", "100001100", "001001100", "000011100",
+    "100000011", "001000011", "101000010", "000010011", "100010010",
+    "001010010", "000000111", "100000110", "001000110", "000010110",
+    "110000001", "011000001", "111000000", "010010001", "110010000",
+    "011010000", "010010100"
+};
+
+/* "*X*" element widths in 0.1 mm (narrow n, wide w), 29 elements */
+static uint32_t c39_widths(int letter, uint32_t n, uint32_t w, uint32_t * p_e)
+{
+    uint32_t k = 0u, c, i;
+    for (c = 0u; c < 3u; c++)
+    {
+        const char * p = g_c39_pat[(1u == c) ? letter : 26];
+        for (i = 0u; i < 9u; i++) { p_e[k++] = ('1' == p[i]) ? w : n; }
+        if (c < 2u) { p_e[k++] = n; } /* gap between characters */
+    }
+    return k;
+}
+
+#define C39_MM_PER_COUNT_X1000 148u /* one wheel count ~0.148 mm (s3_config.h) */
+
+static void test_real_18nov(void)
+{
+    c39g_info_t   info;
+    c39g_result_t r;
+    uint32_t      e[29], k, i, X, worst = 0u, len = 0u, need;
+
+    /* Safety only: this one recording is not a target.  The reader may
+       refuse it, but must not name a look-alike of Q backwards. */
+    r = c39g_decode(g_r18_l, g_r18_f, g_r18_y, R18_N, true, NULL, &info);
+    printf("        18 Nov pass, shape (distance): res %d best %c runner %c\n",
+           (int)r, info.best ? info.best : '-', info.runner ? info.runner : '-');
+    CHECK("H-R01", !((C39G_OK == r) && (('X' == info.letter) || ('J' == info.letter))),
+          "18 Nov pass, by distance: shape reader never names X or J");
+    r = c39g_decode(g_r18_l, NULL, NULL, R18_N, false, NULL, &info);
+    CHECK("H-R02", !((C39G_OK == r) && (('X' == info.letter) || ('J' == info.letter))),
+          "18 Nov pass, by time: shape reader never names X or J");
+
+    /* From the print spec, not from a recording.  Big print (narrow 6 mm,
+       wide 18 mm) is the larger case.  With every bar seen, or with any one
+       thin bar missed, no white gap inside any letter may end the read. */
+    for (X = 0u; X < 26u; X++)
+    {
+        k = c39_widths((int)X, 60u, 180u, e);
+        for (i = 1u; i < k; i += 2u) /* spaces */
+        {
+            if (e[i] > worst) { worst = e[i]; }
+        }
+        for (i = 2u; (i + 2u) < k; i += 2u) /* a thin bar inside, missed */
+        {
+            if ((60u == e[i]) && ((e[i - 1u] + e[i] + e[i + 1u]) > worst))
+            {
+                worst = e[i - 1u] + e[i] + e[i + 1u];
+            }
+        }
+        len = 0u;
+        for (i = 0u; i < k; i++) { len += e[i]; }
+    }
+    printf("        big print: widest white inside a letter (one thin bar missed) %u.%u mm, quiet %u counts = %u mm\n",
+           (unsigned)(worst / 10u), (unsigned)(worst % 10u), (unsigned)S3_BC_QUIET_COUNTS,
+           (unsigned)((S3_BC_QUIET_COUNTS * C39_MM_PER_COUNT_X1000) / 1000u));
+    CHECK("H-R03", (worst * 100u) < (S3_BC_QUIET_COUNTS * C39_MM_PER_COUNT_X1000),
+          "spec: no gap inside a big-print letter (one thin bar missed) ends the read");
+
+    /* The whole big-print read must fit the trace the shape reader gets:
+       lead + barcode + quiet distance, at 25 mm/s (slowest barcode speed
+       assumed, inferred from the logged 21-77 mm/s range). */
+    /* 0.1 mm at 25 mm/s = 250 per s; 100 samples per s */
+    need = S3_BC_GEOM_LEAD +
+           (((len + ((S3_BC_QUIET_COUNTS * C39_MM_PER_COUNT_X1000) / 100u)) * 100u) / 250u);
+    printf("        big print %u mm + quiet at 25 mm/s: %u samples (C39G_MAX_SAMPLES %u)\n",
+           (unsigned)(len / 10u), (unsigned)need, (unsigned)C39G_MAX_SAMPLES);
+    CHECK("H-R04", need <= C39G_MAX_SAMPLES,
+          "spec: a big-print read at 25 mm/s fits the trace window");
+}
+
+/* ---- H-F: 500 Hz L front end hand-off (S3_L_FAST, drv_ir.c) ------- */
+static void test_l_fast(void)
+{
+    l_fast_t    f;
+    l_fast_rd_t rd;
+    uint32_t    sum = 0u, n = 0u, used = 0u, k, total = 0u, seen = 0u;
+    uint16_t    c = 0u, r = 0u, rec;
+    bool        b_ok = true;
+
+    l_fast_reset(&f, &rd);
+    for (k = 0u; k < 5u; k++) { l_fast_put(&f, (uint16_t)(1000u + (k * 10u)), 300u, 400u); }
+    b_ok = l_fast_get(&f, &sum, &n, &c, &r);
+    rec  = l_fast_record(&rd, sum, n, &used);
+    CHECK("H-F01", b_ok && (1020u == rec) && (5u == used) && (300u == c) && (400u == r),
+          "500 Hz: the 10 ms record is the mean of the 5 samples, C and R the newest");
+
+    /* nothing new: keep the last record, report 0 samples */
+    (void)l_fast_get(&f, &sum, &n, &c, &r);
+    rec = l_fast_record(&rd, sum, n, &used);
+    CHECK("H-F02", (1020u == rec) && (0u == used),
+          "500 Hz: a read with no new sample keeps the last value and says so");
+
+    /* 4, 6, 5, ... samples per record (jitter): every sample used once */
+    l_fast_reset(&f, &rd);
+    for (k = 0u; k < 300u; k++)
+    {
+        uint32_t m = 4u + (k % 3u), j;
+        for (j = 0u; j < m; j++)
+        {
+            l_fast_put(&f, (uint16_t)((total * 7u) % 4096u), 0u, 0u);
+            total++;
+        }
+        (void)l_fast_get(&f, &sum, &n, &c, &r);
+        (void)l_fast_record(&rd, sum, n, &used);
+        seen += used;
+        b_ok = b_ok && (used == m);
+    }
+    CHECK("H-F03", b_ok && (seen == total),
+          "500 Hz: with 4 to 6 samples per record no sample is lost or used twice");
+
+    /* the running totals wrap */
+    l_fast_reset(&f, &rd);
+    f.sum  = 0xFFFFFF00u; f.n  = 0xFFFFFFFEu;
+    rd.sum = 0xFFFFFF00u; rd.n = 0xFFFFFFFEu;
+    for (k = 0u; k < 5u; k++) { l_fast_put(&f, 4000u, 0u, 0u); }
+    (void)l_fast_get(&f, &sum, &n, &c, &r);
+    rec = l_fast_record(&rd, sum, n, &used);
+    CHECK("H-F04", (4000u == rec) && (5u == used),
+          "500 Hz: sum and count wrap without a wrong record");
+
+    /* a writer in the middle of an update (odd seq) is never read */
+    f.seq = 7u;
+    CHECK("H-F05", !l_fast_get(&f, &sum, &n, &c, &r),
+          "500 Hz: no copy is taken while the interrupt is updating");
+
+    /* design property (noise model assumed: white, sd 40 per conversion):
+       20 conversions per record against the old 4 */
+    {
+        double s_old = 0.0, s_new = 0.0;
+        int    i, j;
+        uint32_t seed = 12345u;
+        l_fast_reset(&f, &rd);
+        for (i = 0; i < 2000; i++)
+        {
+            double a = 0.0;
+            for (j = 0; j < 4; j++)
+            {
+                double g = 0.0; int q;
+                for (q = 0; q < 12; q++) { seed = seed * 1103515245u + 12345u; g += (double)((seed >> 16) & 0x7FFFu) / 32768.0; }
+                a += 40.0 * (g - 6.0);
+            }
+            s_old += (a / 4.0) * (a / 4.0);
+            for (j = 0; j < 5; j++)
+            {
+                double b = 0.0; int q, m;
+                for (m = 0; m < 4; m++)
+                {
+                    double g = 0.0;
+                    for (q = 0; q < 12; q++) { seed = seed * 1103515245u + 12345u; g += (double)((seed >> 16) & 0x7FFFu) / 32768.0; }
+                    b += 40.0 * (g - 6.0);
+                }
+                l_fast_put(&f, (uint16_t)(2000.0 + (b / 4.0) + 0.5), 0u, 0u);
+            }
+            (void)l_fast_get(&f, &sum, &n, &c, &r);
+            rec = l_fast_record(&rd, sum, n, &used);
+            s_new += ((double)rec - 2000.0) * ((double)rec - 2000.0);
+        }
+        s_old = sqrt(s_old / 2000.0);
+        s_new = sqrt(s_new / 2000.0);
+        printf("        noise sd per record: old 4 reads %.1f, 500 Hz %.1f (model)\n", s_old, s_new);
+        CHECK("H-F06", (s_new * 1.8) < s_old,
+              "500 Hz: a record averages 20 conversions (noise about 1/sqrt(5) of the old 4)");
+    }
+}
+
 /* Barcode lock: run a sequence of (pos, scanning, bars) 10 ms samples */
 typedef struct { uint32_t pos; bool scan; bool bars; } lk_s_t;
 
@@ -1367,6 +1673,8 @@ int main(void)
     test_partial();
     test_geom();
     test_geom_try();
+    test_real_18nov();
+    test_l_fast();
     test_bc_lock();
     test_bc_lock_tracker();
     printf("[TEST] subsystem3-host SUMMARY %d passed, %d failed\n", g_pass, g_fail);
