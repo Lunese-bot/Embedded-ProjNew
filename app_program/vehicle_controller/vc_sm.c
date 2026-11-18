@@ -165,19 +165,43 @@ static void search_step(const vc_sm_t * p_sm, vc_actions_t * p_out)
     request(p_out, VC_SRC_LINE, VC_REQ_LINE_SEARCH, (int32_t)p_sm->attempts);
 }
 
+/* Start a junction turn and, with VC_TURN_END_ON_LINE, watch for the new
+   arm once the robot has turned gate_deg (on_execute_action). */
+static void start_turn(vc_sm_t * p_sm, vc_move_t move_cmd, int32_t value,
+                       uint32_t gate_deg, vc_actions_t * p_out)
+{
+    move(p_out, move_cmd, value);
+    p_sm->turn_odo0 = p_sm->odo;
+    p_sm->turn_gate = (0 != VC_TURN_END_ON_LINE) ? VC_PIVOT_COUNTS(gate_deg)
+                                                 : 0u;
+}
+
 static void enter_execute(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
 {
     (void)now_ms;
+    p_sm->exec_phase = 0u;
+    p_sm->turn_gate  = 0u;
     switch (p_sm->pending_nav)
     {
         case NAV_LEFT:
-            move(p_out, VC_MOVE_TURN_LEFT, VC_TURN_DEG);
-            break;
         case NAV_RIGHT:
-            move(p_out, VC_MOVE_TURN_RIGHT, VC_TURN_DEG);
+            if (VC_JUNCTION_ADVANCE_MM > 0)
+            {
+                /* Put the axle over the crossing first; the turn follows
+                   when S2 reports this move done (on_execute_action). */
+                p_sm->exec_phase = 1u;
+                move(p_out, VC_MOVE_DRIVE_DIST, VC_JUNCTION_ADVANCE_MM);
+            }
+            else
+            {
+                start_turn(p_sm,
+                           (NAV_LEFT == p_sm->pending_nav) ? VC_MOVE_TURN_LEFT
+                                                           : VC_MOVE_TURN_RIGHT,
+                           VC_TURN_CMD_DEG, VC_TURN_GATE_DEG, p_out);
+            }
             break;
         case NAV_U_TURN:
-            move(p_out, VC_MOVE_U_TURN, 0);
+            start_turn(p_sm, VC_MOVE_U_TURN, 0, VC_UTURN_GATE_DEG, p_out);
             break;
         case NAV_STRAIGHT:
         case NAV_NONE:
@@ -231,6 +255,7 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
         case VC_ST_JUNCTION_STOP:
             /* Do not execute a turn yet. S2 reports MOTION_STOPPED only
                after both wheels have physically reached the stop threshold. */
+            p_sm->junction_stopped = 0u;
             move(p_out, VC_MOVE_STOP_CONFIRM, 0);
             break;
 
@@ -647,6 +672,12 @@ static void on_decode_barcode(vc_sm_t * p_sm, const vc_event_t * p_event,
         case VC_EV_BARCODE_FAILED:
             barcode_retry(p_sm, now_ms, p_out);
             break;
+        case VC_EV_JUNCTION:
+            /* S3 reports no junctions while it is reading bars, so this is
+               a real crossing reached after the read ended.  It used to be
+               dropped here and the robot drove through the junction. */
+            enter(p_sm, VC_ST_JUNCTION_STOP, now_ms, p_out);
+            break;
         case VC_EV_TICK:
             if (elapsed(now_ms, p_sm->attempt_since_ms) >= VC_DECODE_MS)
             {
@@ -663,14 +694,28 @@ static void on_junction_stop(vc_sm_t * p_sm, const vc_event_t * p_event,
                              uint32_t now_ms, vc_actions_t * p_out)
 {
     (void)p_event;
-    if (VC_EV_MOTION_STOPPED == type)
+    if ((VC_EV_MOTION_STOPPED == type) && (0u == p_sm->junction_stopped))
     {
-        /* No mapping (including an unknown barcode) means continue straight. */
-        if (NAV_NONE == p_sm->pending_nav)
+        /* standing still: hold here for VC_JUNCTION_HOLD_MS, then act */
+        p_sm->junction_stopped = 1u;
+        p_sm->junction_stop_ms = now_ms;
+    }
+    if ((0u != p_sm->junction_stopped) &&
+        ((VC_EV_MOTION_STOPPED == type) || (VC_EV_TICK == type)))
+    {
+        const uint32_t hold_ms = (uint32_t)VC_JUNCTION_HOLD_MS;
+
+        if (elapsed(now_ms, p_sm->junction_stop_ms) >= hold_ms)
         {
-            p_sm->pending_nav = NAV_STRAIGHT;
+            /* No mapping (including an unknown barcode) means continue
+               straight. */
+            if (NAV_NONE == p_sm->pending_nav)
+            {
+                p_sm->pending_nav = NAV_STRAIGHT;
+            }
+            p_sm->junction_stopped = 0u;
+            enter(p_sm, VC_ST_EXECUTE_ACTION, now_ms, p_out);
         }
-        enter(p_sm, VC_ST_EXECUTE_ACTION, now_ms, p_out);
     }
     else if ((VC_EV_TICK == type) && (in_state >= VC_JUNCTION_STOP_MS))
     {
@@ -696,8 +741,29 @@ static void on_execute_action(vc_sm_t * p_sm, const vc_event_t * p_event,
                               uint32_t now_ms, vc_actions_t * p_out)
 {
     (void)p_event;
-    if (VC_EV_MANOEUVRE_DONE == type)
+    if ((VC_EV_MANOEUVRE_DONE == type) && (0u != p_sm->exec_phase))
     {
+        /* the advance is done: the axle is over the crossing, now turn */
+        p_sm->exec_phase = 0u;
+        start_turn(p_sm,
+                   (NAV_LEFT == p_sm->pending_nav) ? VC_MOVE_TURN_LEFT
+                                                   : VC_MOVE_TURN_RIGHT,
+                   VC_TURN_CMD_DEG, VC_TURN_GATE_DEG, p_out);
+    }
+    else if ((VC_EV_LINE_FOUND == type) && (0u == p_sm->exec_phase) &&
+             (0u != p_sm->turn_gate) &&
+             ((p_sm->odo - p_sm->turn_odo0) >= p_sm->turn_gate))
+    {
+        /* past the gate and C or R is on the new arm: the turn is done,
+           line following takes over (its FORWARD replaces S2's turn) */
+        p_sm->turn_gate   = 0u;
+        p_sm->pending_nav = NAV_NONE;
+        p_sm->pending_barcode[0] = '\0';
+        enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
+    }
+    else if (VC_EV_MANOEUVRE_DONE == type)
+    {
+        p_sm->turn_gate   = 0u;
         p_sm->pending_nav = NAV_NONE;
         p_sm->pending_barcode[0] = '\0';
         enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
@@ -760,6 +826,13 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
     if (VC_EV_TICK != type)
     {
         p_sm->st.events_handled++;
+    }
+    /* S2 odometer (L + R counts) rides in p2 of TICK and of the LINE_FOUND
+       sent during a junction turn; 0 = not given */
+    if (((VC_EV_TICK == type) || (VC_EV_LINE_FOUND == type)) &&
+        (0 != p_event->p2))
+    {
+        p_sm->odo = (uint32_t)p_event->p2; /* Cast: counts, sent as int32 */
     }
 
     /* a hump may also be crossed while reading a barcode or turning:

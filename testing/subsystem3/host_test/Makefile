@@ -5,8 +5,8 @@
 SRC_DIR := ../../../app_program/subsystem3
 CFLAGS  := -std=c11 -Wall -Wextra -Werror -O1 -I$(SRC_DIR)
 
-test_s3_host: test_s3_host.c $(SRC_DIR)/code39.c $(SRC_DIR)/line_algo.c
-	$(CC) $(CFLAGS) -o $@ $^
+test_s3_host: test_s3_host.c $(SRC_DIR)/code39.c $(SRC_DIR)/line_algo.c $(SRC_DIR)/code39_geom.c
+	$(CC) $(CFLAGS) -o $@ $^ -lm
 	./$@
 
 clean:

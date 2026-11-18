@@ -62,12 +62,21 @@
  *  target on its own, then add KP, then KI to remove the last error.
  * --------------------------------------------------------------------- */
 #define S2_PID_KFF       2.0f /* permille per mm/s */
+/* Per-wheel feed-forward (permille of S2_PID_KFF).  Measured on the track
+   2026-11-04: at 160 mm/s forward the left motor needs ~290 duty, the right
+   ~380, so the right gets more base power.  Tuned live on the dashboard. */
+#define S2_PID_KFF_BOOST_L 900
+#define S2_PID_KFF_BOOST_R 1250
 #define S2_PID_KP        1.5f
 #define S2_PID_KI        4.0f /* per second */
 #define S2_PID_KD        0.0f
-#define S2_PID_I_LIMIT   400.0f /* anti-windup clamp, permille */
+#define S2_PID_I_LIMIT   600.0f /* anti-windup clamp, permille (tuned 2026-11-04) */
 /* MEASURE: least duty that turns a wheel; below it output is 0 */
 #define S2_DUTY_MIN_MOVE 250
+/* Least duty once a wheel is already turning (above 20 mm/s).  Lower than
+   S2_DUTY_MIN_MOVE so the speed loop can slow the inner wheel in a turn;
+   250 pinned both wheels and made them uncontrollable.  Tuned 2026-11-04. */
+#define S2_DUTY_MIN_RUN 125
 
 /* Speed = distance over the last S2_SPEED_WINDOW periods.
    With 20 ticks per turn one tick is ~10 mm, so a single 10 ms period
@@ -87,7 +96,7 @@
    Tune: drive on a straight line.  Still drifts to the RIGHT (left too
    fast)  -> lower S2_TRIM_L_PERMILLE (e.g. 960 -> 950).  Drifts LEFT
    -> raise it towards 1000, then lower S2_TRIM_R_PERMILLE instead. */
-#define S2_TRIM_L_PERMILLE 800
+#define S2_TRIM_L_PERMILLE 1000 /* 2026-11-04: per-wheel feed-forward does this now */
 #define S2_TRIM_R_PERMILLE 1000
 
 /* Straight-line correction: steer = K * (left_mm - right_mm) since the

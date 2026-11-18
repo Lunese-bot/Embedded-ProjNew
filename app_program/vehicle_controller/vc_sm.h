@@ -14,27 +14,82 @@
 #define VC_SM_H
 
 #include "vc_types.h"
+#include "../subsystem2/s2_config.h" /* track and tick size for VC_PIVOT_COUNTS */
 
 /* ---------------------------------------------------------------------
  *  Tuning.  Preliminary values: validate on the track (NFR2, NFR5,
  *  design review 8.3 "recovery limits ... need validation").
  * --------------------------------------------------------------------- */
-#define VC_SPEED_CRUISE_MMS 200 /* normal line following */
-#define VC_SPEED_SLOW_MMS   100 /* barcode reading, humps */
+#define VC_SPEED_CRUISE_MMS 120 /* normal line following (tuned 2026-11-04: was 200 at 60%) */
+#define VC_SPEED_SLOW_MMS   60  /* barcode reading, humps (scaled with cruise) */
+/* Slow down in curves: forward speed is cut by up to this much (permille)
+   at full steering, in proportion to how hard S3 steers.  400 = at a full
+   turn the robot drives at 60 % of cruise; a small nudge barely slows it.
+   Never below VC_CURVE_MIN_MMS.  TUNE (live on the dashboard). */
+#define VC_CURVE_SLOW_PERMILLE 600 /* tuned 2026-11-04: U-turn works at 60 % */
+#define VC_CURVE_MIN_MMS       60
 #define VC_TURN_DEG         90  /* barcode LEFT / RIGHT */
+/* Junction turns end on the line (2026-11-12, idea from Group 7's code).
+   The turn ignores the line until it has turned VC_TURN_GATE_DEG (U-turn:
+   VC_UTURN_GATE_DEG), then ends on the first C or R black reading, so a
+   wrong S2_TRACK_MM or wheel slip no longer leaves the robot beside the new
+   arm.  LEFT / RIGHT ask S2 for VC_TURN_MAX_DEG; if no line is seen by then
+   the turn ends there as before.  The angle comes from S2's odometer
+   (g_s2_odo_ticks, L + R counts), sent in TICK and LINE_FOUND events (p2).
+   0 = old fixed VC_TURN_DEG turn.  TUNE the gates on the track. */
+#ifndef VC_TURN_END_ON_LINE
+#define VC_TURN_END_ON_LINE 1
+#endif
+#define VC_TURN_GATE_DEG  60  /* LEFT / RIGHT: line ignored before this */
+#define VC_UTURN_GATE_DEG 150 /* U-turn: skips the side arm at 90 */
+#define VC_TURN_MAX_DEG   135 /* LEFT / RIGHT: turn ends here if no line */
+#if VC_TURN_END_ON_LINE
+#define VC_TURN_CMD_DEG VC_TURN_MAX_DEG
+#else
+#define VC_TURN_CMD_DEG VC_TURN_DEG
+#endif
+/* L + R odometer counts for a pivot of `deg` degrees: the two wheels roll
+   pi x S2_TRACK_MM x deg / 180 mm between them.  90 deg = ~692 counts. */
+#define VC_PIVOT_COUNTS(deg) \
+    ((uint32_t)((S2_PI * S2_TRACK_MM * (float)(deg)) / (180.0f * S2_MM_PER_TICK)))
 #define VC_SEARCH_TURN_DEG  30  /* LOST_LINE attempt 1 (attempt 2: x2) */
 #define VC_SEARCH_BACK_MM   50  /* LOST_LINE attempt 3: reverse */
 
 #define VC_SELF_CHECK_MS     2000  /* MISSION_START: wait for READY */
 #define VC_LINE_ATTEMPT_MS   1500  /* LOST_LINE: one search attempt */
 #define VC_LINE_MAX_ATTEMPTS 3     /* then FAULT (bounded recovery) */
-#define VC_DECODE_MS         1500  /* DECODE_BARCODE: one read */
-#define VC_BARCODE_MAX_RETRY 2     /* then give up, keep following */
-#define VC_EXECUTE_MS        4000  /* EXECUTE_ACTION: manoeuvre */
+/* DECODE_BARCODE: one read.  Was 1500, but a whole read takes far longer:
+   big-print *A* is ~291 mm long, so at 60 mm/s it takes ~4.9 s to cross,
+   plus the end-of-barcode quiet zone (5 x widest bar = ~1.6 s).  After
+   1500 ms the retry re-armed barcode_task, which threw away every bar read
+   so far (2026-11-08: cause of "too few elements").  8000 covers big *A*
+   at 60 mm/s with margin; S3 still ends a read itself on its quiet zone. */
+#define VC_DECODE_MS         12000 /* big print *A* is 291 mm = 8.1 s at 36 mm/s (60 % speed); was 8000 */
+/* Was 2.  A retry cannot work while driving forward: after a failed read the
+   barcode is already behind the robot, so each "retry" only held the robot
+   in DECODE_BARCODE (slow, junctions ignored) for another VC_DECODE_MS.
+   0 = one read, then report it and keep following (review 2026-11-10). */
+#define VC_BARCODE_MAX_RETRY 0     /* then give up, keep following */
+#define VC_EXECUTE_MS        6000  /* EXECUTE_ACTION: advance + turn (was 4000) */
 #define VC_JUNCTION_STOP_MS  2000  /* wait for S2 to confirm zero speed */
+/* Stand still this long at a junction before the turn / drive-on, so the
+   stop is a clear, visible pause (2026-11-11).  0 = act as soon as S2
+   confirms zero speed. */
+#ifndef VC_JUNCTION_HOLD_MS
+#define VC_JUNCTION_HOLD_MS  1000
+#endif
 #define VC_JUNCTION_CLEAR_MM 60    /* straight distance to clear the crossing; TUNE */
+/* LEFT / RIGHT at a junction: drive this far first, so the AXLE (not the
+   sensors) is over the crossing when the robot pivots.  See
+   ROBOT_IR_TO_AXLE_MM in robot_types.h.  0 = turn at once. */
+#ifndef VC_JUNCTION_ADVANCE_MM
+#define VC_JUNCTION_ADVANCE_MM ROBOT_IR_TO_AXLE_MM
+#endif
 #define VC_TERRAIN_MS        5000  /* TERRAIN_CHECK: hump must clear */
-#define VC_AVOID_MS          15000 /* AVOID_OBSTACLE: whole bypass */
+/* Was 15000, shorter than a normal bypass: scan (up to ~5 s) + 4 turns +
+   3 legs (~9 s) + up to 3 line recoveries (~9 s).  The controller faulted
+   while S5 was still searching for the line (review 2026-11-10). */
+#define VC_AVOID_MS          45000 /* AVOID_OBSTACLE: whole bypass */
 
 /* ---------------------------------------------------------------------
  *  Actions produced by the state machine
@@ -75,6 +130,12 @@ typedef struct
     uint32_t             attempt_since_ms; /* LOST_LINE / DECODE timer */
     uint8_t              attempts;         /* LOST_LINE search attempts */
     uint8_t              retries;          /* barcode read retries */
+    uint32_t             junction_stop_ms; /* JUNCTION_STOP: when S2 confirmed the stop */
+    uint8_t              junction_stopped; /* JUNCTION_STOP: 1 = standing, holding */
+    uint8_t              exec_phase;       /* EXECUTE_ACTION: 1 = advancing before the turn */
+    uint32_t             odo;              /* last S2 odometer (L + R counts) seen in an event */
+    uint32_t             turn_odo0;        /* odometer when the junction turn began */
+    uint32_t             turn_gate;        /* counts before the line may end the turn, 0 = not watching */
     int8_t               lost_side;        /* -1 left, +1 right, 0 unknown */
     navigation_command_t pending_nav;      /* decoded action for next junction */
     char                 pending_barcode[16]; /* full decoded barcode text */

@@ -16,7 +16,10 @@
  */
 bool s5_port_line_detected(void)
 {
-    return (0U != g_s3_black_mask_live);
+    /* C and R only.  L is the barcode sensor: its cut-off is set very low
+       (white paper can cross it), so counting L made the search after an
+       obstacle "find the line" on plain floor (review 2026-11-10). */
+    return (0U != (g_s3_black_mask_live & (S3_MASK_C | S3_MASK_R)));
 }
 
 /*** end of file ***/

@@ -121,8 +121,11 @@ static void feed_barcode(bool * p_b_start, bool * p_b_decoded)
     (void)tk_sus_tsk(g_tid_vc);
     drain_events();
     count        = code39_encode("L", 20000, 50000, widths, S3_BC_MAX_ELEMENTS);
-    run.black    = 0;
-    run.width_us = 500000; /* leading quiet zone */
+    run.black     = 0;
+    run.width_us  = 500000; /* leading quiet zone */
+    run.width_pos = 0U;     /* no wheel distance: decoded by time */
+    run.lead_us   = 0U;
+    run.lead_pos  = 0U;
     tk_snd_mbf(g_mbf_s3_bc_runs, &run, sizeof(run), TMO_FEVR);
     for (idx = 0; idx < count; idx++)
     {

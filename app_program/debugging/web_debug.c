@@ -34,7 +34,8 @@
 #define WD_PORT      80
 #define WD_REQ_MAX   64  /* only the request line is needed */
 #define WD_REPLY_MAX 240
-#define WD_SNAP_MAX  1900 /* JSON for the whole dashboard */
+#define WD_SNAP_MAX  8200 /* JSON for the whole dashboard; 2026-11-11: the 7 s L trace
+                             with wheel steps is up to ~7.5 KB (was 2800) */
 
 static const char k_hdr_html[] =
     "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n";
@@ -69,15 +70,28 @@ static const char k_page[] =
     ".bar u{position:absolute;top:-2px;width:6px;height:16px;background:#06c;border-radius:3px}\n"
     "@media(prefers-color-scheme:dark){body{background:#111;color:#eee}button{background:#333;color:#eee}#s{background:#c00}.c{border-color:#555}.bar{background:#444}}\n"
     "</style></head><body><h2>Robot dashboard <small id=me class=n></small></h2>\n"
-    "<div class=pad id=nav><button class=s data-t=m>Motor</button><button class=s data-t=o>Obstacle</button><button class=s data-t=i>IMU</button><button class=s data-t=l>Line</button><button class=s data-t=v>Mission</button><button class=s data-t=a>All data</button><button class=s data-t=g>Guide</button></div>\n"
+    "<div class=pad id=nav><button class=s data-t=m>Motor</button><button class=s data-t=o>Obstacle</button><button class=s data-t=i>IMU</button><button class=s data-t=l>Line</button><button class=s data-t=t>Line test</button><button class=s data-t=v>Mission</button><button class=s data-t=a>All data</button><button class=s data-t=g>Guide</button></div>\n"
     "<div class=pad><button id=s data-c=s>STOP (works for everyone)</button></div>\n"
     "<div id=st>ready</div>\n"
+    "<div class=tab id=t-t><div class=pad>\n"
+    "<div><b>Line follow test: everything on one screen</b></div>\n"
+    "<div>Mode: <button class=s data-k=M>Manual</button><button class=s data-k=A>Unlock autonomous</button><button class=s data-k=F>Line follow</button></div>\n"
+    "<div>Switches: Obstacle <button class=s data-k=g>Off</button><button class=s data-k=G>On</button> IMU <button class=s data-k=q>Off</button><button class=s data-k=H>On</button> Barcodes <button class=s data-k=a>Off</button><button class=s data-k=B>On</button></div>\n"
+    "<div>Junction <button class=s data-k=5>Off</button><button class=s data-k=6>C+R</button> Lost-line handling <button class=s data-k='~'>Off</button><button class=s data-k='='>On</button></div>\n"
+    "<div>Steering correction <button class=s data-k='/'>Normal</button><button class=s data-k='+'>Next mode</button> <span id=shd class=n></span></div>\n"
+    "<div>At every junction <button class=s data-k='}'>Barcode decides</button><button class=s data-k='['>Left</button><button class=s data-k=']'>Right</button><button class=s data-k='{'>Straight</button></div>\n"
+    "<div>First nudge Kp <button class=s data-k=k>-</button><button class=s data-k=K>+</button> Grow rate Kd <button class=s data-k=d>-</button><button class=s data-k=D>+</button> Mission speed <button class=s data-k=c>-</button><button class=s data-k=C>+</button> Slow in curves <button class=s data-k=':'>-</button><button class=s data-k=';'>+</button></div>\n"
+    "<p class=n>Slow in curves: how much the robot slows at a full turn (each step = 10%, default 60%). A small nudge barely slows it. The RPM meters, Debug modes and Log below keep updating on this tab.</p></div><div class=c><b>Barcode recorder</b><div style='margin:4px 0'>Read bars by <button class=s data-k='`'>Rise/fall (edge)</button><button class=s data-k='|'>Fixed cut-off</button> Rise/fall needed <button class=s data-k='@'>-</button><button class=s data-k='^'>+</button> Always white below <button class=s data-k='$'>next</button> <span id=bcset class=n></span></div> <button class=s id=bd>Download barcode log</button> <button class=s id=bclr>Clear barcode log</button> <span id=bn class=n>0 reads recorded</span><canvas id=bcv width=600 height=40 style='width:100%;background:#fff;margin-top:6px'></canvas><div id=bw class=n>Each read (ok or failed) is drawn here: black = bar, white = space, widths in 0.1 ms. Keep this tab open while reading.</div><div style='margin-top:8px'><b>L sensor trace</b> (last 4 s, every 10 ms) <button class=s id=lcap>Capture now</button></div><canvas id=ltc width=600 height=140 style='width:100%;background:#111'></canvas><div id=lw class=n>Grabbed automatically after each read. Zoomed in near the switch levels, thick bars are cut off at the top. Red line = level to turn black, green = level to turn white again. Each thin bar must cross red, each thin gap must drop under green.</div></div><div class=gr id=card-t></div></div>\n"
     "<div class=tab id=t-g><div id=card-g class=n>loading...</div></div>\n"
     "<div class=tab id=t-m><div class=pad id=ctl-m>\n"
     "<div><button data-c=f>FORWARD</button></div>\n"
     "<div><button data-c=l>SPIN LEFT</button><button data-c=b>BACK</button><button data-c=r>SPIN RIGHT</button></div>\n"
+    "<div><button data-c='('>LEFT wheel only</button><button data-c=')'>RIGHT wheel only</button></div>\n"
+    "<p class=n>Hold: drives one wheel at the test speed, the other stays still. Check that the right wheel turns and that only its ticks and meter move.</p>\n"
     "<div><button data-k=L>Turn 90 L</button><button data-k=x>Reset</button><button data-k=R>Turn 90 R</button></div>\n"
-    "<div>Trim L <button class=s data-k=t>-</button><button class=s data-k=T>+</button> R <button class=s data-k=u>-</button><button class=s data-k=U>+</button> <button class=s data-k=h>Straight on/off</button></div>\n"
+    "<div>Trim L <button class=s data-k=t>-</button><button class=s data-k=T>+</button> R <button class=s data-k=u>-</button><button class=s data-k=U>+</button> <button class=s data-k=h>Straight on/off</button> Trim step <button class=s data-k=S>change</button></div>\n"
+    "<div>Power boost (feed-forward) L <button class=s data-k=8>-</button><button class=s data-k=9>+</button> R <button class=s data-k='-'>-</button><button class=s data-k='.'>+</button> Correction limit <button class=s data-k=0>-</button><button class=s data-k='_'>+</button> Min running duty <button class=s data-k=','>-</button><button class=s data-k='*'>+</button></div>\n"
+    "<p class=n>Wheel slower than the other on the ground? Trim lowers the FASTER wheel's target. Power boost gives the SLOWER wheel more base power (25 steps = 2.5%), which is what a heavier-loaded wheel needs. Correction limit = how much extra power the Ki term may add (default 400). Change one thing at a time and watch the RPM meters.</p>\n"
     "<div>Speed <button class=s data-k=v>-</button><button class=s data-k=V>+</button></div>\n"
     "<div>Speed correction strength (Kp) <button class=s data-k=p>-</button><button class=s data-k=P>+</button> Drift fix (Ki) <button class=s data-k=i>-</button><button class=s data-k=I>+</button></div>\n"
     "<p class=n>Kp: how hard the motor reacts when a wheel is slower or faster than wanted. Too low = sluggish, too high = shaking. Ki: slowly removes a steady speed error. Too high = overshoot. Change one, press + or - a few times, watch the speed card.</p>\n"
@@ -89,24 +103,26 @@ static const char k_page[] =
     "<div class=tab id=t-i><div class=pad id=ctl-i>\n"
     "<div><button class=s data-k=j>Calibrate (still and level)</button><button class=s data-k=J>Reset peak hump</button></div>\n"
     "<div>Mission: <button class=s data-k=q>Ignore IMU</button><button class=s data-k=H>Use IMU</button></div>\n"
-    "<p class=n>Ignore IMU makes the mission skip hump, impact and tilt events, so you can test line following on its own.</p></div><div class=gr id=card-i></div></div>\n"
+    "<div><button class=s id=iud>Download last 16 s of IMU data (CSV)</button> <span class=n id=iun></span></div>\n"
+    "<p class=n>Ignore IMU skips optional mission events. Lift/overturn motor stop is always active, including Manual mode. After a stop: put the robot down level for 1 s, then press Start (no reboot). IMU recorder: do the thing (drive over the hump, or lift the robot), then press Download within a few seconds.</p></div><div class=gr id=card-i></div></div>\n"
     "<div class=tab id=t-l><div class=pad id=ctl-l>\n"
     "<div><button class=s data-k=y>Calibrate sensors</button><button class=s data-k=Y>Reset line search</button></div>\n"
-    "<div>Barcodes <button class=s data-k=z>On</button><button class=s data-k=Z>Off</button> Steering strength (Kp) <button class=s data-k=k>-</button><button class=s data-k=K>+</button> Wobble damping (Kd) <button class=s data-k=d>-</button><button class=s data-k=D>+</button></div>\n"
+    "<div>Barcodes <button class=s data-k=z>On</button><button class=s data-k=Z>Off</button> First nudge (Kp) <button class=s data-k=k>-</button><button class=s data-k=K>+</button> Grow rate (Kd) <button class=s data-k=d>-</button><button class=s data-k=D>+</button></div>\n"
     "<div>Junction detection: <button class=s data-k=5>Off</button><button class=s data-k=6>C+R</button><button class=s data-k=7>L+C+R</button></div>\n"
+    "<div>Lost-line handling: <button class=s data-k='~'>Off</button><button class=s data-k='='>On</button> <span class=n>Off = mission ignores the LOST event and keeps driving</span></div>\n"
     "<div>Junction threshold <button class=s data-k=3>-</button><button class=s data-k=4>+</button> <span class=n>0-1000 scale, default 950; C and R must both read above it</span></div>\n"
     "<div>Wait before LOST (ms) <button class=s data-k=1>-</button><button class=s data-k=2>+</button> <span class=n>steps of 100 ms; default 1500 ms. With the line between C and R, both-white is normal, so this only decides when the robot is really off the track</span></div>\n"
     "<div>Steering direction: <button class=s data-k=X>Normal</button><button class=s data-k=w>Swapped</button></div>\n"
     "<div>Mission: <button class=s data-k=a>Ignore barcodes</button><button class=s data-k=B>Use barcodes</button></div>\n"
     "<div>Target position <button class=s data-k=o>-</button><button class=s data-k=O>+</button> Sensors that steer: <button class=s data-k=m>C+R</button><button class=s data-k=n>L+C+R</button></div>\n"
     "<p class=n>Line layout (C+R): the line runs BETWEEN the centre and right sensors. Both white = straight. Centre sees black = steer left. Right sees black = steer right. Both black = junction. The left sensor only reads barcodes. Keep Target position at 0. L+C+R is the old layout where the line sits under the sensors.</p>\n"
-    "<p class=n>Kp: how sharply the robot turns back to the line. Too low = leaves the line on curves, too high = zig-zags. Kd: calms the zig-zag. Too high = twitchy. Raise Kp until it just starts to wobble, then add Kd.</p></div><div class=gr id=card-l></div></div>\n"
+    "<p class=n>Line between C and R: the robot only corrects while a sensor sees black and goes straight again the moment both see white, so it cannot keep turning past the line. Kp = how hard the first nudge is (each step = 2.5% turn). Kd = how fast the turn grows while the sensor stays on black (each step = +0.2% per 10 ms). Start Kp 4, Kd 4. Leaves the line on curves: raise Kd. Zig-zags on straights: lower Kp.</p></div><div class=gr id=card-l></div></div>\n"
     "<div class=tab id=t-v><div class=pad id=ctl-v>\n"
     "<div>Mode: <button class=s data-k=M>Manual</button><button class=s data-k=A>Unlock autonomous</button><button class=s data-k=F>Line follow</button><button class=s data-k=N>Monitor only</button></div>\n"
     "<div>Mission speed % <button class=s data-k=c>-</button><button class=s data-k=C>+</button></div></div><div class=gr id=card-v></div>\n"
     "<div class=c style='margin-top:8px'><b>Settings to copy into the config files</b><pre id=cp style='margin:0;font-size:12px;white-space:pre-wrap'></pre></div></div>\n"
     "<div class=tab id=t-a><div class=gr id=card-a></div></div>\n"
-    "<div class=c style='margin-top:8px'><div style='display:flex;gap:8px;justify-content:center;flex-wrap:wrap'><div style='text-align:center'><canvas id=gL width=200 height=125></canvas><div id=nL style='font-size:24px;font-weight:bold;color:#4a9eff'>-</div></div><div style='text-align:center'><canvas id=gR width=200 height=125></canvas><div id=nR style='font-size:24px;font-weight:bold;color:#ff9a3c'>-</div></div></div><div id=rp>Wheel RPM monitor: waiting for data (open the Motor tab)</div></div>\n"
+    "<div class=c style='margin-top:8px'><div style='display:flex;gap:8px;justify-content:center;flex-wrap:wrap'><div style='text-align:center'><canvas id=gL width=200 height=125></canvas><div id=nL style='font-size:24px;font-weight:bold;color:#4a9eff'>-</div></div><div style='text-align:center'><canvas id=gR width=200 height=125></canvas><div id=nR style='font-size:24px;font-weight:bold;color:#ff9a3c'>-</div></div></div><div id=rp>Wheel RPM monitor: waiting for data (open the Motor tab)</div><div style='margin-top:6px'><b>Recorder</b> <button class=s id=rs>Start recording</button><button class=s id=rx>Stop</button><button class=s id=rd>Download CSV</button> <span id=rn class=n>0 rows</span></div><p class=n>Records every update (about every 0.6 s) while the Motor, Line test or All data tab is open: time, wheel targets, actual rpm, duty, ticks, trim, boost, and the line and mission state. Download gives a file you can open in Excel.</p></div>\n"
     "<div class=c style='margin-top:8px'><b>Speed graph</b> (Motor tab open: target = grey, left = blue, right = orange; about 1 point per 0.6 s, last 2 min)<br><canvas id=gr width=600 height=140 style='width:100%;max-width:600px'></canvas></div>\n"
     "<div class=c style='margin-top:8px'><b>Debug modes</b><pre id=md style='margin:4px 0 0;font-size:12px;white-space:pre-wrap'></pre></div>\n"
     "<div class=c style='margin-top:8px'><b>Log (like a serial monitor)</b> <button id=lc>Clear</button><pre id=lg style='margin:4px 0 0;font-size:12px;height:150px;overflow:auto;white-space:pre-wrap'></pre></div>\n"
@@ -151,17 +167,18 @@ static const char k_js[] =
     "v:['IDLE','MISSION_START','FOLLOW_LINE','JUNCTION_STOP','LOST_LINE','AVOID_OBSTACLE','DECODE_BARCODE','EXECUTE_ACTION','TERRAIN_CHECK','FAULT','MISSION_COMPLETE'],\n"
     "b:['IDLE','DETECT','READ','DECODE','RETRY','COMPLETE']};\n"
     "function nm(a,i){return a[i]!==undefined?a[i]:i}\n"
+    "function dots(m){return ['L','C','R'].map(function(n,i){return n+(m&(1<<i)?'\\u25cf':'\\u25cb')}).join(' ')}\n"
     "function card(t,rows){var h='<div class=c><b>'+t+'</b>';\n"
     "if(!rows)return h+'<div class=n>not running</div></div>';\n"
     "rows.forEach(function(r){h+='<div><span>'+r[0]+'</span><i>'+r[1]+'</i></div>'});return h+'</div>'}\n"
     "function f1(x,d){return (x/d).toFixed(1)}\n"
     "var B={\n"
-    "m:function(a,c){return card('Motor (S2)',a&&[['state',nm(N.m,a.state)+(a.fault?' fault '+a.fault:'')],['speed L / R rpm',rpm(a.vL)+' / '+rpm(a.vR)],['target L / R rpm',rpm(a.tgtL)+' / '+rpm(a.tgtR)],['duty L / R',a.dutyL+' / '+a.dutyR],['ticks L / R',a.ticksL+' / '+a.ticksR],['distance mm',a.dist],['heading deg',f1(a.head,10)],['loop overruns',a.over],['trim L / R',c.trimL+' / '+c.trimR],['test speed mm/s (rpm) / straight',c.speed+' ('+rpm(c.speed)+') / '+(c.straight?'ON':'OFF')],['Kp reaction strength / Ki drift fix',(c.pidKp100/100).toFixed(2)+' / '+(c.pidKi100/100).toFixed(2)]])},\n"
-    "l:function(l,c){return card('Line sensors (S3)',l&&[['state',nm(N.l,l.state)],['position',l.pos+'<br><div class=bar><u style=left:'+((l.pos+1000)/20)+'%></u></div>'],['error / steer',l.err+' / '+l.steer],['raw L C R',l.r0+' '+l.r1+' '+l.r2],['black mask',l.mask],['calibrated',l.cal?'yes':'no'],['barcode',nm(N.b,l.bc)+' ok '+l.bcOk+' fail '+l.bcFail],['Kp steering strength / Kd wobble damping',c.lineKp+' / '+c.lineKd],['target position / sensors steering',c.lsp+' / '+(c.lall?'L C R':'C R')],['steering direction',c.sinv?'SWAPPED':'normal'],['wait before LOST (ms)',c.lost*10],['junction threshold',c.jthr],['junction uses',c.jmode<0?'config default':(c.jmode==0?'OFF':(c.jmode==1?'C R':'L C R'))]])},\n"
-    "i:function(i){return card('IMU (S4)',i&&[['state',nm(N.i,i.state)+(i.fault?' FAULT':'')],['motion',nm(N.mo,i.motion)],['pitch / roll deg',f1(i.pitch,100)+' / '+f1(i.roll,100)],['heading deg',f1(i.head,100)],['turn rate deg/s',f1(i.turn,100)],['humps / impacts',i.humps+' / '+i.impacts],['max hump mm',f1(i.maxPeak,1000)],['calibrated',i.cal?'yes':'no']])},\n"
+    "m:function(a,c){return card('Motor (S2)',a&&[['state',nm(N.m,a.state)+(a.fault?' fault '+a.fault:'')],['speed L / R rpm',rpm(a.vL)+' / '+rpm(a.vR)],['target L / R rpm',rpm(a.tgtL)+' / '+rpm(a.tgtR)],['duty L / R',a.dutyL+' / '+a.dutyR],['ticks L / R',a.ticksL+' / '+a.ticksR],['distance mm',a.dist],['heading deg',f1(a.head,10)],['loop overruns',a.over],['trim L / R (step)',c.trimL+' / '+c.trimR+' ('+c.tstep+')'],['power boost L / R (permille of 1000)',c.ffL+' / '+c.ffR],['correction limit',c.ilim],['min running duty (kick '+250+')',c.dmin],['test speed mm/s (rpm) / straight',c.speed+' ('+rpm(c.speed)+') / '+(c.straight?'ON':'OFF')],['Kp reaction strength / Ki drift fix',(c.pidKp100/100).toFixed(2)+' / '+(c.pidKi100/100).toFixed(2)]])},\n"
+    "l:function(l,c){return card('Line sensors (S3)',l&&[['state',nm(N.l,l.state)],['position',l.pos+'<br><div class=bar><u style=left:'+((l.pos+1000)/20)+'%></u></div>'],['error / steer',l.err+' / '+l.steer],['raw L C R',l.r0+' '+l.r1+' '+l.r2],['sensors L C R (black = filled)',dots(l.mask)],['black mask',l.mask],['calibrated',l.cal?'yes':'no'],['barcode',nm(N.b,l.bc)+' ok '+l.bcOk+' fail '+l.bcFail],['last barcode read','<b style=font-size:28px>'+l.bcTxt+'</b>'],['last reads (newest first)',l.bcHist||'-'],['line loop runs / missed / events lost',l.lWake+' / '+l.lOver+' / '+l.lDrop],['last result',['OK','-','wrong number of bars (one missed or extra)','thin and thick bars too alike','not a Code 39 pattern','no * start/stop','not a letter A-Z'][l.bcErr]+' ('+l.bcN+' bars+spaces, one letter = 29)'],['first nudge Kp / grow rate Kd',c.lineKp+' ('+(c.lineKp*25/10)+'%) / '+c.lineKd],['target position / sensors steering',c.lsp+' / '+(c.lall?'L C R':'C R')],['steering direction',c.sinv?'SWAPPED':'normal'],['wait before LOST (ms)',c.lost*10],['junction threshold',c.jthr],['junction uses',c.jmode<0?'config default':(c.jmode==0?'OFF':(c.jmode==1?'C R':'L C R'))],['at every junction',['barcode decides','LEFT','RIGHT','STRAIGHT'][c.nnav]]])},\n"
+    "i:function(i){return card('IMU (S4)',i&&[['safety stop',i.safety?(['','LIFT - put it down, then Start','OVERTURN - put it down, then Start'][i.safety]||'STOPPED'):'ready'],['state',nm(N.i,i.state)+(i.fault?' FAULT':'')],['motion',nm(N.mo,i.motion)],['pitch / roll deg',f1(i.pitch,100)+' / '+f1(i.roll,100)],['heading deg',f1(i.head,100)],['turn rate deg/s',f1(i.turn,100)],['humps / impacts',i.humps+' / '+i.impacts],['height now / max mm',f1(i.height,1000)+' / '+f1(i.maxPeak,1000)],['accel X / Y / Z mg',i.ax+' / '+i.ay+' / '+i.az],['calibrated',i.cal?'yes':'no']])},\n"
     "o:function(o){return card('Obstacle + servo (S5)',o&&[['state',nm(N.o,o.state)],['distance mm',o.dist?o.dist:'no echo'],['servo deg (+left)',o.servo],['pings / timeouts',o.pings+' / '+o.timeouts],['obstacles',o.obst],['last fault',o.fault]])},\n"
-    "v:function(v,c){return card('Mission (VC)',v&&[['state',nm(N.v,v.state)],['previous',nm(N.v,v.prev)],['in state (s)',f1(v.sinceMs,1000)],['barcodes read',v.barcodes],['events handled',v.events],['wifi',v.wifi?'up':'down'],['last fault',v.fault],['dashboard mode',['MANUAL','LINE FOLLOW','MONITOR'][c.mode]],['autonomous',c.arm?'UNLOCKED':'LOCKED (manual only)'],['obstacle checking',c.obst?'ON':'OFF (ignored)'],['IMU checking',c.imu?'ON':'OFF (ignored)'],['barcode reading',c.bc?'ON':'OFF (ignored)'],['mission speed',c.pct+' %']])}};\n"
-    "var W={m:'m',o:'o',i:'i',l:'l',v:'v',a:'miolv'};\n"
+    "v:function(v,c){return card('Mission (VC)',v&&[['state',nm(N.v,v.state)],['previous',nm(N.v,v.prev)],['in state (s)',f1(v.sinceMs,1000)],['barcodes read',v.barcodes],['events handled',v.events],['wifi',v.wifi?'up':'down'],['last fault',v.fault],['dashboard mode',['MANUAL','LINE FOLLOW','MONITOR'][c.mode]],['autonomous',c.arm?'UNLOCKED':'LOCKED (manual only)'],['obstacle checking',c.obst?'ON':'OFF (ignored)'],['IMU checking',c.imu?'ON':'OFF (ignored)'],['barcode reading',c.bc?'ON':'OFF (ignored)'],['mission speed',c.pct+' %'],['slow in curves (at full turn)',(c.curve/10)+' %']])}};\n"
+    "var W={m:'m',o:'o',i:'i',l:'l',v:'v',a:'miolv',t:'mlv'};\n"
     "var G={t:[],l:[],r:[]};\n"
     "function rpm(v){return Math.round(v*60/204.2)}\n"
     "var GM=60;function meter(id,nm,col,v,t){var c=document.getElementById(id),x=c.getContext('2d'),w=c.width,h=c.height,cx=w/2,cy=h-18,R=80,P=Math.PI,m=Math.max(Math.abs(v),Math.abs(t));if(m>GM*0.9)GM=Math.ceil(m*1.25/10)*10;var an=function(q){q=Math.max(-GM,Math.min(GM,q));return P+(q+GM)/(2*GM)*P};x.clearRect(0,0,w,h);x.lineWidth=10;x.strokeStyle='#8884';x.beginPath();x.arc(cx,cy,R,P,2*P);x.stroke();x.strokeStyle=col;x.beginPath();x.arc(cx,cy,R,an(0),an(v),v<0);x.stroke();x.lineWidth=2;x.strokeStyle='#888';x.beginPath();x.moveTo(cx+(R-14)*Math.cos(an(t)),cy+(R-14)*Math.sin(an(t)));x.lineTo(cx+(R+8)*Math.cos(an(t)),cy+(R+8)*Math.sin(an(t)));x.stroke();x.strokeStyle=col;x.lineWidth=3;x.beginPath();x.moveTo(cx,cy);x.lineTo(cx+(R-18)*Math.cos(an(v)),cy+(R-18)*Math.sin(an(v)));x.stroke();x.fillStyle='#888';x.font='11px sans-serif';x.fillText('-'+GM,cx-R-8,cy+14);x.fillText('+'+GM,cx+R-14,cy+14);x.fillText('0',cx-3,cy-R-12);x.font='bold 14px sans-serif';x.fillStyle=col;x.textAlign='center';x.fillText(nm==='L'?'LEFT':'RIGHT',cx,cy+14);x.textAlign='left';document.getElementById('n'+nm).textContent=v+' rpm (target '+t+')'}\n"
@@ -169,19 +186,31 @@ static const char k_js[] =
     "function plot(a){rpmbox(a);G.t.push(rpm((a.tgtL+a.tgtR)/2));G.l.push(rpm(a.vL));G.r.push(rpm(a.vR));for(var k in G)if(G[k].length>200)G[k].shift();\n"
     "var cv=document.getElementById('gr'),x=cv.getContext('2d'),W2=cv.width,H=cv.height,m=30;G.t.concat(G.l,G.r).forEach(function(v){if(Math.abs(v)>m)m=Math.abs(v)});m*=1.1;x.clearRect(0,0,W2,H);x.strokeStyle='#888';x.beginPath();x.moveTo(0,H/2);x.lineTo(W2,H/2);x.stroke();x.fillStyle='#888';x.fillText('+'+Math.round(m)+' rpm',2,10);\n"
     "[['t','#999'],['l','#4a9eff'],['r','#ff9a3c']].forEach(function(s){x.strokeStyle=s[1];x.beginPath();G[s[0]].forEach(function(v,i){var px=i*W2/200,py=H/2-v/m*H/2;i?x.lineTo(px,py):x.moveTo(px,py)});x.stroke()})}\n"
+    "var REC=[],recOn=0;function rq(i){return document.getElementById(i)}\n"
+    "rq('rs').onclick=function(){REC=[];recOn=1;rq('rn').textContent='recording...';log('recorder started')};rq('rx').onclick=function(){recOn=0;rq('rn').textContent=REC.length+' rows (stopped)';log('recorder stopped, '+REC.length+' rows')};\n"
+    "rq('rd').onclick=function(){var h='time,motor_state,target_L_rpm,target_R_rpm,actual_L_rpm,actual_R_rpm,target_L_mm_s,target_R_mm_s,actual_L_mm_s,actual_R_mm_s,duty_L,duty_R,ticks_L,ticks_R,trim_L,trim_R,boost_L,boost_R,corr_limit/min_duty,Kp100,Ki100,line_state,line_mask,line_steer,mission_state,steer_dir,mission_pct,line_Kp,line_Kd,curve_slow';var b=new Blob([h+String.fromCharCode(10)+REC.join(String.fromCharCode(10))],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='motor_log_'+new Date().toISOString().replace(/[:.]/g,'-')+'.csv';document.body.appendChild(a);a.click();a.remove()};\n"
+    "function recrow(d){var a=d.s2,c=d.cfg,l=d.s3||{},v=d.vc||{};if(!recOn||!a)return;REC.push([new Date().toISOString(),nm(N.m,a.state),rpm(a.tgtL),rpm(a.tgtR),rpm(a.vL),rpm(a.vR),a.tgtL,a.tgtR,a.vL,a.vR,a.dutyL,a.dutyR,a.ticksL,a.ticksR,c.trimL,c.trimR,c.ffL,c.ffR,c.ilim+'/'+c.dmin,c.pidKp100,c.pidKi100,l.state===undefined?'':nm(N.l,l.state),l.mask===undefined?'':l.mask,l.steer===undefined?'':l.steer,v.state===undefined?'':nm(N.v,v.state),c.sinv?'SWAPPED':'normal',c.pct,c.lineKp,c.lineKd,c.curve].join(','));if(REC.length>20000)REC.shift();rq('rn').textContent=REC.length+' rows'}\n"
+    "function gtx(b){if(b.gr===undefined||b.gr==255)return 'not tried';var R=['found','too few bars','too few bars after threshold','too many bars','no letter fits','no letter fits well enough','tie between two letters','weak match','bad input'];return (R[b.gr]||b.gr)+(b.gb?' (best '+String.fromCharCode(b.gb)+')':'')+' err '+(b.ge/100).toFixed(2)+' module margin '+b.gm+'% fit '+b.gf+'% took '+b.gt+' ms'}"
+    "var BCL=[],bcs=-1;function bcchk(l){if(!l||l.bcOk===undefined)return;var k=l.bcOk+l.bcFail;if(k===bcs)return;bcs=k;if(k===0)return;fetch('/b').then(function(r){return r.json()}).then(function(b){var E=['ok','-','wrong bar count','thin/thick too alike','not Code 39','no * start/stop','not A-Z'];BCL.push([new Date().toISOString(),b.txt,E[b.err]||b.err,b.n,b.w.join(' '),(b.d||[]).join(' '),['time','distance','shape'][b.u]||b.u].join(','));rq('bn').textContent=BCL.length+' reads recorded';bcdraw(b,E);fetch('/r').then(function(r){return r.json()}).then(function(t){LT=t;ltdraw(t);BCL[BCL.length-1]+=','+t.v.join(' ')+','+(t.f||[]).join(' ')+','+(t.y||[]).join(' ')+','+(t.edge?'rise/fall '+t.sw+' floor '+t.on:'cut-off on '+t.on+' off '+t.off)+','+gtx(b)}).catch(function(){})}).catch(function(){})}\n"
+    "function bcdraw(b,E){var c=rq('bcv'),x=c.getContext('2d'),W=c.width,H=c.height,t=0,i,p=0,mn=1e9,mx=0,bw=(b.u&&b.d)?b.d:b.w;x.fillStyle='#fff';x.fillRect(0,0,W,H);bw.forEach(function(v){t+=v;mn=Math.min(mn,v);mx=Math.max(mx,v)});x.fillStyle='#000';for(i=0;i<bw.length;i++){var ww=bw[i]*W/(t||1);if(i%2==0)x.fillRect(p,0,Math.max(ww,1),H);p+=ww}var th=(mn+mx)/2,pat='';bw.forEach(function(v,j){pat+=(v>th?'W':'n');if(j%10==8)pat+=' | ';else if(j%10==9)pat+=' '});rq('bw').innerHTML='Read: <b>'+b.txt+'</b> ('+(E[b.err]||b.err)+'), '+b.n+' bars+spaces (one letter = 29)<br>Narrow/Wide (split at '+th.toFixed(0)+'): '+pat+'<br>Measured by '+(['time','wheel distance','shape read (wide bars in the L trace)'][b.u]||b.u)+'<br>Shape read: '+gtx(b)+'<br>Widths 0.1 ms: '+b.w.join(' ')+'<br>Widths encoder counts: '+(b.d||[]).join(' ')}\n"
+    "var LT=null;function ltget(){fetch('/r?l').then(function(r){return r.json()}).then(function(t){LT=t;ltdraw(t)}).catch(function(){})}rq('lcap').onclick=ltget;\n"
+    "function ltdraw(t){var c=rq('ltc'),x=c.getContext('2d'),W=c.width,H=c.height,v=t.v,lo=Math.min.apply(null,v.concat([t.off]))-10,hi=t.edge?Math.max.apply(null,v)+50:Math.max(t.on*1.5,Math.min(Math.max.apply(null,v),t.on*3)),y=function(a){a=Math.min(Math.max(a,lo),hi);return H-2-((a-lo)/(hi-lo))*(H-4)};x.fillStyle='#111';x.fillRect(0,0,W,H);[[t.on,'#f44'],[t.off,'#4c4']].forEach(function(l){x.strokeStyle=l[1];x.beginPath();x.moveTo(0,y(l[0]));x.lineTo(W,y(l[0]));x.stroke()});x.strokeStyle='#4a9eff';x.beginPath();v.forEach(function(a,i){var px=i*W/Math.max(v.length-1,1);i?x.lineTo(px,y(a)):x.moveTo(px,y(a))});x.stroke();rq('lw').textContent='max '+Math.max.apply(null,v)+'  min '+Math.min.apply(null,v)+(t.edge?'  RISE/FALL mode: a bar needs a rise of '+t.sw+', a gap a fall of '+t.sw+'; under '+t.on+' (line) is always white (raw)':'  turn black at '+t.on+', white again under '+t.off+' (raw)')}\n"
+    "rq('bclr').onclick=function(){BCL=[];rq('bn').textContent='0 reads recorded'};rq('bd').onclick=function(){var b=new Blob(['time,result,reason,elements,widths_0.1ms_bar_first,widths_encoder_counts,decoded_by,L_raw_every_10ms_last_7s,wheel_counts_L+R_per_10ms,wheel_counts_R-L_per_10ms,L_mode,shape_read'+String.fromCharCode(10)+BCL.join(String.fromCharCode(10))],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='barcode_log_'+new Date().toISOString().replace(/[:.]/g,'-')+'.csv';document.body.appendChild(a);a.click();a.remove()};\n"
+    "rq('iud').onclick=function(){var R=[],S=['INIT','CALIBRATING','MONITORING','CLIMBING','AT_PEAK','DESCENDING','ERROR'],F=['','LIFT','OVERTURN'],g=function(p){rq('iun').textContent='reading '+R.length+'...';fetch('/u?p='+p).then(function(r){return r.json()}).then(function(t){var d=t.d,i;for(i=0;i+7<d.length;i+=8)R.push([R.length*20,d[i],d[i+1],d[i+2],d[i+3],S[d[i+4]]||d[i+4],F[d[i+5]]||d[i+5],d[i+6],d[i+7]].join(','));if((p+1)*160<t.n&&p<8){g(p+1);return}var b=new Blob(['time_ms,ax_mg_raw,ay_mg_raw,az_mg_raw,pitch_cdeg,state,safety_stop,wheel_speed_mm_s,lift_speed_mg_samples'+String.fromCharCode(10)+R.join(String.fromCharCode(10))],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='imu_log_'+new Date().toISOString().replace(/[:.]/g,'-')+'.csv';document.body.appendChild(a);a.click();a.remove();rq('iun').textContent=R.length+' samples saved'}).catch(function(){rq('iun').textContent='failed, try again'})};g(0)};\n"
     "var ps={};\n"
-    "function chg(k,v,t){if(v===undefined)return;if(ps[k]!==undefined&&ps[k]!==v)log(t+': '+ps[k]+' -> '+v);ps[k]=v}\n"
+    "function chg(k,v,t,a){if(v===undefined)return;if(ps[k]!==undefined&&ps[k]!==v)log(t+': '+(a?nm(a,ps[k]):ps[k])+' -> '+(a?nm(a,v):v));ps[k]=v}\n"
     "function render(d){var c=d.cfg,h;\n"
-    "var M=['Manual: buttons drive the robot (default)','Line follow: the real mission runs, buttons locked (needs Unlock autonomous)','Monitor only: no motion, just watch the sensors'],nl=String.fromCharCode(10),t2='';M.forEach(function(m,i){t2+=(i==c.mode?'>> ':'   ')+m+nl});t2+='Autonomous: '+(c.arm?'UNLOCKED':'LOCKED')+'   Obstacle checking: '+(c.obst?'ON':'OFF')+'   IMU checking: '+(c.imu?'ON':'OFF')+'   Barcodes: '+(c.bc?'ON':'OFF');document.getElementById('md').textContent=t2;\n"
-    "if(d.s2)plot(d.s2);if(d.s2)chg('m',d.s2.state,'motor state');if(d.s2)chg('mf',d.s2.fault,'motor fault');if(d.s3)chg('l',d.s3.state,'line state');if(d.s4)chg('i',d.s4.humps,'humps');if(d.s5)chg('o',d.s5.state,'obstacle state');if(d.vc)chg('v',d.vc.state,'mission state');chg('md',c.mode,'mode');\n"
+    "var M=['Manual: buttons drive the robot (default)','Line follow: the real mission runs, buttons locked (needs Unlock autonomous)','Monitor only: no motion, just watch the sensors'],nl=String.fromCharCode(10),t2='';M.forEach(function(m,i){t2+=(i==c.mode?'>> ':'   ')+m+nl});t2+='Autonomous: '+(c.arm?'UNLOCKED':'LOCKED')+'   Obstacle checking: '+(c.obst?'ON':'OFF')+'   IMU checking: '+(c.imu?'ON':'OFF')+'   Barcodes: '+(c.bc?'ON':'OFF')+nl+'Junction: '+(c.jmode===0?'OFF':(c.jmode===1?'C+R':(c.jmode===2?'L+C+R':'config default')))+'   Lost-line handling: '+(c.lostEn?'ON':'OFF');document.getElementById('md').textContent=t2;\n"
+    "recrow(d);bcchk(d.s3);if(c&&c.shold!==undefined)rq('shd').textContent='now: '+['NORMAL (steers all the time)','STRAIGHT while reading a barcode','OFF (never steers, drives straight)'][c.shold];if(c&&c.bcEdge!==undefined)rq('bcset').textContent='now: '+(c.bcEdge?'rise/fall':'fixed cut-off')+', rise/fall '+c.bcSw+(c.bcSw<=50?' (weak print: needs 3 samples in a row)':'')+', always white below '+(c.bcFl?c.bcFl:'OFF')+' (raw)';if(d.s2)plot(d.s2);if(d.s2)chg('m',d.s2.state,'motor state',N.m);if(d.s2)chg('mf',d.s2.fault,'motor fault');if(d.s3)chg('l',d.s3.state,'line state',N.l);if(d.s4)chg('i',d.s4.humps,'humps');if(d.s5)chg('o',d.s5.state,'obstacle state',N.o);if(d.vc)chg('v',d.vc.state,'mission state',N.v);chg('md',c.mode,'mode',['MANUAL','LINE FOLLOW','MONITOR']);\n"
     "mode=c.mode;\n"
     "['m','l','i','o','v'].forEach(function(a){var s=c['lk'+a],e=document.getElementById('ctl-'+a);e.style.opacity=s==2?0.35:1;\n"
     "document.querySelector('button[data-t='+a+']').textContent=document.querySelector('button[data-t='+a+']').dataset.n+(s==1?' *':s==2?' (in use)':'')});\n"
-    "if(cur=='a'){h='';['m','o','i','l','v'].forEach(function(a){h+=B[a](d[{m:'s2',l:'s3',i:'s4',o:'s5',v:'vc'}[a]],c)});document.getElementById('card-a').innerHTML=h}\n"
+    "if(cur=='t'){document.getElementById('card-t').innerHTML=B.l(d.s3,c)+B.v(d.vc,c)}\n"
+    "else if(cur=='a'){h='';['m','o','i','l','v'].forEach(function(a){h+=B[a](d[{m:'s2',l:'s3',i:'s4',o:'s5',v:'vc'}[a]],c)});document.getElementById('card-a').innerHTML=h}\n"
     "else{document.getElementById('card-'+cur).innerHTML=B[cur](d[{m:'s2',l:'s3',i:'s4',o:'s5',v:'vc'}[cur]],c)}\n"
-    "var cp=['s2_config.h:  S2_TRIM_L_PERMILLE '+c.trimL+'   S2_TRIM_R_PERMILLE '+c.trimR,'s2_config.h:  S2_PID_KP '+(c.pidKp100/100).toFixed(2)+'f   S2_PID_KI '+(c.pidKi100/100).toFixed(2)+'f','s3_config.h:  S3_KP_NUM '+c.lineKp+'   S3_KD_NUM '+c.lineKd+'   S3_LINE_SETPOINT '+c.lsp+'   S3_JUNCTION_THRESHOLD '+c.jthr+(c.lall?'   S3_LINE_MASK L|C|R':''),'vc_sm.h:      speeds x '+c.pct+'%  (cruise '+Math.round(200*c.pct/100)+', slow '+Math.round(100*c.pct/100)+' mm/s)'].join(String.fromCharCode(10));\n"
+    "var cp=['s2_config.h:  S2_TRIM_L_PERMILLE '+c.trimL+'   S2_TRIM_R_PERMILLE '+c.trimR,'s2_config.h:  S2_PID_KFF_BOOST_L '+c.ffL+'   S2_PID_KFF_BOOST_R '+c.ffR+'   S2_DUTY_MIN_RUN '+c.dmin+'   S2_PID_I_LIMIT '+c.ilim,'s2_config.h:  S2_PID_KP '+(c.pidKp100/100).toFixed(2)+'f   S2_PID_KI '+(c.pidKi100/100).toFixed(2)+'f','s3_config.h:  S3_KP_NUM '+c.lineKp+'   S3_KD_NUM '+c.lineKd+'   S3_LINE_SETPOINT '+c.lsp+'   S3_JUNCTION_THRESHOLD '+c.jthr+(c.lall?'   S3_LINE_MASK L|C|R':''),'vc_sm.h:      speeds x '+c.pct+'%  (cruise '+Math.round(120*c.pct/100)+', slow '+Math.round(60*c.pct/100)+' mm/s)'].join(String.fromCharCode(10));\n"
     "var e=document.getElementById('cp');if(e.textContent!=cp)e.textContent=cp}\n"
-    "function show(x){cur=x;['m','o','i','l','v','a','g'].forEach(function(k){document.getElementById('t-'+k).className='tab'+(k==x?' on':'')});\n"
+    "function show(x){cur=x;['m','o','i','l','v','a','g','t'].forEach(function(k){document.getElementById('t-'+k).className='tab'+(k==x?' on':'')});\n"
     "document.querySelectorAll('button[data-t]').forEach(function(b){b.className='s'+(b.dataset.t==x?' on':'')})}\n"
     "document.querySelectorAll('button[data-t]').forEach(function(b){b.dataset.n=b.textContent;b.onclick=function(){show(b.dataset.t)}});\n"
     "show('m');\n"
@@ -234,12 +263,90 @@ static struct tcp_pcb * g_listen_pcb;
 static char             g_snap[WD_SNAP_MAX]; /* static: keeps the task stack small */
 
 /* Send the reply and close.  Data already queued is still delivered. */
+/* Large pages (guide, script) are bigger than the TCP send buffer
+   (TCP_SND_BUF), so a single tcp_write() of them fails and the browser gets
+   nothing.  They are sent in pieces instead: as much as fits now, the rest
+   from the tcp_sent() callback as the robot's buffer empties. */
+#define WD_TX_SLOTS 4
+typedef struct
+{
+    struct tcp_pcb * p_pcb;
+    const char *     p_next;
+    uint32_t         left;
+} wd_tx_t;
+static wd_tx_t g_tx[WD_TX_SLOTS];
+
+static void tx_free(wd_tx_t * p_tx)
+{
+    p_tx->p_pcb = NULL;
+    p_tx->left  = 0;
+}
+
+static void tx_more(wd_tx_t * p_tx)
+{
+    struct tcp_pcb * p_pcb = p_tx->p_pcb;
+    uint32_t         n;
+
+    while ((p_tx->left > 0U) && (tcp_sndbuf(p_pcb) > 0U) &&
+           (tcp_sndqueuelen(p_pcb) < TCP_SND_QUEUELEN))
+    {
+        n = tcp_sndbuf(p_pcb);
+        n = (n > TCP_MSS) ? TCP_MSS : n;
+        n = (n > p_tx->left) ? p_tx->left : n;
+        if (ERR_OK != tcp_write(p_pcb, p_tx->p_next, (uint16_t)n, 0))
+        {
+            break; /* no room yet: the next tcp_sent() continues */
+        }
+        p_tx->p_next += n;
+        p_tx->left   -= n;
+    }
+    (void)tcp_output(p_pcb);
+    if (0U == p_tx->left)
+    {
+        tcp_sent(p_pcb, NULL);
+        tcp_arg(p_pcb, NULL);
+        tx_free(p_tx);
+        (void)tcp_close(p_pcb); /* lwIP still sends what is queued */
+    }
+}
+
+static err_t on_sent(void * p_arg, struct tcp_pcb * p_pcb, u16_t len)
+{
+    (void)p_pcb;
+    (void)len;
+    if (NULL != p_arg)
+    {
+        tx_more((wd_tx_t *)p_arg);
+    }
+    return ERR_OK;
+}
+
 static void reply_and_close(struct tcp_pcb * p_pcb, const char * p_hdr,
                             const char * p_body, uint16_t body_len,
                             uint8_t body_copy)
 {
+    int32_t idx;
+
     (void)tcp_write(p_pcb, p_hdr, (uint16_t)strlen(p_hdr), TCP_WRITE_FLAG_COPY);
-    if (body_len > 0)
+    if ((body_len > 0U) && (0U == body_copy))
+    {
+        /* constant page in flash: send it in pieces */
+        for (idx = 0; idx < WD_TX_SLOTS; idx++)
+        {
+            if (NULL == g_tx[idx].p_pcb)
+            {
+                g_tx[idx].p_pcb  = p_pcb;
+                g_tx[idx].p_next = p_body;
+                g_tx[idx].left   = body_len;
+                tcp_arg(p_pcb, &g_tx[idx]);
+                tcp_sent(p_pcb, on_sent);
+                tx_more(&g_tx[idx]);
+                return;
+            }
+        }
+        /* all slots busy (several browsers loading at once): try in one go */
+    }
+    if (body_len > 0U)
     {
         (void)tcp_write(p_pcb, p_body, body_len,
                         body_copy ? TCP_WRITE_FLAG_COPY : 0);
@@ -256,7 +363,6 @@ static err_t on_recv(void * p_arg, struct tcp_pcb * p_pcb, struct pbuf * p_buf,
     char     xs[8];
     uint16_t n;
 
-    (void)p_arg;
     if ((NULL == p_buf) || (ERR_OK != err))
     {
         /* peer closed (or error): finish our side */
@@ -264,7 +370,20 @@ static err_t on_recv(void * p_arg, struct tcp_pcb * p_pcb, struct pbuf * p_buf,
         {
             pbuf_free(p_buf);
         }
+        if (NULL != p_arg)
+        {
+            tcp_sent(p_pcb, NULL);
+            tcp_arg(p_pcb, NULL);
+            tx_free((wd_tx_t *)p_arg); /* page no longer wanted */
+        }
         (void)tcp_close(p_pcb);
+        return ERR_OK;
+    }
+    if (NULL != p_arg)
+    {
+        /* a second request on a connection that is still sending */
+        tcp_recved(p_pcb, p_buf->tot_len);
+        pbuf_free(p_buf);
         return ERR_OK;
     }
 
@@ -284,6 +403,24 @@ static err_t on_recv(void * p_arg, struct tcp_pcb * p_pcb, struct pbuf * p_buf,
     {
         (void)web_debug_snapshot(g_snap, (int32_t)sizeof(g_snap), parse_id(req),
                                  parse_x(req, xs, (int32_t)sizeof(xs)));
+        reply_and_close(p_pcb, k_hdr_text, g_snap, (uint16_t)strlen(g_snap), 1);
+    }
+    else if (0 == strncmp(req, "GET /r", 6))
+    {
+        (void)web_debug_ltrace(g_snap, (int32_t)sizeof(g_snap),
+                               (0 == strncmp(req, "GET /r?l", 8)) ? 1 : 0);
+        reply_and_close(p_pcb, k_hdr_text, g_snap, (uint16_t)strlen(g_snap), 1);
+    }
+    else if (0 == strncmp(req, "GET /u?p=", 9))
+    {
+        (void)web_debug_imutrace(g_snap, (int32_t)sizeof(g_snap),
+                                 ((req[9] >= '0') && (req[9] <= '9'))
+                                     ? (int32_t)(req[9] - '0') : 0);
+        reply_and_close(p_pcb, k_hdr_text, g_snap, (uint16_t)strlen(g_snap), 1);
+    }
+    else if (0 == strncmp(req, "GET /b", 6))
+    {
+        (void)web_debug_barcode(g_snap, (int32_t)sizeof(g_snap));
         reply_and_close(p_pcb, k_hdr_text, g_snap, (uint16_t)strlen(g_snap), 1);
     }
     else if (0 == strncmp(req, "GET /g", 6))
@@ -309,8 +446,11 @@ static err_t on_recv(void * p_arg, struct tcp_pcb * p_pcb, struct pbuf * p_buf,
 
 static void on_err(void * p_arg, err_t err)
 {
-    (void)p_arg;
     (void)err; /* pcb is already freed by lwIP */
+    if (NULL != p_arg)
+    {
+        tx_free((wd_tx_t *)p_arg);
+    }
 }
 
 static err_t on_accept(void * p_arg, struct tcp_pcb * p_pcb, err_t err)

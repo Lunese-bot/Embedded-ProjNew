@@ -24,6 +24,7 @@ ID               g_tid_s3_barcode = E_NOEXS;
 ID               g_cyc_s3_line    = E_NOEXS;
 s3_line_status_t g_s3_status;
 volatile bool    g_b_s3_bc_scanning   = false;
+volatile bool    g_b_s3_bc_bars       = false;
 volatile uint8_t g_s3_black_mask_live = 0;
 
 #define S3_BC_RUN_QUEUE_LEN (S3_BC_MAX_ELEMENTS + 4)

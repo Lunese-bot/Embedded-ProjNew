@@ -10,7 +10,7 @@ SRC := ../app_program/subsystem4
 endif
 
 CFLAGS := -std=c11 -Wall -Wextra -Werror -O2 -I$(SRC)
-OBJS   := $(SRC)/imu_math.c $(SRC)/imu_terrain.c $(SRC)/imu_selftest.c
+OBJS   := $(SRC)/imu_math.c $(SRC)/imu_terrain.c $(SRC)/imu_selftest.c -lm
 
 run: s4_host_test
 	./s4_host_test
