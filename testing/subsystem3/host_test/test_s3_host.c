@@ -11,7 +11,10 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <math.h>
 #include "code39.h"
+#include "code39_geom.h"
 #include "line_algo.h"
 
 static int g_pass;
@@ -132,6 +135,9 @@ static void test_line(void)
 
     line_params_default(&p);
     p.line_mask = S3_MASK_L | S3_MASK_C | S3_MASK_R;
+    p.weight[S3_IR_C] = S3_WEIGHT_C; /* classic weighted-average mode */
+    p.straddle        = false;
+    p.lost_samples    = 5u;
 
     /* H-L01: SEARCH -> FOLLOW after FOUND_SAMPLES */
     line_tracker_reset(&t);
@@ -150,7 +156,7 @@ static void test_line(void)
     {
         if (LINE_EVT_LOST == line_tracker_step(&t, &p, white, false)) { lost_at = i + 1; break; }
     }
-    CHECK("H-L03", (S3_LOST_SAMPLES == lost_at) && (LINE_STATE_LOST == t.state) &&
+    CHECK("H-L03", (5 == lost_at) && (LINE_STATE_LOST == t.state) &&
           (-1 == t.last_side) && (-1000 == t.position),
           "lost after 5 white samples, last side kept");
 
@@ -168,6 +174,165 @@ static void test_line(void)
     CHECK("H-L04b", (LINE_EVT_JUNCTION == e) && (LINE_STATE_JUNCTION == t.state),
           "junction after 3 all-black samples");
 
+    /* H-L06..09: straddle layout, line BETWEEN C and R */
+    {
+        uint16_t c_only[S3_IR_COUNT] = { 0u, 1000u, 0u };
+        uint16_t r_only[S3_IR_COUNT] = { 0u, 0u, 1000u };
+        uint16_t both[S3_IR_COUNT]   = { 0u, 1000u, 1000u };
+
+        line_params_default(&p);
+        CHECK("H-L06", p.straddle && (-1000 == p.weight[S3_IR_C]) &&
+              (1000 == p.weight[S3_IR_R]), "straddle is the default, C/R weights symmetric");
+        line_tracker_reset(&t);
+        (void)line_tracker_step(&t, &p, white, false);
+        e = line_tracker_step(&t, &p, white, false);
+        CHECK("H-L07", (LINE_STATE_FOLLOW == t.state) && (0 == t.position) &&
+              (0 == t.steering), "both white -> FOLLOW and straight");
+        (void)line_tracker_step(&t, &p, c_only, false);
+        CHECK("H-L08a", (t.position < 0) && (t.steering < 0), "C black -> steer left");
+        (void)line_tracker_step(&t, &p, r_only, false);
+        CHECK("H-L08b", (t.position > 0) && (t.steering > 0), "R black -> steer right");
+        line_tracker_reset(&t);
+        (void)line_tracker_step(&t, &p, white, false);
+        (void)line_tracker_step(&t, &p, white, false);
+        for (i = 0; i < 100; i++) { e = line_tracker_step(&t, &p, white, false); }
+        CHECK("H-L09a", (LINE_STATE_FOLLOW == t.state), "1 s of white is not lost");
+        lost_at = -1;
+        for (i = 0; i < 100; i++)
+        {
+            if (LINE_EVT_LOST == line_tracker_step(&t, &p, white, false)) { lost_at = i; break; }
+        }
+        for (i = 0; i < 1000; i++) { (void)line_tracker_step(&t, &p, white, false); }
+        CHECK("H-L09b", (LINE_STATE_FOLLOW == t.state) && (0 == t.steering),
+              "straddle: 10 s of white stays FOLLOW and straight (no LOST)");
+        for (i = 0; i < 3; i++) { e = line_tracker_step(&t, &p, c_only, false); }
+        CHECK("H-L09d", (LINE_STATE_FOLLOW == t.state) && (t.steering < 0),
+              "C black still steers left");
+        for (i = 0; i < 3; i++) { e = line_tracker_step(&t, &p, both, false); }
+        CHECK("H-L09e", (LINE_EVT_JUNCTION == e) && (LINE_STATE_JUNCTION == t.state),
+              "C and R both black -> JUNCTION");
+        (void)e;
+
+        /* H-L10..12: no over-correction, gentle start that grows */
+        {
+            int16_t first;
+            int16_t later;
+
+            line_params_default(&p);
+            p.kp_num = 4;   /* first nudge 100 */
+            p.kd_num = 10;  /* +10 per sample */
+            line_tracker_reset(&t);
+            (void)line_tracker_step(&t, &p, white, false);
+            (void)line_tracker_step(&t, &p, white, false);
+            (void)line_tracker_step(&t, &p, r_only, false);
+            first = t.steering;
+            for (i = 0; i < 20; i++) { (void)line_tracker_step(&t, &p, r_only, false); }
+            later = t.steering;
+            CHECK("H-L10", (100 == first) && (300 == later),
+                  "R black: starts at 100, grows to 300 after 20 more samples");
+            (void)line_tracker_step(&t, &p, both, false);
+            CHECK("H-L11a", t.steering >= later, "both black holds the correction");
+            (void)line_tracker_step(&t, &p, white, false);
+            CHECK("H-L11b", 0 == t.steering, "medium correction (310) then white: straight at once");
+            (void)line_tracker_step(&t, &p, c_only, false);
+            CHECK("H-L12", -100 == t.steering, "other side starts gently again");
+            /* H-L13..16: curve memory for tight curves / U-turns */
+            p.kp_num = 4; p.kd_num = 10;
+            line_tracker_reset(&t);
+            (void)line_tracker_step(&t, &p, white, false);
+            (void)line_tracker_step(&t, &p, white, false);
+            for (i = 0; i < 5; i++) { (void)line_tracker_step(&t, &p, c_only, false); }
+            (void)line_tracker_step(&t, &p, white, false);
+            CHECK("H-L13", 0 == t.steering, "short touch then white: straight at once");
+            for (i = 0; i < 70; i++) { (void)line_tracker_step(&t, &p, c_only, false); }
+            later = t.steering;
+            (void)line_tracker_step(&t, &p, white, false);
+            CHECK("H-L14a", (later < 0) && (t.steering == later),
+                  "long left correction then white: keeps turning left (line outside)");
+            for (i = 0; i < 50; i++) { (void)line_tracker_step(&t, &p, white, false); }
+            CHECK("H-L14b", t.steering == later, "still turning after 0.5 s of white");
+            (void)line_tracker_step(&t, &p, c_only, false);
+            (void)line_tracker_step(&t, &p, white, false);
+            CHECK("H-L15", 0 == t.steering, "line came back in, then white: straight (no new hold)");
+            for (i = 0; i < 70; i++) { (void)line_tracker_step(&t, &p, c_only, false); }
+            for (i = 0; i < S3_STRADDLE_HOLD_MAX + 2; i++) { (void)line_tracker_step(&t, &p, white, false); }
+            CHECK("H-L16a", 0 == t.steering, "curve memory gives up after HOLD_MAX");
+            for (i = 0; i < 5; i++) { (void)line_tracker_step(&t, &p, white, false); }
+            CHECK("H-L16b", 0 == t.steering, "and does not start again on white");
+            for (i = 0; i < 70; i++) { (void)line_tracker_step(&t, &p, c_only, false); }
+            (void)line_tracker_step(&t, &p, white, false);
+            (void)line_tracker_step(&t, &p, r_only, false);
+            CHECK("H-L16c", 100 == t.steering, "other sensor during hold: gentle right (100)");
+            p.kp_num = 0; p.kd_num = 0;
+            (void)line_tracker_step(&t, &p, c_only, false);
+            CHECK("H-L12b", 0 == t.steering, "Kp 0 and Kd 0: no steering");
+#if (S3_STRADDLE_DECAY > 0)
+            /* H-L17: turn memory over short white gaps (S3_STRADDLE_DECAY) */
+            p.kp_num = 4; p.kd_num = 10;
+            line_tracker_reset(&t);
+            (void)line_tracker_step(&t, &p, white, false);
+            (void)line_tracker_step(&t, &p, white, false);
+            for (i = 0; i < 10; i++) { (void)line_tracker_step(&t, &p, r_only, false); }
+            CHECK("H-L17a", 190 == t.steering, "R black 10 samples: 190");
+            for (i = 0; i < 3; i++) { (void)line_tracker_step(&t, &p, white, false); }
+            CHECK("H-L17b", 0 == t.steering, "short white gap: straight (no over-correction)");
+            (void)line_tracker_step(&t, &p, r_only, false);
+            CHECK("H-L17c", (100 + 10 * (9 - 3 * S3_STRADDLE_DECAY + 1)) == t.steering,
+                  "R black again soon: carries on, not back to the first nudge");
+            for (i = 0; i < 200; i++) { (void)line_tracker_step(&t, &p, white, false); }
+            (void)line_tracker_step(&t, &p, r_only, false);
+            CHECK("H-L17d", 100 == t.steering, "after a long white gap: first nudge again");
+            for (i = 0; i < 10; i++) { (void)line_tracker_step(&t, &p, r_only, false); }
+            (void)line_tracker_step(&t, &p, white, false);
+            (void)line_tracker_step(&t, &p, c_only, false);
+            CHECK("H-L17e", -100 == t.steering, "other side always starts gently");
+            /* flicker on a tight curve: 5 black / 2 white repeated builds up to a hold */
+            line_tracker_reset(&t);
+            (void)line_tracker_step(&t, &p, white, false);
+            (void)line_tracker_step(&t, &p, white, false);
+            for (int j = 0; j < 30; j++)
+            {
+                for (i = 0; i < 5; i++) { (void)line_tracker_step(&t, &p, r_only, false); }
+                for (i = 0; i < 2; i++) { (void)line_tracker_step(&t, &p, white, false); }
+            }
+            CHECK("H-L17f", t.steering >= S3_STRADDLE_HOLD_MAG,
+                  "R flickering on a curve: grows and the curve memory takes over");
+#endif
+        }
+    }
+
+    /* H-L19: R-only analogue, not calibrated: scaled between the measured
+       S3_R_ADC_WHITE and S3_R_ADC_BLACK, C and L stay digital */
+    {
+        uint16_t rw[S3_IR_COUNT];
+        uint16_t nm[S3_IR_COUNT];
+        line_cal_t nocal;
+
+        line_cal_reset(&nocal); /* not valid */
+        rw[S3_IR_L] = 0u; rw[S3_IR_C] = (uint16_t)S3_IR_BLACK_LEVEL; rw[S3_IR_R] = (uint16_t)S3_R_ADC_WHITE;
+        line_normalise(&nocal, (uint8_t)S3_MASK_R, true, (uint8_t)S3_IR_BLACK_LEVEL, rw, nm);
+        CHECK("H-L19a", (0u == nm[S3_IR_R]) && (1000u == nm[S3_IR_C]) && (0u == nm[S3_IR_L]),
+              "R over white reads 0, C digital black reads 1000");
+        rw[S3_IR_R] = (uint16_t)S3_R_ADC_BLACK;
+        line_normalise(&nocal, (uint8_t)S3_MASK_R, false, (uint8_t)S3_IR_BLACK_LEVEL, rw, nm);
+        CHECK("H-L19b", 1000u == nm[S3_IR_R], "R over black reads 1000 (direction from the config values)");
+        rw[S3_IR_R] = (uint16_t)((S3_R_ADC_WHITE + S3_R_ADC_BLACK) / 2);
+        line_normalise(&nocal, (uint8_t)S3_MASK_R, true, (uint8_t)S3_IR_BLACK_LEVEL, rw, nm);
+        CHECK("H-L19c", (nm[S3_IR_R] >= 495u) && (nm[S3_IR_R] <= 505u), "halfway reads about 500 = the black threshold");
+        rw[S3_IR_C] = (uint16_t)S3_C_ADC_WHITE;
+        line_normalise(&nocal, (uint8_t)(S3_MASK_C | S3_MASK_R), true, (uint8_t)S3_IR_BLACK_LEVEL, rw, nm);
+        CHECK("H-L19d", 0u == nm[S3_IR_C], "C analogue over white reads 0");
+        rw[S3_IR_C] = (uint16_t)S3_C_ADC_BLACK;
+        line_normalise(&nocal, (uint8_t)(S3_MASK_C | S3_MASK_R), true, (uint8_t)S3_IR_BLACK_LEVEL, rw, nm);
+        CHECK("H-L19e", 1000u == nm[S3_IR_C], "C analogue over black reads 1000");
+        rw[S3_IR_L] = (uint16_t)S3_L_ADC_WHITE;
+        line_normalise(&nocal, (uint8_t)(S3_MASK_L | S3_MASK_C | S3_MASK_R), true, (uint8_t)S3_IR_BLACK_LEVEL, rw, nm);
+        CHECK("H-L19f", 0u == nm[S3_IR_L], "L analogue over white reads 0");
+        rw[S3_IR_L] = (uint16_t)S3_L_ADC_BLACK;
+        line_normalise(&nocal, (uint8_t)(S3_MASK_L | S3_MASK_C | S3_MASK_R), true, (uint8_t)S3_IR_BLACK_LEVEL, rw, nm);
+        CHECK("H-L19g", 1000u == nm[S3_IR_L], "L analogue over black reads 1000");
+    }
+
     /* H-L05: calibration + normalisation (analogue C, R) */
     line_cal_reset(&cal);
     raw[0] = 0u; raw[1] = 300u;  raw[2] = 250u;  line_cal_update(&cal, raw);
@@ -184,12 +349,1334 @@ static void test_line(void)
     raw[1] = 1100u; raw[2] = 1100u; line_cal_update(&cal, raw);
     CHECK("H-L05c", !line_cal_finish(&cal, S3_MASK_C | S3_MASK_R, S3_CAL_MIN_SPAN),
           "calibration with 100-count span rejected");
+
+    /* H-L20..24: barcode bars across the line (S3_STRADDLE_BAR_STRAIGHT) */
+    {
+        uint16_t c_only[S3_IR_COUNT] = { 0u, 1000u, 0u };
+        uint16_t r_only[S3_IR_COUNT] = { 0u, 0u, 1000u };
+        uint16_t both[S3_IR_COUNT]   = { 0u, 1000u, 1000u };
+        int      max_abs = 0;
+
+        line_params_default(&p);
+        line_tracker_reset(&t);
+        (void)line_tracker_step(&t, &p, white, false);
+        (void)line_tracker_step(&t, &p, white, false);
+        /* thick bar at a slight angle: R one sample early, then C+R+L for
+           32 samples (19 mm at 60 mm/s), then the white gap */
+        t.l_raw = 200u;
+        (void)line_tracker_step(&t, &p, r_only, true);
+        t.l_raw = 2000u;
+        for (i = 0; i < 32; i++)
+        {
+            (void)line_tracker_step(&t, &p, both, false);
+            if (abs(t.steering) > max_abs) { max_abs = abs(t.steering); }
+        }
+        CHECK("H-L20", 0 == max_abs, "L+C+R black (bar): straight the whole bar, no build-up");
+        t.l_raw = 200u;
+        for (i = 0; i < 30; i++) { (void)line_tracker_step(&t, &p, white, false); }
+        CHECK("H-L21", (0 == t.steering) && !t.b_hold,
+              "white after a bar: straight, no curve memory");
+
+        /* while scanning, C+R black is a bar even if L is on white */
+        line_tracker_reset(&t);
+        (void)line_tracker_step(&t, &p, white, true);
+        (void)line_tracker_step(&t, &p, c_only, true);
+        t.l_raw = 150u;
+        for (i = 0; i < 20; i++) { (void)line_tracker_step(&t, &p, both, true); }
+        CHECK("H-L22", (0 == t.steering) && (0u == t.corr_count),
+              "scanning: C+R black -> straight and turn forgotten");
+
+        /* normal line following unchanged: no scan, L on white paper
+           (even noisy, 260) -> both black still holds the turn */
+        line_params_default(&p);
+        line_tracker_reset(&t);
+        (void)line_tracker_step(&t, &p, white, false);
+        (void)line_tracker_step(&t, &p, white, false);
+        for (i = 0; i < 10; i++) { (void)line_tracker_step(&t, &p, r_only, false); }
+        t.l_raw = 260u;
+        (void)line_tracker_step(&t, &p, both, false);
+        CHECK("H-L23", t.steering > 0, "no barcode: C+R black still holds the right turn");
+
+        /* tight left curve: L and C black, R white -> still steers left */
+        line_tracker_reset(&t);
+        (void)line_tracker_step(&t, &p, white, false);
+        (void)line_tracker_step(&t, &p, white, false);
+        t.l_raw = 2000u;
+        for (i = 0; i < 10; i++) { (void)line_tracker_step(&t, &p, c_only, false); }
+        CHECK("H-L24", t.steering < 0, "L+C black, R white (curve): still steers left");
+    }
+}
+
+/* ---- barcode edge finder (bc_edge_step) ---------------------------- */
+/* MY's real L trace over 'A', 2026-11-05 05:59, raw every 10 ms */
+static uint16_t const g_trace_a[] = {
+238, 234, 242, 248, 314, 876, 1404, 1753, 2042, 2230, 2421, 2459, 2522,
+2569, 2606, 2630, 2587, 2569, 2596, 2601, 2590, 2514, 2379, 2049, 1512,
+1177, 1325, 1578, 1782, 1856, 1937, 2051, 2212, 2272, 2286, 2281, 2234,
+2209, 2246, 2240, 2195, 2239, 2277, 2251, 2274, 2244, 2162, 2037, 1892,
+1812, 1678, 1621, 1504, 1376, 1185, 1105, 1096, 1153, 1262, 1238, 1241,
+1294, 1381, 1416, 1535, 1707, 1738, 1583, 1348, 682, 241, 223, 227, 296,
+702, 1642, 2450, 2865, 3123, 3288, 3291, 3305, 3347, 3313, 3316, 3315, 3378,
+3362, 3348, 3403, 3409, 3366, 3371, 3357, 3412, 3418, 3372, 3376, 3413,
+3404, 3350, 3364, 3319, 3317, 3283, 3277, 3286, 3291, 3245, 3250, 3230,
+3189, 3197, 3165, 3155, 3186, 3154, 3163, 3164, 3157, 3121, 3108, 3072,
+3027, 3012, 2873, 2786, 2675, 2606, 2444, 2292, 2052, 1845, 1739, 1632,
+1656, 1757, 1904, 2144, 2398, 2594, 2712, 2806, 2874, 2932, 3003, 3014,
+3026, 2976, 2955, 2926, 2896, 2905, 2882, 2864, 2880, 2923, 2926, 2947,
+2969, 2936, 2981, 2985, 2972, 2962, 2945, 2971, 2933, 2927, 2973, 2947,
+2988, 2944, 2978, 2921, 2946, 2909, 2889, 2873, 2886, 2828, 2848, 2772,
+2668, 2557, 2438, 2250, 2145, 1968, 1715, 1535, 1324, 1224, 1119, 1125,
+1183, 1183, 1236, 1301, 1396, 1427, 1526, 1566, 1648, 1681, 1753, 1760,
+1811, 1836, 1836, 1784, 1754, 1692, 1667, 1685, 1711, 1752, 1791, 1832,
+1876, 1821, 1826, 1745, 1686, 1535, 1342, 1097, 736, 364, 322, 278, 275,
+270, 264, 259, 243, 235, 234, 184, 195, 244, 197, 196, 201, 179, 217, 179,
+169, 181, 205, 169, 152, 187, 207, 196, 200, 172, 157, 152, 190, 187, 149,
+201, 181, 146, 144, 147, 154, 193, 181, 148, 170, 189, 179, 182, 179, 147,
+164, 148, 188, 171, 153, 153, 203, 153, 160, 194, 152, 172, 177, 153, 145,
+178, 197, 188, 155, 165, 202, 201, 198, 232, 153, 155, 156, 149, 184, 188,
+145, 201, 159, 157, 184, 149, 171, 152, 153, 148, 166, 161, 144, 191, 186,
+184, 147, 198, 147, 192, 200, 174, 203, 185, 166, 168, 146, 156, 187, 190,
+196, 149, 146, 178, 154, 153, 198, 170, 185, 155, 146, 192, 148, 185, 198,
+149, 154, 194, 155, 173, 173, 198, 163, 189, 183, 149, 157, 141, 187, 170,
+152, 153, 191, 143, 158, 172, 176, 208, 261, 1904, 2917, 2954, 2998, 2980,
+2978, 2968, 2948, 2965, 2956, 3006, 2984, 3020, 3100, 3112, 3185, 3218,
+3280, 3261, 3290, 3318, 3342, 3353, 3299
+};
+
+/* run the edge finder over a sampled signal, collect run widths (us) from
+   the first black run to the last black run */
+static uint32_t edge_runs(int32_t const * p_v, uint32_t n, int32_t swing,
+                          int32_t floor, uint32_t * p_w, uint32_t w_max)
+{
+    bc_edge_t e;
+    uint32_t  start = 0u, edge = 0u, k = 0u, i;
+    bc_edge_reset(&e, p_v[0], 0u);
+    for (i = 0u; i < n; i++)
+    {
+        uint32_t t = i * 10000u;
+        uint8_t  was = e.level;
+        if (0u != bc_edge_step(&e, p_v[i], t, swing, floor, &edge))
+        {
+            if ((0u != was) || (k > 0u)) /* skip the leading white */
+            {
+                if (0u != was) /* as task_line.c + task_barcode.c */
+                {
+                    if ((k > 0u) && (k <= w_max)) { p_w[k - 1u] += e.bar_t_us - start; }
+                    start = e.bar_t_us;
+                }
+                if (k < w_max) { p_w[k++] = edge - start; }
+            }
+            start = edge;
+        }
+    }
+    if ((k > 0u) && (0u == (k % 2u))) { k--; } /* drop trailing white */
+    return k;
+}
+
+static void test_bc_edge(void)
+{
+    static int32_t v[1200];
+    uint32_t w[200], runs[100], ideal[100];
+    char     text[16];
+    bool     rev;
+    uint32_t n, i, k, j, t, nr;
+    int32_t  ok;
+
+    /* H-E01..03: ideal *A* (narrow 47 ms, wide 141 ms) sampled every 10 ms,
+       paper white 200 / black 3000, then blurred (average of
+       7 samples, a spot ~8 mm wide at 120 mm/s) so thin gaps only drop to
+       about 1000-1300, like MY's trace.  Plus a slow drift of +600. */
+    nr = code39_encode("A", 47u, 141u, ideal, 100u);
+    n = 0u;
+    for (i = 0u; i < 30u; i++) { v[n++] = 200; }        /* quiet zone */
+    t = 0u;
+    j = 0u; /* exact edge time (us); t = sample time */
+    for (k = 0u; k < nr; k++)
+    {
+        uint32_t end = (j += ideal[k] * 1000u);
+        int32_t  lev = (0u == (k % 2u)) ? 3000 : 200;   /* bar first */
+        for (; t < end; t += 10000u) { v[n++] = lev; }  /* t in us */
+    }
+    for (i = 0u; i < 60u; i++) { v[n++] = 200; }
+    {
+        static int32_t b[1200];
+        for (i = 0u; i < n; i++)
+        {
+            int32_t s = 0;
+            for (j = 0u; j < 7u; j++) { s += v[(i >= j) ? (i - j) : 0u]; }
+            b[i] = s / 7;
+        }
+        for (i = 0u; i < n; i++) { v[i] = b[i]; }
+    }
+    /* how white do the thin gaps get?  for each space, its lowest point
+       (the blur shifts it up to 7 samples late); keep the worst one */
+    ok = 0;
+    t = 0u;
+    for (k = 0u; k < nr; k++)
+    {
+        uint32_t a = 30u + t / 10000u, z;
+        int32_t  lo = 5000;
+        t += ideal[k] * 1000u;
+        z = 30u + t / 10000u + 7u;
+        if (1u == (k % 2u))
+        {
+            for (i = a; i < z; i++) { if (v[i] < lo) { lo = v[i]; } }
+            if (lo > ok) { ok = lo; }
+        }
+    }
+    printf("        blurred *A*: the thinnest gaps only get down to %d (white = 200)\n", (int)ok);
+    CHECK("H-E00", ok > 900, "test signal is as blurry as MY's (gaps stay above 900)");
+    k = edge_runs(v, n, S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR, runs, 100u);
+    CHECK("H-E01", k == nr, "edge finder: blurred *A* gives 29 bars+spaces");
+    CHECK("H-E02", (CODE39_OK == code39_decode(runs, k, &g_prm, text, sizeof text, &rev))
+                   && (0 == strcmp(text, "A")),
+          "edge finder: blurred *A* decodes as A");
+    for (i = 0u; i < n; i++) { v[i] += (int32_t)((i * 600u) / n); }
+    k = edge_runs(v, n, S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR, runs, 100u);
+    printf("        drift: %u runs:", (unsigned)k);
+    for (i = 0u; i < k; i++) { printf(" %u", (unsigned)(runs[i] / 1000u)); }
+    printf(" ms\n");
+    CHECK("H-E03", (k == nr) &&
+                   (CODE39_OK == code39_decode(runs, k, &g_prm, text, sizeof text, &rev))
+                   && (0 == strcmp(text, "A")),
+          "edge finder: still decodes A with the baseline drifting +600");
+    (void)ok; (void)w;
+
+    /* H-E06/07: like MY's 06:57 pass: weak bumps (white 200, bars only
+       reach ~950) on a slow pass (narrow 120 ms, wide 360 ms), blurred
+       over 9 samples.  Must give 29 runs, decode A, and no white gap
+       inside the barcode may be long enough to end the read. */
+    {
+        static int32_t b[1200];
+        uint32_t te = 0u, widest = 0u;
+        nr = code39_encode("A", 120u, 360u, ideal, 100u);
+        n = 0u; t = 0u;
+        for (i = 0u; i < 40u; i++) { v[n++] = 200; }
+        for (k = 0u; k < nr; k++)
+        {
+            uint32_t end = (te += ideal[k] * 1000u);
+            int32_t  lev = (0u == (k % 2u)) ? 950 : 200;
+            for (; t < end; t += 10000u) { v[n++] = lev; }
+        }
+        for (i = 0u; i < 120u; i++) { v[n++] = 200; }
+        for (i = 0u; i < n; i++)
+        {
+            int32_t s9 = 0;
+            for (j = 0u; j < 9u; j++) { s9 += v[(i >= j) ? (i - j) : 0u]; }
+            b[i] = s9 / 9;
+        }
+        for (i = 0u; i < n; i++) { v[i] = b[i]; }
+        k = edge_runs(v, n, S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR, runs, 100u);
+        for (i = 1u; i < k; i += 2u) { if (runs[i] > widest) { widest = runs[i]; } }
+        printf("        weak slow *A*: %u runs, longest white inside %u ms:", (unsigned)k, (unsigned)(widest / 1000u));
+        for (i = 0u; i < k; i++) { printf(" %u", (unsigned)(runs[i] / 1000u)); }
+        printf(" ms\n");
+        CHECK("H-E06", (k == nr) &&
+                       (CODE39_OK == code39_decode(runs, k, &g_prm, text, sizeof text, &rev))
+                       && (0 == strcmp(text, "A")),
+              "weak, slow, blurred *A* (bars only reach 950) decodes as A");
+        CHECK("H-E07", widest < ((uint32_t)S3_BC_QUIET_MIN_MS * 1000u),
+              "no white gap inside it is long enough to end the read early");
+    }
+
+    /* H-E04/05: MY's real trace */
+    n = (uint32_t)(sizeof g_trace_a / sizeof g_trace_a[0]);
+    for (i = 0u; i < n; i++) { v[i] = (int32_t)g_trace_a[i]; }
+    k = edge_runs(v, n, S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR, runs, 100u);
+    printf("        real trace: %u bars+spaces found (fixed cut-off found 1):", (unsigned)k);
+    for (i = 0u; i < k; i++) { printf(" %u", (unsigned)(runs[i] / 1000u)); }
+    printf(" ms\n");
+    CHECK("H-E04", k >= 11u, "real 'A' trace: edge finder sees at least 6 bars (cut-off saw 1)");
+    {
+        /* white paper part only (samples 240..380): no bar from the noise */
+        bc_edge_t e; uint32_t edge = 0u; int32_t flips = 0;
+        bc_edge_reset(&e, (int32_t)g_trace_a[240], 0u);
+        for (i = 240u; i < 370u; i++)
+        {
+            flips += bc_edge_step(&e, (int32_t)g_trace_a[i], i * 10000u,
+                                  S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR, &edge);
+        }
+        CHECK("H-E05", 0 == flips, "white paper noise (140-260) never counts as a bar");
+    }
+}
+
+/* H-D: bars measured by wheel distance (S3_BC_USE_DIST) and the early end
+   of a read (S3_BC_EARLY_END) used by task_barcode.c. */
+static void test_bc_distance(void)
+{
+    static uint32_t w[200], wt[200], wp[200];
+    code39_options_t opt = { S3_BC_MIN_RATIO_X10, true, S3_BC_MAX_CHARS };
+    char     text[16];
+    bool     rev = false;
+    uint32_t n, i, k;
+    int      bad = 0;
+
+    /* H-D01/02: a driven pass over the big *Z* (narrow 6 mm, wide 19 mm).
+       The robot is at 120 mm/s on the first bar and slows to 60 mm/s over
+       0.3 s, as the controller does on BARCODE_START.  Sampled every 10 ms
+       like line_task; position in encoder counts (L + R, 0.1475 mm). */
+    {
+        static uint32_t edges_mm[200];
+        double   x = -30.0, v = 120.0, t_slow = -1.0;
+        uint32_t ne = 0u, t_us, pos, e_us = 0u, e_pos = 0u;
+        uint32_t s_us = 0u, s_pos = 0u;
+        uint32_t nt = 0u;
+        bc_edge_t e;
+        double   acc = 0.0;
+        code39_result_t r_t, r_d;
+        bool rev_t = false, rev_d = false;
+        char txt_t[16] = "", txt_d[16] = "";
+
+        n = code39_encode("Z", 6u, 19u, w, 200u);
+        for (i = 0u; i < n; i++) { acc += (double)w[i]; edges_mm[ne++] = (uint32_t)acc; }
+        bc_edge_reset_pos(&e, 200, 0u, 0u);
+        for (i = 0u; (i < 2000u) && (x < acc + 60.0); i++)
+        {
+            double tt = (double)i * 0.01;
+            uint32_t j = 0u, black;
+            while ((j < ne) && ((double)edges_mm[j] <= x)) { j++; }
+            black = ((x >= 0.0) && (j < ne) && (0u == (j % 2u))) ? 1u : 0u;
+            t_us = i * 10000u;
+            pos  = (uint32_t)((x + 30.0) / 0.1475);
+            if (0u != bc_edge_step_pos(&e, black ? 1200 : 200, t_us, pos,
+                                       S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR,
+                                       &e_us, &e_pos))
+            {
+                if ((0u == e.level) || (nt > 0u)) /* skip leading white */
+                {
+                    if (0u == e.level)
+                    {
+                        if (nt > 0u) { wt[nt - 1u] += e.bar_t_us - s_us; wp[nt - 1u] += e.bar_pos - s_pos; }
+                        s_us = e.bar_t_us; s_pos = e.bar_pos;
+                    }
+                    wt[nt] = e_us - s_us; wp[nt] = e_pos - s_pos; nt++;
+                }
+                s_us = e_us; s_pos = e_pos;
+            }
+            if ((t_slow < 0.0) && (x >= 0.0)) { t_slow = tt; }
+            if ((t_slow >= 0.0) && (v > 60.0)) { v -= 2.0; } /* 0.3 s ramp */
+            x += v * 0.01;
+        }
+        r_t = code39_decode_ex(wt, nt, &opt, txt_t, sizeof txt_t, &rev_t);
+        r_d = code39_decode_ex(wp, nt, &opt, txt_d, sizeof txt_d, &rev_d);
+        printf("        slowing pass: %u bars+spaces; by time %s (%d), by distance %s (%d)\n",
+               (unsigned)nt, txt_t, (int)r_t, txt_d, (int)r_d);
+        printf("        first bar: %u ms vs next wide bar %u ms; %u vs %u counts\n",
+               (unsigned)(wt[0] / 1000u), (unsigned)(wt[2] / 1000u),
+               (unsigned)wp[0], (unsigned)wp[2]);
+        CHECK("H-D01", (29u == nt) && (CODE39_OK == r_d) && (0 == strcmp(txt_d, "Z")),
+              "slowing on the first bar: distance widths still decode Z");
+        CHECK("H-D02", wp[0] * 10u < wp[2] * 13u && wp[2] * 10u < wp[0] * 13u,
+              "first bar (read while slowing) measures like the next same-width bar by distance");
+    }
+
+    /* H-E08: MY's driven pass of 2026-11-11 07:10: one bar whose top
+       wobbles 1794 -> 1425 -> 1969 (the L arm bouncing).  A fixed 300 fall
+       cut it in two; it must stay one bar. */
+    {
+        static const int32_t tr[] = { 190, 230, 227, 626, 1540, 1672, 1794,
+                                      1638, 1425, 1969, 1713, 235, 205, 210 };
+        bc_edge_t e; uint32_t ed = 0u; int32_t flips = 0; uint32_t bar_ms = 0u;
+        bc_edge_reset(&e, tr[0], 0u);
+        for (i = 0u; i < (uint32_t)(sizeof tr / sizeof tr[0]); i++)
+        {
+            if (0u != bc_edge_step(&e, tr[i], i * 10000u, S3_BC_EDGE_SWING,
+                                   S3_BC_EDGE_FLOOR, &ed))
+            {
+                flips++;
+                if (0u == e.level) { bar_ms = (ed - e.bar_t_us) / 1000u; }
+            }
+        }
+        printf("        wobbly bar: %d level changes, bar %u ms\n", (int)flips, (unsigned)bar_ms);
+        CHECK("H-E08", (2 == flips) && (bar_ms >= 60u) && (bar_ms <= 80u),
+              "real wobbly bar (top dips 370) stays ONE bar, full width");
+    }
+
+    /* H-E09: the white inside a wide space creeps up from 200 to 560 well
+       before the next bar (seen 2026-11-11 07:23: wide spaces read 29-40
+       counts and the bar after them 32-46, instead of ~55 and ~20).  The
+       creep makes the finder say "bar" early; the bar's start is then
+       re-found at half its real peak and the space gets the piece back. */
+    {
+        static const int32_t tr[] = {
+            200, 200, 1800, 1800, 1800, 200, 200, 200, 200,   /* bar, white  */
+            520, 540, 560, 560, 560, 560,                     /* creep       */
+            1800, 1800, 200, 200, 200 };                      /* 20 ms bar   */
+        uint32_t r[8]; uint32_t nr2;
+        nr2 = edge_runs(tr, (uint32_t)(sizeof tr / sizeof tr[0]),
+                        S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR, r, 8u);
+        printf("        creeping white: %u runs: %u %u %u ms\n", (unsigned)nr2,
+               (unsigned)(r[0] / 1000u), (unsigned)(r[1] / 1000u), (unsigned)(r[2] / 1000u));
+        CHECK("H-E09", (3u == nr2) && (30000u == r[0]) && (100000u == r[1]) &&
+                       (20000u == r[2]),
+              "white creeping up before a bar: space keeps its width, bar is not fattened");
+    }
+
+    /* H-C09: a sensor spot about as big as a narrow bar: every bar reads
+       4 units wide, every space 4 narrow (narrow 10, wide 30).  All 9
+       elements together cannot be split (bar 14 vs space 26), bars and
+       spaces separately can. */
+    bad = 0;
+    for (i = 0u; i < 26u; i++)
+    {
+        char one[2] = { (char)('A' + i), '\0' };
+        n = code39_encode(one, 10u, 30u, w, 200u);
+        for (k = 0u; k < n; k++) { w[k] = (0u == (k % 2u)) ? (w[k] + 4u) : (w[k] - 4u); }
+        if (!((CODE39_OK == code39_decode_ex(w, n, &opt, text, sizeof text, &rev)) &&
+              (text[0] == one[0]) && !rev)) { bad++; }
+        for (k = 0u; k < n; k++) { w[k] = (0u == (k % 2u)) ? (w[k] - 8u) : (w[k] + 8u); }
+        if (!((CODE39_OK == code39_decode_ex(w, n, &opt, text, sizeof text, &rev)) &&
+              (text[0] == one[0]) && !rev)) { bad++; }
+    }
+    CHECK("H-C09", 0 == bad,
+          "bars all read fat (or all thin) and spaces the opposite: A-Z still decode");
+
+    /* H-D03: early end.  For every two-letter code, the first 29 elements
+       (forwards or backwards) must NOT decode, or a read would stop before
+       its last letter. */
+    for (i = 0u; i < 26u; i++)
+    {
+        for (k = 0u; k < 26u; k++)
+        {
+            char two[3] = { (char)('A' + i), (char)('A' + k), '\0' };
+            n = code39_encode(two, 10u, 30u, w, 200u);
+            if (CODE39_OK == code39_decode_ex(w, 29u, &opt, text, sizeof text, &rev)) { bad++; }
+            reverse(w, n);
+            if (CODE39_OK == code39_decode_ex(w, 29u, &opt, text, sizeof text, &rev)) { bad++; }
+        }
+    }
+    CHECK("H-D03", 0 == bad,
+          "early end: no 2-letter code's first 29 bars decode (both directions)");
+
+    /* H-D04: and a one-letter code ends right at its stop '*' */
+    bad = 0;
+    for (i = 0u; i < 26u; i++)
+    {
+        char one[2] = { (char)('A' + i), '\0' };
+        n = code39_encode(one, 10u, 30u, w, 200u);
+        if (!((29u == n) &&
+              (CODE39_OK == code39_decode_ex(w, n, &opt, text, sizeof text, &rev)) &&
+              (text[0] == one[0]))) { bad++; }
+        reverse(w, n);
+        if (!((CODE39_OK == code39_decode_ex(w, n, &opt, text, sizeof text, &rev)) &&
+              (text[0] == one[0]) && rev)) { bad++; }
+    }
+    CHECK("H-D04", 0 == bad, "early end: every one-letter code decodes at 29 bars, both ways");
+}
+
+/* Partial read: one '*' and the letter next to it are enough (2026-11-11) */
+static void merge3(uint32_t * w, uint32_t * p_n, uint32_t at)
+{
+    uint32_t k;
+    w[at] = w[at] + w[at + 1u] + w[at + 2u]; /* a gap lost: 3 elements -> 1 */
+    for (k = at + 1u; (k + 2u) < *p_n; k++) { w[k] = w[k + 2u]; }
+    *p_n -= 2u;
+}
+
+static void test_partial(void)
+{
+    code39_options_t opt = { S3_BC_MIN_RATIO_X10, true, (uint8_t)S3_BC_MAX_CHARS };
+    uint32_t w[64];
+    uint32_t n;
+    uint32_t i;
+    uint32_t seed = 12345u;
+    char     text[8];
+    bool     rev;
+    int      bad = 0;
+    int      wrong = 0;
+    int      dir;
+
+    /* every letter, both directions, start '*' or stop '*' damaged */
+    for (i = 0u; i < 26u; i++)
+    {
+        char one[2] = { (char)('A' + i), '\0' };
+        for (dir = 0; dir < 4; dir++)
+        {
+            n = code39_encode(one, 10u, 30u, w, 64u);
+            merge3(w, &n, (dir % 2) ? 22u : 2u); /* stop or start '*' */
+            if (dir >= 2) { reverse(w, n); }
+            if (CODE39_OK == code39_decode_ex(w, n, &opt, text, sizeof text, &rev)) { bad++; }
+            if (!((CODE39_OK == code39_decode_partial(w, n, &opt, text, sizeof text, &rev)) &&
+                  (text[0] == one[0]) && (rev == (dir >= 2)))) { bad++; }
+        }
+    }
+    CHECK("H-P01", 0 == bad, "partial: one '*' damaged, every letter still read, both ways");
+
+    /* both '*' damaged: no letter */
+    bad = 0;
+    for (i = 0u; i < 26u; i++)
+    {
+        char one[2] = { (char)('A' + i), '\0' };
+        n = code39_encode(one, 10u, 30u, w, 64u);
+        merge3(w, &n, 22u);
+        merge3(w, &n, 2u);
+        if (CODE39_OK == code39_decode_partial(w, n, &opt, text, sizeof text, &rev)) { bad++; }
+    }
+    CHECK("H-P02", 0 == bad, "partial: both '*' damaged gives no letter");
+
+    /* random widths (noise, line, junction) must almost never give a letter */
+    wrong = 0;
+    for (i = 0u; i < 2000u; i++)
+    {
+        uint32_t k;
+        n = 15u + (i % 25u);
+        for (k = 0u; k < n; k++)
+        {
+            seed = (seed * 1103515245u) + 12345u;
+            w[k] = 5u + ((seed >> 16) % 60u);
+        }
+        if (CODE39_OK == code39_decode_partial(w, n, &opt, text, sizeof text, &rev)) { wrong++; }
+    }
+    printf("[INFO] partial: %d of 2000 random width lists gave a letter\n", wrong);
+    CHECK("H-P03", wrong <= 20, "partial: random widths give a letter at most 1 % of the time");
+}
+
+/* ---- shape read (code39_geom.c) on synthetic L traces ---------------- */
+static uint32_t g_gseed = 4242u;
+static int grnd(int m)
+{
+    g_gseed = (g_gseed * 1103515245u) + 12345u;
+    return (int)((g_gseed >> 16) % (uint32_t)m);
+}
+
+/* L trace of "*X*" passing under the sensor: module 18 trace units,
+   5 units per 10 ms sample, edges blurred by sigma modules, white 230,
+   black 2130, +-noise.  fill_gap > 0: that narrow space of the letter is
+   printed grey at fill (0..1) of black; 1 = the two bars run together.
+   Returns samples. */
+static uint32_t gtrace(int letter, double ratio, int rev, double sigma,
+                       int noise, int fill_gap, double fill, uint16_t * p_l,
+                       uint8_t * p_f, int8_t * p_y)
+{
+    static const char * const pat[27] = {
+        "100001001", "001001001", "101001000", "000011001", "100011000",
+        "001011000", "000001101", "100001100", "001001100", "000011100",
+        "100000011", "001000011", "101000010", "000010011", "100010010",
+        "001010010", "000000111", "100000110", "001000110", "000010110",
+        "110000001", "011000001", "111000000", "010010001", "110010000",
+        "011010000", "010010100" };
+    double   w[29], s[16], e[16], g[16], x = 0.0;
+    int      bar[29], n = 0, nb = 0, k, i;
+    uint32_t ns, j;
+
+    for (k = 0; k < 3; k++)
+    {
+        const char * p = pat[(1 == k) ? letter : 26];
+        for (i = 0; i < 9; i++)
+        {
+            w[n]   = ('1' == p[i]) ? ratio : 1.0;
+            bar[n] = (0 == (i % 2));
+            if ((1 == k) && (i == fill_gap) && ('0' == p[i]) && !bar[n])
+            {
+                bar[n] = 2; /* black space: joins its two bars */
+            }
+            n++;
+        }
+        if (k < 2) { w[n] = 1.0; bar[n] = 0; n++; }
+    }
+    for (k = 0; k < n; k++)
+    {
+        int m = rev ? (n - 1 - k) : k;
+        if (bar[m])
+        {
+            s[nb] = x; e[nb] = x + w[m]; g[nb] = (2 == bar[m]) ? fill : 1.0; nb++;
+        }
+        x += w[m];
+    }
+    ns = (uint32_t)((x + 30.0) * 18.0 / 5.0);
+    for (j = 0u; j < ns; j++)
+    {
+        double p = ((double)j * 5.0 / 18.0) - 15.0, m = 0.0;
+        int    v;
+        for (k = 0; k < nb; k++)
+        {
+            m += g[k] * 0.5 * (erf((p - s[k]) / (sigma * sqrt(2.0))) -
+                               erf((p - e[k]) / (sigma * sqrt(2.0))));
+        }
+        m = (m > 1.0) ? 1.0 : m;
+        v = 230 + (int)(1900.0 * m) + grnd((2 * noise) + 1) - noise;
+        p_l[j] = (uint16_t)((v < 0) ? 0 : v);
+        p_f[j] = 5u;
+        p_y[j] = 0;
+    }
+    return ns;
+}
+
+static void test_geom(void)
+{
+    static uint16_t l[C39G_MAX_SAMPLES];
+    static uint8_t  f[C39G_MAX_SAMPLES];
+    static int8_t   y[C39G_MAX_SAMPLES];
+    static const double sig[2] = { 0.25, 0.45 };
+    static const double rat[2] = { 2.5, 3.0 };
+    c39g_info_t info;
+    uint32_t    n;
+    int         ok = 0, wrong = 0, total = 0, a, b, X, rev, t;
+
+    for (a = 0; a < 2; a++)
+    {
+        for (b = 0; b < 2; b++)
+        {
+            for (X = 0; X < 26; X++)
+            {
+                for (rev = 0; rev < 2; rev++)
+                {
+                    n = gtrace(X, rat[b], rev, sig[a], 40, -1, 0.0, l, f, y);
+                    total++;
+                    if (C39G_OK == c39g_decode(l, f, y, n, true, NULL, &info))
+                    {
+                        if ((info.letter == (char)('A' + X)) &&
+                            (info.b_reversed == (rev != 0))) { ok++; }
+                        else { wrong++; }
+                    }
+                }
+            }
+        }
+    }
+    printf("[INFO] shape: %d of %d clean letters read, %d wrong\n", ok, total, wrong);
+    CHECK("H-G01", (total == ok) && (0 == wrong),
+          "shape: A-Z both ways, ratio 2.5/3.0, blur 0.25/0.45 module all read");
+
+    /* a thin gap that only dips part of the way to white: the edge
+       finder can miss it (wrong element count); the shape read should
+       still get the letter.  Then the same gap fully black. */
+    {
+        static const double fills[2] = { 0.6, 1.0 };
+        int fi;
+        for (fi = 0; fi < 2; fi++)
+        {
+            ok = 0; wrong = 0; total = 0;
+            for (X = 0; X < 26; X++)
+            {
+                for (t = 1; t < 9; t += 2) /* each narrow space of the letter */
+                {
+                    n = gtrace(X, 3.0, X % 2, 0.3, 40, t, fills[fi], l, f, y);
+                    total++;
+                    if (C39G_OK == c39g_decode(l, f, y, n, true, NULL, &info))
+                    {
+                        if (info.letter == (char)('A' + X)) { ok++; }
+                        else
+                        {
+                            wrong++;
+                            printf("[INFO]   %c gap %d -> %c err %u margin %u fit %u\n",
+                                   'A' + X, t, info.letter, info.err_x100,
+                                   info.margin_x100, info.fit_x100);
+                        }
+                    }
+                }
+            }
+            printf("[INFO] shape: one gap %d %% filled in: %d of %d read, %d wrong\n",
+                   (int)(fills[fi] * 100.0), ok, total, wrong);
+            if (0 == fi)
+            {
+                CHECK("H-G02", (0 == wrong) && ((ok * 10) >= (total * 4)),
+                      "shape: a shallow thin gap (60 % grey): 40 % still read, none wrong");
+            }
+            else
+            {
+                /* 2026-11-12: 1 of 104 (Z with its 3rd gap black really
+                   looks more like Q).  Real misses are blur, not ink. */
+                CHECK("H-G03", (wrong * 50) <= total,
+                      "shape: a thin gap printed black: at most 2 % wrong");
+            }
+        }
+    }
+
+    n = gtrace(25, 3.0, 0, 0.3, 40, -1, 0.0, l, f, y);
+    CHECK("H-G04", (C39G_OK == c39g_decode(l, NULL, NULL, n, false, NULL, &info)) &&
+                       ('Z' == info.letter),
+          "shape: works by time (no wheel data)");
+
+    for (t = 0; t < 400; t++) { l[t] = (uint16_t)(220 + grnd(30)); f[t] = 5u; y[t] = 0; }
+    CHECK("H-G05", C39G_FEW == c39g_decode(l, f, y, 400u, true, NULL, &info),
+          "shape: plain white gives no letter");
+
+    wrong = 0;
+    for (t = 0; t < 3000; t++)
+    {
+        int black = 0;
+        uint32_t next = (uint32_t)(5 + grnd(40)), j;
+        for (j = 0u; j < 400u; j++)
+        {
+            if (j >= next)
+            {
+                black = !black;
+                next  = j + 2u + (uint32_t)grnd(black ? (3 + (t % 25)) : (3 + (t % 17)));
+            }
+            l[j] = (uint16_t)(230 + (black ? 1900 : 0) + grnd(81) - 40);
+            f[j] = 5u;
+            y[j] = 0;
+        }
+        if (C39G_OK == c39g_decode(l, f, y, 400u, true, NULL, &info)) { wrong++; }
+    }
+    printf("[INFO] shape: %d of 3000 random bar patterns gave a letter\n", wrong);
+    CHECK("H-G06", wrong <= 3, "shape: random bars give a letter at most 0.1 % of the time");
+
+    /* strong blur (0.7 module, like the 11-12 robot passes: thin white
+       gaps only come back half way): the half-height humps merge, the
+       second try near the top of the wide bars must read them.  Before
+       that try: 1 of 104. */
+    ok = 0; wrong = 0; total = 0;
+    for (b = 0; b < 2; b++)
+    {
+        for (X = 0; X < 26; X++)
+        {
+            for (rev = 0; rev < 2; rev++)
+            {
+                n = gtrace(X, rat[b], rev, 0.7, 40, -1, 0.0, l, f, y);
+                total++;
+                if (C39G_OK == c39g_decode(l, f, y, n, true, NULL, &info))
+                {
+                    if ((info.letter == (char)('A' + X)) &&
+                        (info.b_reversed == (rev != 0))) { ok++; }
+                    else
+                    {
+                        wrong++;
+                        printf("[INFO]   %c%s -> %c\n", 'A' + X, rev ? " (rev)" : "",
+                               info.letter);
+                    }
+                }
+            }
+        }
+    }
+    printf("[INFO] shape: blur 0.7 module: %d of %d read, %d wrong\n", ok, total, wrong);
+    /* the one wrong (U backwards read as R) is from the first try and
+       was there before the second try was added */
+    CHECK("H-G07", ((ok * 10) >= (total * 9)) && (wrong <= 1),
+          "shape: strong blur (0.7 module): 90 % read, at most 1 wrong");
+}
+
+/* Which try read the letter is reported (review R1: tie overrides are
+   counted on the robot).  Same 60 % grey gap traces as H-G02. */
+static void test_geom_try(void)
+{
+    static uint16_t l[C39G_MAX_SAMPLES];
+    static uint8_t  f[C39G_MAX_SAMPLES];
+    static int8_t   y[C39G_MAX_SAMPLES];
+    c39g_info_t info;
+    uint32_t    n;
+    int         X, t, n1 = 0, n2 = 0, ties = 0;
+    bool        b_ok = true;
+
+    for (X = 0; X < 26; X++)
+    {
+        for (t = 1; t < 9; t += 2)
+        {
+            n = gtrace(X, 3.0, X % 2, 0.3, 40, t, 0.6, l, f, y);
+            if (C39G_OK == c39g_decode(l, f, y, n, true, NULL, &info))
+            {
+                if (1u == info.try_n)
+                {
+                    n1++;
+                    b_ok = b_ok && ((uint8_t)C39G_OK == info.first_res);
+                }
+                else if (2u == info.try_n)
+                {
+                    n2++;
+                    b_ok = b_ok && ((uint8_t)C39G_OK != info.first_res);
+                    if ((uint8_t)C39G_TIE == info.first_res) { ties++; }
+                }
+                else
+                {
+                    b_ok = false;
+                }
+            }
+        }
+    }
+    printf("[INFO] shape: 60 %% gap: %d letters on try 1, %d on try 2 (%d after a tie)\n",
+           n1, n2, ties);
+    CHECK("H-G08", b_ok && (n2 > 0),
+          "shape: result says which try read it; try 2 only after try 1 gave no letter");
+    b_ok = (C39G_ARG == c39g_decode(NULL, NULL, NULL, 0u, false, NULL, &info)) &&
+           (0u == info.try_n);
+    CHECK("H-G09", b_ok, "shape: bad arguments report try 0");
+}
+
+/* ---- H-R: real pass 2026-11-18 18:23 (review R4) --------------------- */
+/* The dashboard barcode log's frozen trace of the moving pass, 700
+   samples (10 ms): L raw, wheel steps L + R, R - L.  Big print, dark bars
+   on white, robot at ~36 mm/s.  The thick bars only reach 730-1180 and
+   the thin bars ~200 over a white of 140-215, so at the robot's edge
+   thresholds (300 / 400) only the 6 thick bars are seen.  The letter on
+   the track is not confirmed yet: X backwards, Q backwards and J forwards
+   share these thick-bar positions; the faint thin bars match Q backwards
+   (inferred).  Kept only as a safety check (never X or J); its other
+   outputs are not targets, because the sensor output varies. */
+#define R18_N 700u
+static uint16_t const g_r18_l[R18_N] = {
+    168, 158, 164, 158, 156, 178, 186, 164, 185, 179, 200, 219, 234, 252,
+    278, 341, 494, 643, 706, 725, 727, 670, 602, 533, 502, 468, 439, 409,
+    374, 334, 304, 284, 277, 263, 247, 242, 224, 217, 222, 207, 204, 201,
+    180, 185, 169, 183, 178, 167, 165, 175, 167, 155, 165, 159, 166, 155,
+    177, 188, 174, 179, 186, 187, 181, 206, 206, 213, 205, 216, 243, 243,
+    238, 264, 267, 280, 275, 319, 368, 484, 562, 667, 748, 780, 811, 850,
+    869, 881, 881, 872, 839, 802, 740, 559, 337, 276, 246, 249, 230, 209,
+    214, 202, 188, 190, 174, 181, 181, 180, 186, 175, 170, 165, 157, 159,
+    171, 162, 163, 158, 160, 188, 197, 180, 184, 183, 184, 180, 186, 197,
+    183, 186, 183, 193, 187, 205, 190, 184, 185, 172, 171, 173, 162, 166,
+    173, 154, 158, 168, 159, 166, 161, 153, 146, 149, 158, 165, 160, 161,
+    148, 156, 152, 160, 150, 150, 164, 160, 157, 162, 156, 149, 149, 151,
+    167, 157, 157, 168, 160, 155, 161, 166, 172, 161, 169, 169, 164, 167,
+    179, 187, 189, 207, 197, 184, 198, 210, 197, 188, 184, 189, 192, 189,
+    179, 175, 174, 188, 171, 169, 171, 180, 173, 183, 164, 177, 175, 180,
+    179, 178, 183, 197, 191, 200, 213, 198, 230, 225, 249, 256, 280, 299,
+    339, 444, 555, 625, 713, 737, 762, 766, 764, 753, 736, 742, 716, 712,
+    714, 713, 699, 646, 542, 390, 309, 266, 237, 252, 246, 217, 218, 219,
+    201, 207, 194, 192, 189, 172, 173, 189, 154, 143, 162, 155, 160, 164,
+    167, 174, 143, 154, 143, 147, 151, 143, 164, 160, 160, 163, 159, 166,
+    160, 171, 152, 149, 153, 152, 154, 153, 164, 151, 155, 158, 164, 176,
+    154, 163, 159, 176, 178, 182, 186, 171, 198, 176, 191, 208, 201, 213,
+    209, 236, 236, 240, 255, 298, 334, 397, 564, 677, 810, 931, 1011, 1056,
+    1129, 1160, 1173, 1183, 1184, 1182, 1149, 1111, 1047, 912, 686, 464, 300, 269,
+    252, 234, 234, 214, 210, 198, 195, 201, 186, 182, 170, 185, 169, 162,
+    174, 185, 179, 176, 170, 164, 162, 167, 171, 166, 175, 172, 177, 194,
+    198, 185, 192, 188, 215, 199, 190, 210, 197, 180, 189, 189, 180, 168,
+    167, 175, 178, 155, 165, 180, 188, 165, 169, 162, 152, 171, 172, 167,
+    179, 193, 191, 185, 207, 194, 191, 193, 214, 206, 186, 199, 192, 190,
+    182, 182, 171, 175, 171, 182, 167, 165, 172, 164, 175, 171, 174, 168,
+    170, 189, 194, 189, 200, 191, 202, 197, 195, 203, 204, 194, 194, 192,
+    187, 182, 186, 175, 173, 156, 177, 160, 172, 183, 165, 166, 172, 172,
+    160, 168, 165, 193, 174, 191, 185, 188, 189, 193, 206, 200, 196, 183,
+    195, 209, 198, 195, 163, 181, 196, 167, 176, 167, 163, 183, 164, 176,
+    169, 168, 171, 166, 172, 177, 173, 194, 197, 194, 202, 204, 225, 221,
+    204, 220, 241, 238, 275, 289, 316, 419, 606, 760, 897, 987, 1056, 1099,
+    1139, 1147, 1158, 1170, 1158, 1151, 1119, 1090, 1055, 991, 885, 699, 411, 295,
+    258, 235, 220, 199, 212, 206, 193, 199, 186, 180, 183, 180, 171, 171,
+    166, 172, 154, 161, 168, 175, 181, 168, 182, 181, 179, 171, 183, 185,
+    192, 186, 209, 221, 212, 237, 250, 253, 277, 280, 326, 428, 571, 707,
+    813, 912, 979, 1020, 1056, 1056, 1057, 1046, 1027, 1014, 991, 948, 896, 797,
+    699, 541, 347, 288, 276, 253, 245, 216, 214, 215, 203, 200, 179, 184,
+    166, 184, 168, 166, 181, 152, 154, 173, 163, 170, 175, 169, 174, 173,
+    161, 173, 200, 188, 202, 190, 194, 198, 205, 200, 198, 196, 185, 191,
+    170, 187, 171, 163, 170, 164, 159, 161, 169, 159, 155, 157, 136, 158,
+    148, 139, 162, 150, 142, 151, 155, 146, 136, 166, 147, 152, 161, 143,
+    147, 159, 153, 145, 158, 140, 150, 149, 143, 148, 158, 158, 152, 151,
+    165, 159, 163, 172, 164, 169, 182, 194, 194, 202, 187, 205, 192, 196,
+    211, 197, 182, 179, 188, 186, 166, 157, 167, 166, 168, 151, 168, 152,
+    164, 161, 162, 148, 159, 157, 153, 162, 141, 147, 153, 157, 156, 157
+};
+static uint8_t const g_r18_f[R18_N] = {
+    6, 4, 6, 4, 5, 5, 4, 5, 5, 4, 5, 4, 4, 4, 6, 4, 5, 4, 6, 4, 5, 4, 4, 2, 3,
+    2, 2, 1, 2, 2, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 2, 3, 2, 3, 3, 2, 3, 3, 2,
+    3, 2, 3, 2, 2, 1, 3, 2, 2, 2, 2, 3, 2, 2, 4, 2, 3, 2, 2, 2, 3, 2, 2, 2, 4,
+    2, 2, 3, 2, 3, 3, 2, 2, 4, 2, 2, 2, 2, 3, 2, 2, 2, 3, 2, 2, 4, 2, 3, 2, 3,
+    3, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 3, 3, 2, 3, 2, 4, 2, 2, 3, 3, 2, 2, 2, 2,
+    2, 2, 2, 3, 2, 2, 4, 2, 3, 3, 3, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    3, 2, 3, 2, 3, 2, 3, 3, 2, 3, 2, 2, 2, 3, 2, 3, 2, 2, 2, 3, 3, 2, 3, 2, 3,
+    3, 2, 3, 2, 2, 2, 2, 3, 3, 2, 2, 3, 2, 2, 2, 2, 3, 3, 2, 2, 2, 2, 3, 3, 2,
+    2, 3, 3, 2, 3, 2, 3, 3, 2, 2, 3, 2, 2, 2, 2, 2, 4, 2, 3, 2, 3, 3, 2, 3, 2,
+    2, 2, 3, 3, 2, 2, 2, 2, 2, 2, 2, 4, 2, 2, 3, 2, 3, 3, 2, 3, 2, 2, 2, 3, 3,
+    2, 2, 2, 2, 4, 2, 2, 2, 3, 3, 3, 2, 2, 3, 2, 3, 2, 2, 3, 2, 2, 3, 2, 2, 3,
+    2, 3, 2, 3, 2, 2, 2, 4, 2, 2, 2, 3, 2, 2, 3, 2, 3, 3, 2, 4, 2, 2, 2, 3, 2,
+    3, 2, 2, 2, 2, 2, 3, 3, 2, 3, 3, 2, 3, 2, 3, 2, 2, 2, 3, 2, 2, 3, 2, 2, 2,
+    4, 2, 2, 4, 2, 2, 3, 2, 3, 2, 2, 2, 2, 4, 2, 2, 2, 4, 2, 4, 2, 2, 2, 3, 3,
+    2, 2, 2, 2, 2, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 2, 2, 4, 2, 1, 2, 4,
+    2, 2, 2, 3, 3, 3, 2, 3, 2, 3, 2, 3, 2, 2, 2, 2, 2, 4, 2, 2, 2, 3, 2, 3, 2,
+    3, 2, 2, 2, 3, 3, 2, 2, 2, 2, 4, 2, 3, 2, 2, 3, 2, 3, 2, 3, 2, 2, 3, 2, 2,
+    3, 2, 3, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 2, 2, 3, 2, 3, 3, 2, 3, 3, 2, 2, 3,
+    3, 2, 2, 2, 1, 2, 2, 3, 2, 2, 3, 2, 2, 3, 2, 3, 3, 2, 3, 3, 2, 2, 3, 2, 2,
+    2, 3, 2, 3, 2, 3, 3, 2, 3, 3, 2, 3, 3, 2, 2, 1, 2, 2, 3, 2, 2, 3, 2, 3, 2,
+    3, 2, 3, 3, 2, 2, 3, 2, 3, 2, 2, 3, 3, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 2,
+    2, 2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 4, 2, 2, 3, 3, 2, 2, 2, 3, 2, 3, 2, 2, 3,
+    3, 2, 3, 2, 3, 3, 3, 2, 2, 2, 2, 2, 3, 2, 3, 2, 2, 4, 2, 2, 4, 2, 4, 2, 2,
+    2, 3, 2, 3, 2, 2, 2, 2, 3, 2, 2, 4, 2, 2, 4, 2, 2, 3, 2, 2, 3, 3, 2, 2, 3,
+    2, 2, 3, 3, 2, 2, 3, 3, 2, 2, 3, 2, 3, 2, 4, 2, 2, 2, 4, 2, 2, 2, 2, 2, 3,
+    2, 3, 2, 3, 2, 3, 3, 2, 2, 3, 3, 2, 2, 3, 2, 2, 2, 3, 2, 2, 3, 3, 3, 2, 2,
+    3, 2, 4, 2, 2, 2, 2, 2, 3, 2, 2, 2, 3, 2, 3, 2, 3, 2, 3, 2, 2, 2, 3, 3, 2,
+    2, 3, 3, 2, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 3, 2, 2, 3, 2, 3, 2, 2, 2, 2, 2
+};
+static int8_t const g_r18_y[R18_N] = {
+    0, 0, 0, 0, 1, -1, 0, -1, 1, -2, 1, -2, 0, 0, 0, 0, -1, 0, 0, 0,
+    1, 0, 0, 0, 1, 0, 0, -1, 0, 0, -1, 1, -1, 0, 0, 0, 0, 0, 0, 0,
+    1, 0, -1, 0, 1, -1, 0, -1, 1, 0, -1, 0, 1, 0, 0, 1, -1, 0, 0, 0,
+    0, -1, 0, 0, 0, 0, -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, -1, 0, 1,
+    -1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0, 0, -1, 0, 1,
+    -1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, -1, 1, 0, -1, 0, 0, 0, 0, -1,
+    1, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, -1, 1, -1, 0, 0, 0, 0,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, -1, 0, -1, 0, 1, -1, 0, 1,
+    0, 0, 0, 1, 0, -1, 0, 0, 0, -1, 1, 0, -1, 0, 1, -1, 0, 1, 0, 0,
+    0, 0, 1, -1, 0, 0, -1, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0, -1, 1, 0,
+    0, -1, 1, 0, -1, 0, -1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, -1, 0,
+    1, -1, 0, 1, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1,
+    0, 1, -1, 0, 1, 0, 0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, -1, 1,
+    -1, 0, 0, 1, 0, -1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 1, 0, -1, 0,
+    0, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 1, -1, 0, 0, 0, 0, 0, 1, 0,
+    -1, 0, 0, 0, 0, 0, -1, 1, 0, -1, 1, 0, -1, 0, 1, 0, 0, 0, -1, 0,
+    2, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0, 1, 0, -1, 0,
+    1, 0, -1, 0, 1, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, -1, 1,
+    -1, 0, 1, 0, -1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 1, 0,
+    -1, 0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, -1, 0, 1,
+    0, 0, -1, 0, 0, 1, 0, -1, 1, 0, -1, 0, 1, 0, -1, 0, 1, 0, 0, 0,
+    -1, 0, 1, -1, 0, 1, -1, 0, 0, 1, -1, 0, 0, 0, 1, 0, 0, -1, 0, 0,
+    1, 0, 0, -1, 0, 1, -1, 0, 1, -1, 0, 0, 1, 0, 0, 0, -1, 0, 1, 0,
+    -1, 1, 0, -1, 1, 0, -1, 1, 0, 0, 1, 0, 0, -1, 0, 0, 1, 0, -1, 0,
+    1, 0, -1, 1, 0, 0, -1, 0, 1, 0, 0, -1, 1, 0, 0, 0, -1, 1, -1, 1,
+    0, 0, -1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1,
+    1, 0, 0, 0, 1, 0, -1, 0, 0, -1, 1, 0, -1, 0, 1, -1, 1, 0, 0, 0,
+    0, 0, 1, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, -1, 0,
+    0, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, -1, 1, 0, 0, -1,
+    0, 0, -1, 1, 0, 0, 1, -1, 0, 0, 1, 0, -1, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, -1, 0, 1, 0, -1, 0, 1, -1, 0, 0, 1, -1, 0, 0, 1, 0,
+    0, 0, -1, 0, 0, -1, 1, -1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, -1, 0,
+    0, 0, -1, 0, 1, 0, -1, 0, 1, 0, 0, 0, 1, -1, 0, 0, -1, 1, 0, 0,
+    -1, 0, 1, 0, 1, 0, -1, 0, -1, 1, 0, 0, -1, 0, 1, 0, 0, 0, 0, 0
+};
+
+/* Code 39 patterns (bar, space, bar, ...; '1' = wide) for A..Z and '*' */
+static const char * const g_c39_pat[27] = {
+    "100001001", "001001001", "101001000", "000011001", "100011000",
+    "001011000", "000001101", "100001100", "001001100", "000011100",
+    "100000011", "001000011", "101000010", "000010011", "100010010",
+    "001010010", "000000111", "100000110", "001000110", "000010110",
+    "110000001", "011000001", "111000000", "010010001", "110010000",
+    "011010000", "010010100"
+};
+
+/* "*X*" element widths in 0.1 mm (narrow n, wide w), 29 elements */
+static uint32_t c39_widths(int letter, uint32_t n, uint32_t w, uint32_t * p_e)
+{
+    uint32_t k = 0u, c, i;
+    for (c = 0u; c < 3u; c++)
+    {
+        const char * p = g_c39_pat[(1u == c) ? letter : 26];
+        for (i = 0u; i < 9u; i++) { p_e[k++] = ('1' == p[i]) ? w : n; }
+        if (c < 2u) { p_e[k++] = n; } /* gap between characters */
+    }
+    return k;
+}
+
+#define C39_MM_PER_COUNT_X1000 148u /* one wheel count ~0.148 mm (s3_config.h) */
+
+static void test_real_18nov(void)
+{
+    c39g_info_t   info;
+    c39g_result_t r;
+    uint32_t      e[29], k, i, X, worst = 0u, len = 0u, need;
+
+    /* Safety only: this one recording is not a target.  The reader may
+       refuse it, but must not name a look-alike of Q backwards. */
+    r = c39g_decode(g_r18_l, g_r18_f, g_r18_y, R18_N, true, NULL, &info);
+    printf("        18 Nov pass, shape (distance): res %d best %c runner %c\n",
+           (int)r, info.best ? info.best : '-', info.runner ? info.runner : '-');
+    CHECK("H-R01", !((C39G_OK == r) && (('X' == info.letter) || ('J' == info.letter))),
+          "18 Nov pass, by distance: shape reader never names X or J");
+    r = c39g_decode(g_r18_l, NULL, NULL, R18_N, false, NULL, &info);
+    CHECK("H-R02", !((C39G_OK == r) && (('X' == info.letter) || ('J' == info.letter))),
+          "18 Nov pass, by time: shape reader never names X or J");
+
+    /* From the print spec, not from a recording.  Big print (narrow 6 mm,
+       wide 18 mm) is the larger case.  With every bar seen, or with any one
+       thin bar missed, no white gap inside any letter may end the read. */
+    for (X = 0u; X < 26u; X++)
+    {
+        k = c39_widths((int)X, 60u, 180u, e);
+        for (i = 1u; i < k; i += 2u) /* spaces */
+        {
+            if (e[i] > worst) { worst = e[i]; }
+        }
+        for (i = 2u; (i + 2u) < k; i += 2u) /* a thin bar inside, missed */
+        {
+            if ((60u == e[i]) && ((e[i - 1u] + e[i] + e[i + 1u]) > worst))
+            {
+                worst = e[i - 1u] + e[i] + e[i + 1u];
+            }
+        }
+        len = 0u;
+        for (i = 0u; i < k; i++) { len += e[i]; }
+    }
+    printf("        big print: widest white inside a letter (one thin bar missed) %u.%u mm, quiet %u counts = %u mm\n",
+           (unsigned)(worst / 10u), (unsigned)(worst % 10u), (unsigned)S3_BC_QUIET_COUNTS,
+           (unsigned)((S3_BC_QUIET_COUNTS * C39_MM_PER_COUNT_X1000) / 1000u));
+    CHECK("H-R03", (worst * 100u) < (S3_BC_QUIET_COUNTS * C39_MM_PER_COUNT_X1000),
+          "spec: no gap inside a big-print letter (one thin bar missed) ends the read");
+
+    /* The whole big-print read must fit the trace the shape reader gets:
+       lead + barcode + quiet distance, at 25 mm/s (slowest barcode speed
+       assumed, inferred from the logged 21-77 mm/s range). */
+    /* 0.1 mm at 25 mm/s = 250 per s; 100 samples per s */
+    need = S3_BC_GEOM_LEAD +
+           (((len + ((S3_BC_QUIET_COUNTS * C39_MM_PER_COUNT_X1000) / 100u)) * 100u) / 250u);
+    printf("        big print %u mm + quiet at 25 mm/s: %u samples (C39G_MAX_SAMPLES %u)\n",
+           (unsigned)(len / 10u), (unsigned)need, (unsigned)C39G_MAX_SAMPLES);
+    CHECK("H-R04", need <= C39G_MAX_SAMPLES,
+          "spec: a big-print read at 25 mm/s fits the trace window");
+}
+
+/* ---- H-F: 500 Hz L front end hand-off (S3_L_FAST, drv_ir.c) ------- */
+static void test_l_fast(void)
+{
+    l_fast_t    f;
+    l_fast_rd_t rd;
+    uint32_t    sum = 0u, n = 0u, used = 0u, k, total = 0u, seen = 0u;
+    uint16_t    c = 0u, r = 0u, rec;
+    bool        b_ok = true;
+
+    l_fast_reset(&f, &rd);
+    for (k = 0u; k < 5u; k++) { l_fast_put(&f, (uint16_t)(1000u + (k * 10u)), 300u, 400u); }
+    b_ok = l_fast_get(&f, &sum, &n, &c, &r);
+    rec  = l_fast_record(&rd, sum, n, &used);
+    CHECK("H-F01", b_ok && (1020u == rec) && (5u == used) && (300u == c) && (400u == r),
+          "500 Hz: the 10 ms record is the mean of the 5 samples, C and R the newest");
+
+    /* nothing new: keep the last record, report 0 samples */
+    (void)l_fast_get(&f, &sum, &n, &c, &r);
+    rec = l_fast_record(&rd, sum, n, &used);
+    CHECK("H-F02", (1020u == rec) && (0u == used),
+          "500 Hz: a read with no new sample keeps the last value and says so");
+
+    /* 4, 6, 5, ... samples per record (jitter): every sample used once */
+    l_fast_reset(&f, &rd);
+    for (k = 0u; k < 300u; k++)
+    {
+        uint32_t m = 4u + (k % 3u), j;
+        for (j = 0u; j < m; j++)
+        {
+            l_fast_put(&f, (uint16_t)((total * 7u) % 4096u), 0u, 0u);
+            total++;
+        }
+        (void)l_fast_get(&f, &sum, &n, &c, &r);
+        (void)l_fast_record(&rd, sum, n, &used);
+        seen += used;
+        b_ok = b_ok && (used == m);
+    }
+    CHECK("H-F03", b_ok && (seen == total),
+          "500 Hz: with 4 to 6 samples per record no sample is lost or used twice");
+
+    /* the running totals wrap */
+    l_fast_reset(&f, &rd);
+    f.sum  = 0xFFFFFF00u; f.n  = 0xFFFFFFFEu;
+    rd.sum = 0xFFFFFF00u; rd.n = 0xFFFFFFFEu;
+    for (k = 0u; k < 5u; k++) { l_fast_put(&f, 4000u, 0u, 0u); }
+    (void)l_fast_get(&f, &sum, &n, &c, &r);
+    rec = l_fast_record(&rd, sum, n, &used);
+    CHECK("H-F04", (4000u == rec) && (5u == used),
+          "500 Hz: sum and count wrap without a wrong record");
+
+    /* a writer in the middle of an update (odd seq) is never read */
+    f.seq = 7u;
+    CHECK("H-F05", !l_fast_get(&f, &sum, &n, &c, &r),
+          "500 Hz: no copy is taken while the interrupt is updating");
+
+    /* design property (noise model assumed: white, sd 40 per conversion):
+       20 conversions per record against the old 4 */
+    {
+        double s_old = 0.0, s_new = 0.0;
+        int    i, j;
+        uint32_t seed = 12345u;
+        l_fast_reset(&f, &rd);
+        for (i = 0; i < 2000; i++)
+        {
+            double a = 0.0;
+            for (j = 0; j < 4; j++)
+            {
+                double g = 0.0; int q;
+                for (q = 0; q < 12; q++) { seed = seed * 1103515245u + 12345u; g += (double)((seed >> 16) & 0x7FFFu) / 32768.0; }
+                a += 40.0 * (g - 6.0);
+            }
+            s_old += (a / 4.0) * (a / 4.0);
+            for (j = 0; j < 5; j++)
+            {
+                double b = 0.0; int q, m;
+                for (m = 0; m < 4; m++)
+                {
+                    double g = 0.0;
+                    for (q = 0; q < 12; q++) { seed = seed * 1103515245u + 12345u; g += (double)((seed >> 16) & 0x7FFFu) / 32768.0; }
+                    b += 40.0 * (g - 6.0);
+                }
+                l_fast_put(&f, (uint16_t)(2000.0 + (b / 4.0) + 0.5), 0u, 0u);
+            }
+            (void)l_fast_get(&f, &sum, &n, &c, &r);
+            rec = l_fast_record(&rd, sum, n, &used);
+            s_new += ((double)rec - 2000.0) * ((double)rec - 2000.0);
+        }
+        s_old = sqrt(s_old / 2000.0);
+        s_new = sqrt(s_new / 2000.0);
+        printf("        noise sd per record: old 4 reads %.1f, 500 Hz %.1f (model)\n", s_old, s_new);
+        CHECK("H-F06", (s_new * 1.8) < s_old,
+              "500 Hz: a record averages 20 conversions (noise about 1/sqrt(5) of the old 4)");
+    }
+}
+
+/* Barcode lock: run a sequence of (pos, scanning, bars) 10 ms samples */
+typedef struct { uint32_t pos; bool scan; bool bars; } lk_s_t;
+
+/* steps pos from a to b (step 5 counts), returns lock state at each end */
+static bool lk_run(bc_lock_t * p_l, uint32_t a, uint32_t b, bool scan,
+                   bool bars, bool * p_all_locked, bool * p_any_locked)
+{
+    uint32_t pos;
+    bool     b_l = false;
+    *p_all_locked = true;
+    *p_any_locked = false;
+    for (pos = a; pos < b; pos += 5u)
+    {
+        b_l = bc_lock_step(p_l, scan, bars, pos, S3_BC_LOCK_FIRST_COUNTS,
+                           S3_BC_LOCK_AFTER_COUNTS, S3_BC_LOCK_MAX_COUNTS);
+        *p_all_locked = *p_all_locked && b_l;
+        *p_any_locked = *p_any_locked || b_l;
+    }
+    return b_l;
+}
+
+static void test_bc_lock(void)
+{
+    bc_lock_t l;
+    bool      all, any, all2, any2;
+    uint32_t  a = S3_BC_LOCK_AFTER_COUNTS;
+
+    /* a whole barcode: 1st bar at 0, 2nd element from 60, read ends at 900 */
+    bc_lock_reset(&l);
+    (void)lk_run(&l, 0u, 60u, true, false, &all, &any);
+    (void)lk_run(&l, 60u, 900u, true, true, &all2, &any2);
+    all = all && all2;
+    (void)lk_run(&l, 900u, 900u + a - 10u, false, false, &all2, &any2);
+    all = all && all2;
+    (void)lk_run(&l, 900u + a + 10u, 2000u, false, false, &all2, &any2);
+    CHECK("H-K01", all && !any2,
+          "lock: straight from the 1st bar to AFTER counts past the end, then free");
+
+    /* one long black (line on a curve, junction arm): free after FIRST */
+    bc_lock_reset(&l);
+    (void)lk_run(&l, 0u, S3_BC_LOCK_FIRST_COUNTS - 10u, true, false, &all, &any);
+    (void)lk_run(&l, S3_BC_LOCK_FIRST_COUNTS + 10u, 1500u, true, false, &all2, &any2);
+    CHECK("H-K02", all && !any2,
+          "lock: one long black lets go after FIRST counts and stays free");
+
+    /* ... and the next real read locks again */
+    (void)lk_run(&l, 1500u, 1510u, false, false, &all2, &any2);
+    (void)lk_run(&l, 1600u, 1700u, true, true, &all, &any);
+    CHECK("H-K03", all, "lock: the next read locks again");
+
+    /* a read that fails half way and a second piece right after it: one
+       continuous lock (no speed-up between the pieces) */
+    bc_lock_reset(&l);
+    (void)lk_run(&l, 0u, 400u, true, true, &all, &any);
+    (void)lk_run(&l, 400u, 400u + (a / 2u), false, false, &all2, &any2);
+    all = all && all2;
+    (void)lk_run(&l, 400u + (a / 2u), 900u, true, false, &all2, &any2);
+    all = all && all2;
+    (void)lk_run(&l, 900u, 900u + a - 10u, false, false, &all2, &any2);
+    all = all && all2;
+    CHECK("H-K04", all, "lock: two pieces of one barcode stay locked throughout");
+
+    /* never longer than MAX */
+    bc_lock_reset(&l);
+    (void)lk_run(&l, 0u, S3_BC_LOCK_MAX_COUNTS - 10u, true, true, &all, &any);
+    (void)lk_run(&l, S3_BC_LOCK_MAX_COUNTS + 10u, S3_BC_LOCK_MAX_COUNTS + 500u,
+                 true, true, &all2, &any2);
+    CHECK("H-K05", all && !any2, "lock: let go after MAX counts at most");
+
+    /* one bar only (no space after it before the read ends): free at once */
+    bc_lock_reset(&l);
+    (void)lk_run(&l, 0u, 50u, true, false, &all, &any);
+    (void)lk_run(&l, 50u, 60u, false, false, &all2, &any2);
+    CHECK("H-K06", all && !any2, "lock: a lone bar with no space after it lets go when the read ends");
+
+    /* following the line while locked */
+    {
+        bc_lock_steer_t ls;
+        int16_t         st = 0;
+        uint32_t        pos;
+        bool            b_zero = true;
+
+        bc_lock_steer_reset(&ls);
+        for (pos = 0u; pos < 200u; pos += 4u) /* bar under C and R */
+        {
+            st = bc_lock_steer(&ls, (uint8_t)(S3_MASK_C | S3_MASK_R), pos, 900,
+                               S3_BC_LOCK_SIDE_COUNTS, S3_BC_LOCK_STEER_MAX);
+            b_zero = b_zero && (0 == st);
+        }
+        for (pos = 200u; pos < 200u + S3_BC_LOCK_SIDE_COUNTS; pos += 4u)
+        {
+            /* bar edge: only C for less than SIDE counts */
+            st = bc_lock_steer(&ls, (uint8_t)S3_MASK_C, pos, -900,
+                               S3_BC_LOCK_SIDE_COUNTS, S3_BC_LOCK_STEER_MAX);
+            b_zero = b_zero && (0 == st);
+        }
+        CHECK("H-K08", b_zero, "lock steer: a bar, and one sensor briefly on a bar edge, give no steering");
+        for (pos = 300u; pos < 400u; pos += 4u) /* C stays black: drifting */
+        {
+            st = bc_lock_steer(&ls, (uint8_t)S3_MASK_C, pos, -900,
+                               S3_BC_LOCK_SIDE_COUNTS, S3_BC_LOCK_STEER_MAX);
+        }
+        CHECK("H-K09", -S3_BC_LOCK_STEER_MAX == st,
+              "lock steer: C black for longer steers back, capped");
+        for (pos = 400u; pos < 500u; pos += 4u)
+        {
+            st = bc_lock_steer(&ls, (uint8_t)S3_MASK_R, pos, 120,
+                               S3_BC_LOCK_SIDE_COUNTS, S3_BC_LOCK_STEER_MAX);
+        }
+        CHECK("H-K10", 120 == st, "lock steer: R black for longer steers the other way");
+    }
+
+    /* straight: the tracker forgets its turn */
+    {
+        line_tracker_t t;
+        line_tracker_reset(&t);
+        t.steering = 700; t.corr_count = 9u; t.corr_mag = 300; t.b_hold = true;
+        line_tracker_go_straight(&t);
+        CHECK("H-K07", (0 == t.steering) && (0u == t.corr_count) &&
+                           (0 == t.corr_mag) && !t.b_hold,
+              "lock: go_straight clears the steering and the turn memory");
+    }
+}
+
+/* Lock + tracker together (review R1): one 10 ms sample.  pos moves 5
+   counts per sample.  L, C, R are 0 (white) or 1 (black); L also sets
+   l_raw.  scan / bars as barcode_task would set them. */
+static line_tracker_t g_lk_trk;
+static line_tracker_t g_lk_ref; /* same input, no lock: reference */
+static line_params_t  g_lk_p;
+static bc_lock_ctl_t  g_lk_ctl;
+static uint32_t       g_lk_pos;
+static bc_lock_cfg_t const g_lk_cfg = {
+    S3_BC_LOCK_FIRST_COUNTS, S3_BC_LOCK_AFTER_COUNTS, S3_BC_LOCK_MAX_COUNTS,
+    S3_BC_LOCK_SIDE_COUNTS,  S3_BC_LOCK_STEER_MAX };
+
+static void lk_trk_reset(void)
+{
+    line_params_default(&g_lk_p);
+    g_lk_p.kp_num = 4;  /* first nudge 100 */
+    g_lk_p.kd_num = 10; /* +10 per sample: 70 samples -> 800 (hard) */
+    line_tracker_reset(&g_lk_trk);
+    line_tracker_reset(&g_lk_ref);
+    bc_lock_ctl_reset(&g_lk_ctl);
+    g_lk_pos = 1000u;
+}
+
+static bool lk_trk_step(int l, int c, int r, bool scan, bool bars)
+{
+    uint16_t nm[S3_IR_COUNT];
+    nm[S3_IR_L] = (uint16_t)(l ? 1000u : 0u);
+    nm[S3_IR_C] = (uint16_t)(c ? 1000u : 0u);
+    nm[S3_IR_R] = (uint16_t)(r ? 1000u : 0u);
+    g_lk_trk.l_raw = (uint16_t)(l ? 3000u : 200u);
+    g_lk_ref.l_raw = g_lk_trk.l_raw;
+    (void)line_tracker_step(&g_lk_trk, &g_lk_p, nm, bars);
+    (void)line_tracker_step(&g_lk_ref, &g_lk_p, nm, bars);
+    g_lk_pos += 5u;
+    return bc_lock_apply(&g_lk_ctl, &g_lk_cfg, &g_lk_trk, scan, bars, g_lk_pos);
+}
+
+static void test_bc_lock_tracker(void)
+{
+    int     i;
+    bool    b_ok;
+    bool    b_lk;
+    int16_t curve;
+
+    /* (a) left curve: hard left correction, L sees the line and starts a
+       read (no bars yet), C slips off the line: both C and R white. */
+    lk_trk_reset();
+    (void)lk_trk_step(0, 0, 0, false, false);
+    (void)lk_trk_step(0, 0, 0, false, false);
+    for (i = 0; i < 70; i++) { (void)lk_trk_step(0, 1, 0, false, false); }
+    curve = g_lk_trk.steering;
+    b_ok  = (curve <= -S3_STRADDLE_HOLD_MAG);
+    b_lk  = true;
+    for (i = 0; i < 40; i++) /* 200 counts, under FIRST (250) */
+    {
+        b_lk = lk_trk_step(1, 0, 0, true, false) && b_lk;
+        b_ok = b_ok && (g_lk_trk.steering == curve) && g_lk_trk.b_hold;
+    }
+    CHECK("H-K11", b_ok && b_lk,
+          "lock+tracker: false start on a left curve keeps turning left (curve memory kept)");
+
+    /* (b) a lock that is never confirmed changes nothing in the tracker:
+       compare with the same tracker run without the lock, through a
+       curve, a re-entry, the other side and white, until it lets go. */
+    lk_trk_reset();
+    b_ok = true;
+    b_lk = false;
+    for (i = 0; i < 60; i++) { (void)lk_trk_step(0, 1, 0, false, false); }
+    for (i = 0; i < 49; i++) /* one long black under L: 245 counts */
+    {
+        int c = ((i / 12) % 2);       /* C on / off the line */
+        int r = (i > 36) ? 1 : 0;     /* then R */
+        b_lk = lk_trk_step(1, c, r, true, false) || b_lk;
+        b_ok = b_ok && (g_lk_trk.steering == g_lk_ref.steering) &&
+               (g_lk_trk.b_hold == g_lk_ref.b_hold) &&
+               (g_lk_trk.corr_mag == g_lk_ref.corr_mag);
+    }
+    for (i = 0; i < 20; i++) /* past FIRST: lets go */
+    {
+        (void)lk_trk_step(1, 0, 0, true, false);
+        b_ok = b_ok && (g_lk_trk.steering == g_lk_ref.steering);
+    }
+    b_lk = b_lk && !lk_trk_step(0, 0, 0, false, false);
+    CHECK("H-K12", b_ok && b_lk,
+          "lock+tracker: an unconfirmed lock leaves steering and curve memory unchanged");
+
+    /* (c) a CONFIRMED false lock on a curve (L hunts black-white-black):
+       the held curve keeps its sign, and the lock still ends by MAX. */
+    lk_trk_reset();
+    for (i = 0; i < 70; i++) { (void)lk_trk_step(0, 1, 0, false, false); }
+    curve = g_lk_trk.steering;
+    (void)lk_trk_step(1, 0, 0, true, false);
+    b_lk = lk_trk_step(1, 0, 0, true, true); /* bar + space seen */
+    b_ok = b_lk && g_lk_ctl.lock.b_confirmed;
+    for (i = 0; i < 60; i++)
+    {
+        (void)lk_trk_step(i % 2, 0, 0, true, true);
+        b_ok = b_ok && (g_lk_trk.steering == curve) && g_lk_trk.b_hold;
+    }
+    CHECK("H-K13a", b_ok,
+          "lock+tracker: confirmed lock on a curve keeps the held turn (not zeroed)");
+    {
+        uint32_t start = g_lk_pos - (5u * 62u);
+        uint32_t freed = 0u;
+        for (i = 0; i < 2000; i++)
+        {
+            int c = ((i / 30) % 3) == 0; /* line comes back under C now and then */
+            if (!lk_trk_step(i % 2, c, 0, true, true)) { freed = g_lk_pos; break; }
+        }
+        CHECK("H-K13b", (0u != freed) &&
+                            ((freed - start) <= (S3_BC_LOCK_MAX_COUNTS + 10u)),
+              "lock+tracker: a confirmed false lock on a curve still ends by MAX counts");
+    }
+
+    /* (d) a real barcode on a straight, as before: bars under C and R and
+       a short bar edge give 0 and no built-up turn; a lasting C black
+       steers back, capped. */
+    lk_trk_reset();
+    for (i = 0; i < 5; i++) { (void)lk_trk_step(0, 0, 0, false, false); }
+    (void)lk_trk_step(1, 1, 1, true, false);
+    (void)lk_trk_step(0, 0, 0, true, true);
+    b_ok = g_lk_ctl.lock.b_confirmed;
+    for (i = 0; i < 4; i++)
+    {
+        (void)lk_trk_step(1, 1, 1, true, true); /* bar across C and R */
+        b_ok = b_ok && (0 == g_lk_trk.steering);
+    }
+    for (i = 0; i < 3; i++) /* edge: C only for 15 counts */
+    {
+        (void)lk_trk_step(0, 1, 0, true, true);
+        b_ok = b_ok && (0 == g_lk_trk.steering) && (0u == g_lk_trk.corr_count);
+    }
+    (void)lk_trk_step(0, 0, 0, true, true);
+    b_ok = b_ok && (0 == g_lk_trk.steering) && !g_lk_trk.b_hold;
+    CHECK("H-K14a", b_ok,
+          "lock+tracker: confirmed, bars and a short bar edge give no steering");
+    for (i = 0; i < 80; i++) { (void)lk_trk_step(0, 1, 0, true, true); }
+    CHECK("H-K14b", (g_lk_trk.steering < 0) &&
+                        (g_lk_trk.steering >= -S3_BC_LOCK_STEER_MAX),
+          "lock+tracker: confirmed, a lasting C black steers left, capped");
 }
 
 int main(void)
 {
     test_code39();
     test_line();
+    test_bc_edge();
+    test_bc_distance();
+    test_partial();
+    test_geom();
+    test_geom_try();
+    test_real_18nov();
+    test_l_fast();
+    test_bc_lock();
+    test_bc_lock_tracker();
     printf("[TEST] subsystem3-host SUMMARY %d passed, %d failed\n", g_pass, g_fail);
     return (0 == g_fail) ? 0 : 1;
 }

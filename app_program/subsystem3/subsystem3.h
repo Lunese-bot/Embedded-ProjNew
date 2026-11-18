@@ -36,6 +36,7 @@
  * --------------------------------------------------------------------- */
 #define S3_PRI_LINE    16 /* line_task:    10 ms, owns IR_L/C/R (+ADC) */
 #define S3_PRI_BARCODE 17 /* barcode_task: event driven, decodes      */
+#define S3_PRI_GEOM    19 /* barcode_task during a shape read (~0.5 s), below imu_task */
 
 /* ---------------------------------------------------------------------
  *  IF-31: line status.  Copy it with s3_get_line_status(); never read
@@ -57,10 +58,79 @@ typedef struct
     bool            bc_enabled;
     uint32_t        bc_ok;   /* barcodes decoded                     */
     uint32_t        bc_fail; /* barcode reads that failed            */
+    uint16_t        bc_last_elems; /* bars + spaces in the last read (one
+                                      letter between '*' markers = 29) */
+    uint8_t         bc_last_err;   /* code39_result_t of the last read, 0 = ok */
     uint32_t evt_dropped;    /* events lost: g_mbf_s3_events was full        */
 } s3_line_status_t;
 
 extern ER s3_get_line_status(s3_line_status_t * p_out);
+
+/* Bench analysis (dashboard barcode recorder): a copy of the bar and space
+   widths of the LAST decode attempt, written by barcode_task.  Element 0 is
+   a black bar, then they alternate.  g_s3_bc_dbg_seq goes up by one after
+   each copy; a reader copies n widths, then checks seq did not change. */
+extern volatile uint32_t g_s3_bc_dbg_seq;
+extern volatile uint32_t g_s3_bc_dbg_n;
+extern volatile uint32_t g_s3_bc_dbg_us[S3_BC_MAX_ELEMENTS];
+/* the same elements measured by wheel distance (encoder counts, L + R),
+   and which one the decoder used: 1 = distance, 0 = time, 2 = shape read
+   (S3_BC_GEOM, code39_geom.c) */
+extern volatile uint32_t g_s3_bc_dbg_pos[S3_BC_MAX_ELEMENTS];
+extern volatile uint32_t g_s3_bc_dbg_unit;
+/* Shape read of the same attempt (written before g_s3_bc_dbg_seq goes
+   up): result c39g_result_t (0 = letter found, 255 = not tried), best
+   letter (also when refused), worst wide-bar error and margin over the
+   next letter in 1/100, share of the trace explained in %. */
+extern volatile uint8_t  g_s3_bc_geom_res;
+extern volatile char     g_s3_bc_geom_best;
+extern volatile uint16_t g_s3_bc_geom_err_x100;
+extern volatile uint16_t g_s3_bc_geom_margin_x100;
+extern volatile uint8_t  g_s3_bc_geom_fit;
+extern volatile uint32_t g_s3_bc_geom_ok; /* letters found by it */
+extern volatile uint16_t g_s3_bc_geom_ms; /* how long it took */
+/* Which shape-read try gave the result (1 half height, 2 near the top,
+   0 none), the first try's best letter, and how many letters came from
+   the second try after the first try called a TIE (review R1). */
+extern volatile uint8_t  g_s3_bc_geom_try;
+extern volatile char     g_s3_bc_geom_first_best;
+extern volatile uint32_t g_s3_bc_geom_tie_ovr;
+/* Wheel position used for barcode widths (S3_BC_DIST_WHEEL), in counts of
+   about 0.15 mm; 0 when S3_BC_USE_DIST is off.  task_line.c */
+extern uint32_t s3_bc_pos(void);
+
+/* Bench analysis: the barcode sensor's raw reading for the last
+   S3_LTRACE_N line samples (10 ms each), a ring written by line_task.
+   g_s3_ltrace_idx counts samples written (next slot = idx % N). */
+#define S3_LTRACE_N 1400u /* 14 s.  Was 400, then 700 (7 s); 2026-11-18
+                             (R4): the 7 s window began inside the first
+                             '*' of a big-print pass at 36 mm/s.  Must not
+                             exceed C39G_MAX_SAMPLES (checked in
+                             task_barcode.c). */
+extern volatile uint16_t g_s3_ltrace[S3_LTRACE_N];
+extern volatile uint32_t g_s3_ltrace_idx;
+/* Same samples: how far the wheels went since the sample before, in
+   encoder counts.  _fwd = left + right (forward travel), _yaw = right -
+   left (+ = the robot is twisting to the left).  Shows whether the robot
+   twists while L crosses a barcode. */
+extern volatile uint8_t g_s3_ltrace_fwd[S3_LTRACE_N];
+extern volatile int8_t  g_s3_ltrace_yaw[S3_LTRACE_N];
+/* Copy of the trace taken by barcode_task the moment a read ends (oldest
+   first), so the bars are still in it when the dashboard asks. */
+extern volatile uint16_t g_s3_ltrace_frz[S3_LTRACE_N];
+extern volatile uint8_t  g_s3_ltrace_frz_fwd[S3_LTRACE_N];
+extern volatile int8_t   g_s3_ltrace_frz_yaw[S3_LTRACE_N];
+extern volatile uint32_t g_s3_ltrace_frz_n; /* samples in the copy, 0 = none yet */
+
+#if S3_L_FAST
+/* 500 Hz L front end (drv_ir.c), for the dashboard (GET /b "lf") */
+extern volatile uint32_t g_s3_lf_isr;     /* 2 ms samples taken           */
+extern volatile uint32_t g_s3_lf_late;    /* alarm re-armed after a miss  */
+extern volatile uint32_t g_s3_lf_max_us;  /* longest interrupt, us        */
+extern volatile uint32_t g_s3_lf_adc_err; /* conversion timeout or error  */
+extern volatile uint32_t g_s3_lf_stall;   /* 10 ms reads with no sample   */
+extern volatile uint32_t g_s3_lf_used;    /* 2 ms samples in last record  */
+#endif
 
 /* ---------------------------------------------------------------------
  *  IF-32: events, received by the Vehicle Controller:
@@ -115,8 +185,15 @@ extern ER s3_request(uint32_t req);
 /* One finished run of the barcode sensor, line_task -> barcode_task */
 typedef struct
 {
-    uint32_t width_us; /* how long the level lasted            */
-    uint8_t  black;    /* 1 = bar (black), 0 = space (white)   */
+    uint32_t width_us;  /* how long the level lasted            */
+    uint32_t width_pos; /* how far the wheels went meanwhile, in
+                           encoder counts (L + R); 0 = not measured */
+    uint8_t  black;     /* 1 = bar (black), 0 = space (white)   */
+    /* Bars only: the bar really began this much AFTER the edge that ended
+       the space before it (its start is re-found at 50 % of its own peak
+       once the peak is known).  barcode_task adds it to that space. */
+    uint32_t lead_us;
+    uint32_t lead_pos;
 } s3_bc_run_t;
 
 #define S3_FLG_LINE_REQ (S3_REQ_CALIBRATE | S3_REQ_RESET_LINE)
@@ -133,6 +210,14 @@ extern volatile uint8_t g_s3_black_mask_live; /* line_task -> s3_ports.c,
                                          readable without the mutex */
 extern volatile bool    g_b_s3_bc_scanning;   /* barcode_task -> line_task:
                                          inhibit junction detection */
+/* Set once a read has seen a bar AND the space after it, i.e. real
+   barcode bars.  Junctions are only ignored from then on: one long black
+   under L with nothing after it is a junction's side arm (or the line on
+   a curve), and the junction behind it must still be reported. */
+extern volatile bool    g_b_s3_bc_bars;
+/* line_task -> vehicle controller: barcode lock (S3_BC_LOCK) is on, so
+   drive straight at no more than VC_SPEED_SLOW_MMS */
+extern volatile bool    g_b_s3_bc_lock;
 extern uint32_t         g_s3_line_overruns;   /* line_task diagnostics */
 extern uint32_t         g_s3_line_read_errors;
 extern uint32_t         g_s3_line_wakeups;

@@ -129,9 +129,15 @@ void subsystem2_test(void)
     TEST_CHECK("S2-U06", loop_runs_on_time(),
                "motion_task runs every 10 ms, no overruns");
 
-    /* S2-U07: STOP command is accepted and the robot is stopped */
+    /* S2-U07: STOP command is accepted and the zero-speed event is raised.
+       Clear any stale bit first, as the Vehicle Controller does at a junction. */
+    tk_clr_flg(g_flg_motion, ~MFLG_STOPPED);
     TEST_CHECK("S2-U07", E_OK == s2_cmd_stop(),
-               "IF-M1 message buffer accepts a command");
+               "IF-M1 message buffer accepts a STOP command");
+    b_ok = (E_OK == tk_wai_flg(g_flg_motion, MFLG_STOPPED,
+                               TWF_ORW | TWF_BITCLR, &ptn, 100));
+    TEST_CHECK("S2-U07b", b_ok,
+               "IF-M3 MFLG_STOPPED is raised after the stop reaches zero speed");
     tk_dly_tsk(50);
     s2_get_status(&status);
     TEST_CHECK("S2-U08",

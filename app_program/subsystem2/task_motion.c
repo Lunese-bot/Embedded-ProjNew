@@ -183,6 +183,10 @@ static void begin_segment(void)
 
 static void apply_command(const motion_cmd_t * p_cmd)
 {
+    if (0U != g_s2_imu_stop)
+    {
+        return; /* Includes RESET, until the robot is set down again. */
+    }
     bool b_latched = ((MSTATE_SAFE_STOP == g_motion_ctx.state) ||
                       (MSTATE_FAULT == g_motion_ctx.state));
 
@@ -287,6 +291,11 @@ static void receive_commands(void)
     {
         apply_command(&cmd);
     }
+    if ((0U != g_s2_imu_stop) &&
+        (MSTATE_SAFE_STOP != g_motion_ctx.state))
+    {
+        enter_latched(MSTATE_SAFE_STOP, MFAULT_NONE);
+    }
 }
 
 /* ---------------------------------------------------------------------
@@ -314,6 +323,11 @@ static void update_speed(float32_t dt_s)
     g_motion_ctx.last_dt_r = drv_encoder_delta(MOTOR_RIGHT);
     g_motion_ctx.ticks_l += g_motion_ctx.last_dt_l;
     g_motion_ctx.ticks_r += g_motion_ctx.last_dt_r;
+    /* both wheels' edge counts, read by S3 to measure barcode bars by
+       distance (one 32-bit store: no lock needed on the RP2040) */
+    g_s2_odo_ticks = g_motion_ctx.ticks_l + g_motion_ctx.ticks_r;
+    g_s2_ticks_l   = g_motion_ctx.ticks_l;
+    g_s2_ticks_r   = g_motion_ctx.ticks_r;
 
     delta_l = signed_mm(g_motion_ctx.last_dt_l, g_motion_ctx.duty_l,
                         g_motion_ctx.spd_l);
@@ -366,6 +380,9 @@ static int32_t slow_near_end(int32_t speed, float32_t remaining_mm,
    Start at the s2_config.h values; lost on reboot.  Read by the control
    task, written by the WiFi task: single aligned words, so no lock needed
    for bench use. */
+volatile uint32_t g_s2_odo_ticks   = 0U; /* subsystem2.h */
+volatile uint32_t g_s2_ticks_l     = 0U;
+volatile uint32_t g_s2_ticks_r     = 0U;
 volatile int32_t g_s2_dbg_trim_l   = S2_TRIM_L_PERMILLE;
 volatile int32_t g_s2_dbg_trim_r   = S2_TRIM_R_PERMILLE;
 volatile int32_t g_s2_dbg_straight = 1; /* 1 = hold DRIVE straight */
@@ -469,6 +486,8 @@ static void mode_logic(void)
                 (absf(g_motion_ctx.spd_l) < S2_STOP_SPEED_MM_S) &&
                 (absf(g_motion_ctx.spd_r) < S2_STOP_SPEED_MM_S))
             {
+                /* Vehicle Controller waits for this physical-stop confirmation
+                   before it executes a buffered barcode at a junction. */
                 enter_idle(MFLG_STOPPED);
             }
             break;
@@ -497,13 +516,45 @@ static int32_t wheel_duty(pid_ctrl_t * p_pid, int32_t target,
 
     /* Below S2_DUTY_MIN_MOVE the motor only hums: lift to the minimum
        in the commanded direction (static friction compensation). */
-    if ((target > 0) && (duty < S2_DUTY_MIN_MOVE))
     {
-        duty = S2_DUTY_MIN_MOVE;
-    }
-    if ((target < 0) && (duty > -S2_DUTY_MIN_MOVE))
-    {
-        duty = -S2_DUTY_MIN_MOVE;
+        /* The full S2_DUTY_MIN_MOVE kick only while the wheel is (nearly)
+           stopped; once it turns, the floor is S2_DUTY_MIN_RUN, so the
+           speed controller can slow a fast wheel below the kick duty. */
+#if S2_WEBDEBUG
+        int32_t run_duty = g_lt_dmin; /* live from the dashboard */
+#else
+        int32_t run_duty = S2_DUTY_MIN_RUN;
+#endif
+        /* Work in the commanded direction (dir = +1 or -1) so one rule
+           covers both.  2026-11-04: the floor only helps a wheel that is
+           too SLOW.  A wheel already at or above its target may drop to
+           0 duty, so the inner wheel of a sharp turn can really slow
+           down (the 125 floor held it at ~75 mm/s when 14 was asked). */
+        int32_t dir  = (target > 0) ? 1 : -1;
+        int32_t tmag = target * dir;               /* wanted speed, > 0 */
+        float32_t mmag = measured * (float32_t)dir; /* speed that way    */
+        int32_t dmag = duty * dir;
+        int32_t floor_duty;
+
+        if (mmag >= (float32_t)tmag)
+        {
+            floor_duty = 0;                /* fast enough: may coast  */
+        }
+        else if ((mmag > -20.0f) && (mmag < 20.0f))
+        {
+            /* (nearly) stopped: kick, unless a crawl is all that is
+               wanted (inner wheel of a U-turn) */
+            floor_duty = (tmag >= 20) ? S2_DUTY_MIN_MOVE : 0;
+        }
+        else
+        {
+            floor_duty = run_duty;
+        }
+        if (dmag < floor_duty)
+        {
+            dmag = floor_duty;             /* also never reverses     */
+        }
+        duty = dmag * dir;
     }
     return duty;
 }
@@ -523,6 +574,11 @@ static void calculate_pwm(float32_t dt_s)
     g_motion_ctx.pid_r.kp = (float32_t)g_lt_pid_kp100 / 100.0f;
     g_motion_ctx.pid_l.ki = (float32_t)g_lt_pid_ki100 / 100.0f;
     g_motion_ctx.pid_r.ki = (float32_t)g_lt_pid_ki100 / 100.0f;
+    /* per-wheel feed-forward and the integral limit */
+    g_motion_ctx.pid_l.kff = S2_PID_KFF * (float32_t)g_lt_ff_l / 1000.0f;
+    g_motion_ctx.pid_r.kff = S2_PID_KFF * (float32_t)g_lt_ff_r / 1000.0f;
+    g_motion_ctx.pid_l.i_limit = (float32_t)g_lt_ilim;
+    g_motion_ctx.pid_r.i_limit = (float32_t)g_lt_ilim;
 #endif
     g_motion_ctx.duty_l = wheel_duty(&g_motion_ctx.pid_l, g_motion_ctx.tgt_l,
                                      g_motion_ctx.spd_l, dt_s);
@@ -548,6 +604,11 @@ static bool stalled(uint32_t * p_stall_ms, int32_t duty, uint32_t ticks)
 
 static void drive_motor(void)
 {
+    if (0U != g_s2_imu_stop)
+    {
+        enter_latched(MSTATE_SAFE_STOP, MFAULT_NONE);
+        return;
+    }
     if (stalled(&g_motion_ctx.stall_ms_l, g_motion_ctx.duty_l,
                 g_motion_ctx.last_dt_l))
     {
@@ -634,9 +695,9 @@ void motion_task(int32_t stacd, void * p_exinf)
     (void)stacd;
     (void)p_exinf;
 
-    pid_init(&g_motion_ctx.pid_l, S2_PID_KFF, S2_PID_KP, S2_PID_KI, S2_PID_KD,
+    pid_init(&g_motion_ctx.pid_l, S2_PID_KFF * (float32_t)S2_PID_KFF_BOOST_L / 1000.0f, S2_PID_KP, S2_PID_KI, S2_PID_KD,
              S2_PID_I_LIMIT, (float32_t)S2_DUTY_MAX);
-    pid_init(&g_motion_ctx.pid_r, S2_PID_KFF, S2_PID_KP, S2_PID_KI, S2_PID_KD,
+    pid_init(&g_motion_ctx.pid_r, S2_PID_KFF * (float32_t)S2_PID_KFF_BOOST_R / 1000.0f, S2_PID_KP, S2_PID_KI, S2_PID_KD,
              S2_PID_I_LIMIT, (float32_t)S2_DUTY_MAX);
 
     if ((E_OK != drv_motor_init()) || (E_OK != drv_encoder_init()))

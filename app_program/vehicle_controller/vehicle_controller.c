@@ -79,6 +79,7 @@ ER vc_post_event(vc_source_t src, vc_event_type_t type, int32_t param1,
     event.p1      = param1;
     event.p2      = param2;
     event.time_ms = now.lo;
+    event.barcode_text[0] = '\0';
     return tk_snd_mbf(g_mbf_vc_events, &event, sizeof(event), tmo);
 }
 

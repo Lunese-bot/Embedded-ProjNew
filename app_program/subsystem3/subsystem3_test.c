@@ -107,7 +107,7 @@ static void print_line_task_info(uint32_t samples)
 }
 
 /* S3-U05: feed the runs of barcode "*L*" into g_mbf_s3_bc_runs and wait
-   for BARCODE_START, then BARCODE_DECODED(NAV_LEFT), on IF-32 */
+   for BARCODE_START, then BARCODE_DECODED with full text and no default action, on IF-32 */
 static void feed_barcode(bool * p_b_start, bool * p_b_decoded)
 {
     uint32_t    widths[S3_BC_MAX_ELEMENTS];
@@ -121,8 +121,11 @@ static void feed_barcode(bool * p_b_start, bool * p_b_decoded)
     (void)tk_sus_tsk(g_tid_vc);
     drain_events();
     count        = code39_encode("L", 20000, 50000, widths, S3_BC_MAX_ELEMENTS);
-    run.black    = 0;
-    run.width_us = 500000; /* leading quiet zone */
+    run.black     = 0;
+    run.width_us  = 500000; /* leading quiet zone */
+    run.width_pos = 0U;     /* no wheel distance: decoded by time */
+    run.lead_us   = 0U;
+    run.lead_pos  = 0U;
     tk_snd_mbf(g_mbf_s3_bc_runs, &run, sizeof(run), TMO_FEVR);
     for (idx = 0; idx < count; idx++)
     {
@@ -132,7 +135,7 @@ static void feed_barcode(bool * p_b_start, bool * p_b_decoded)
     }
     *p_b_start   = wait_event(S3_EVT_BARCODE_START, &evt, 500);
     *p_b_decoded = wait_event(S3_EVT_BARCODE_DECODED, &evt, 1000) &&
-                   (NAV_LEFT == evt.nav) && ('L' == evt.text[0]);
+                   (NAV_NONE == evt.nav) && ('L' == evt.text[0]);
     drain_events();
     (void)tk_rsm_tsk(g_tid_vc);
 }
@@ -205,7 +208,7 @@ void subsystem3_test(void)
     /* S3-U05: barcode_task decodes runs and reports them on IF-32 */
     feed_barcode(&b_start, &b_decoded);
     TEST_CHECK("S3-U05a", b_start, "BARCODE_START event sent");
-    TEST_CHECK("S3-U05b", b_decoded, "BARCODE_DECODED event with NAV_LEFT");
+    TEST_CHECK("S3-U05b", b_decoded, "BARCODE_DECODED event carries L; default action mapping is disabled");
 
     print_live_status();
 

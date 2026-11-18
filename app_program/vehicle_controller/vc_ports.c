@@ -22,8 +22,8 @@
 vc_port_log_t g_vc_port_log;
 
 static const char * const g_move_names[VC_MOVE_COUNT] = {
-    "STOP",    "FORWARD",   "STEER",      "TURN_LEFT", "TURN_RIGHT", "U_TURN",
-    "REVERSE", "SET_SPEED", "DRIVE_DIST", "SAFE_STOP", "RESET"
+    "STOP", "STOP_CONFIRM", "FORWARD", "STEER", "TURN_LEFT", "TURN_RIGHT",
+    "U_TURN", "REVERSE", "SET_SPEED", "DRIVE_DIST", "SAFE_STOP", "RESET"
 };
 
 static const char * const g_req_names[] = {

@@ -39,6 +39,19 @@ typedef enum
     NAV_U_TURN
 } navigation_command_t;
 
+/* Distance from the wheel axle to the row of IR line sensors, in mm
+   (sensors are AHEAD of the axle).  MEASURE with a ruler and set it here.
+   Why it matters (review 2026-11-10): the robot pivots about the axle, so a
+   turn made with the SENSORS on a line leaves the robot beside that line,
+   and with the straddle layout "both white" means straight, so it would
+   drive on parallel to the line and never find it.  Used to drive forward
+   this far before the 90 degree turn at a junction (vc_sm.c) and before
+   turning back onto the line after an obstacle (task_obstacle_avoid.c).
+   0 = old behaviour (turn at once). */
+#ifndef ROBOT_IR_TO_AXLE_MM
+#define ROBOT_IR_TO_AXLE_MM 0
+#endif
+
 typedef struct
 {
     int32_t left;

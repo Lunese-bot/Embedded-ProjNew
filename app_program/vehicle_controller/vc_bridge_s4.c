@@ -11,6 +11,7 @@
  *        HUMP_ABORT    -> VC_EV_HUMP_CLEARED, p1 = 0
  *        IMPACT        -> VC_EV_IMPACT           (critical: safe stop)
  *        TILT_LIMIT    -> fault 0x4003 at S4's own severity
+ *        SAFETY_STOP   -> critical fault 0x4005, cannot be ignored
  *        FAULT         -> recoverable fault 0x4001 (S4 retrying, bounded)
  *        FAULT_FATAL   -> NON-CRITICAL fault 0x4002: the IMU is not needed to
  *                         follow the line, so the run continues without
@@ -25,6 +26,15 @@
 
 #include "vc_bridge.h"
 #include "../subsystem4/subsystem4.h"
+#include "../debugging/live_tune.h"
+
+/* Bench switch for optional IMU events. Calibration-done and the added
+   pickup/overturn safety event always pass, regardless of this switch. */
+#if S2_WEBDEBUG
+#define IMU_OFF (0 == g_lt_imu_en)
+#else
+#define IMU_OFF 0
+#endif
 
 #ifdef S4_PRI_IMU /* S4's real interface is present */
 
@@ -32,6 +42,7 @@
 #define S4_FC_FATAL      0x4002
 #define S4_FC_TILT       0x4003
 #define S4_FC_CAL_FAILED 0x4004
+#define S4_FC_SAFETY     0x4005
 
 static int32_t severity(uint8_t imu_sev)
 {
@@ -61,6 +72,7 @@ static void make(vc_event_t * p_event, vc_event_type_t type, int32_t param1,
     p_event->p1      = param1;
     p_event->p2      = param2;
     p_event->time_ms = time_ms;
+    p_event->barcode_text[0] = '\0';
 }
 
 /* One IMU event -> controller event.  Returns false for events the
@@ -69,8 +81,17 @@ static bool map_imu_event(const imu_event_msg_t * p_msg, vc_event_t * p_event)
 {
     bool b_event = true;
 
+    if (IMU_OFF && (IMU_EVT_CAL_DONE != p_msg->type) &&
+        (IMU_EVT_SAFETY_STOP != p_msg->type))
+    {
+        return false; /* IMU events switched off from the dashboard */
+    }
     switch (p_msg->type)
     {
+        case IMU_EVT_SAFETY_STOP:
+            make(p_event, VC_EV_FAULT, VC_FAULT_CRITICAL, S4_FC_SAFETY,
+                 p_msg->time_ms);
+            break;
         case IMU_EVT_CAL_DONE:
             make(p_event, VC_EV_READY, 0, 0, p_msg->time_ms);
             break;

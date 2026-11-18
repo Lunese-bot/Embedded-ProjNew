@@ -92,6 +92,12 @@ extern ER s2_send_cmd(motion_cmd_t * p_cmd); /* sets cmd->seq */
    MOTION_SAFE_STOP.  The motors stop within one period (10 ms). */
 extern ER s2_emergency_stop(void);
 
+/* IMU lift/overturn interlock: blocks every command, RESET included, while
+   set.  The IMU clears it once the robot is set down; then RESET / Start. */
+extern void s2_latch_imu_stop(void);
+extern void s2_clear_imu_stop(void);
+extern volatile uint32_t g_s2_imu_stop;
+
 /* ---------------------------------------------------------------------
  *  IF-M2: motion status, subsystem 2 -> anyone (VC, telemetry, IMU...)
  * --------------------------------------------------------------------- */
@@ -142,13 +148,22 @@ extern ID g_mtx_motion; /* IF-M2, owned by S2 */
 /* Copy the latest status under the mutex.  E_OK, or the mutex error. */
 extern ER s2_get_status(motion_status_t * p_out);
 
+/* Left + right encoder edge counts since boot (always counts up, also
+   when reversing or turning).  One count ~= S2_MM_PER_TICK / 2 of vehicle
+   travel.  Updated every control period; S3 reads it without a lock to
+   measure barcode bars by distance. */
+extern volatile uint32_t g_s2_odo_ticks;
+/* the two wheels on their own (bench: is the robot twisting?) */
+extern volatile uint32_t g_s2_ticks_l;
+extern volatile uint32_t g_s2_ticks_r;
+
 /* ---------------------------------------------------------------------
  *  IF-M3: motion events, subsystem 2 -> Vehicle Controller.
  *  Wait with tk_wai_flg(g_flg_motion, bits, TWF_ORW | TWF_BITCLR, ...),
  *  so each event is consumed by the task that handles it.
  * --------------------------------------------------------------------- */
 #define MFLG_CMD_DONE     (1U << 0) /* DRIVE_DIST / TURN finished */
-#define MFLG_STOPPED      (1U << 1) /* MOTION_STOP reached 0 speed */
+#define MFLG_STOPPED      (1U << 1) /* MOTION_STOP reached 0 speed; VC junction handshake */
 #define MFLG_SAFE_STOPPED (1U << 2) /* entered MSTATE_SAFE_STOP */
 #define MFLG_FAULT        (1U << 3) /* entered MSTATE_FAULT */
 #define MFLG_CMD_TIMEOUT  (1U << 4) /* DRIVE had no fresh command */

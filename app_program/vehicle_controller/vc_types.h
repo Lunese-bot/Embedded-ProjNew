@@ -1,6 +1,6 @@
 /*
  *      vc_types.h
- *      Vehicle Controller -- Vehicle Controller.  Data formats shared with the
+ *      Subsystem 6 -- Vehicle Controller.  Data formats shared with the
  *      other subsystems: mission states, events and movement commands.
  *
  *      No kernel calls in here, so the state machine (vc_sm.c) can also be
@@ -29,6 +29,7 @@ typedef enum
     VC_ST_IDLE = 0,         /* motors off, wait for start */
     VC_ST_MISSION_START,    /* initialise subsystems, self check */
     VC_ST_FOLLOW_LINE,      /* hub state */
+    VC_ST_JUNCTION_STOP,    /* stop at junction; wait for S2 confirmation */
     VC_ST_LOST_LINE,        /* stop, then bounded line recovery */
     VC_ST_AVOID_OBSTACLE,   /* S5 profiles and bypasses the obstacle */
     VC_ST_DECODE_BARCODE,   /* slow, let S3 read the barcode */
@@ -50,7 +51,7 @@ typedef enum
     VC_SRC_LINE   = 3, /* S3 IR line following + barcode */
     VC_SRC_IMU    = 4, /* S4 IMU terrain monitoring */
     VC_SRC_OBST   = 5, /* S5 ultrasonic scan + avoidance */
-    VC_SRC_VC     = 6  /* VC itself (timeouts) */
+    VC_SRC_VC     = 6  /* the Vehicle Controller itself (timeouts) */
 } vc_source_t;
 
 /* Ready mask bits used during MISSION_START (1 << source) */
@@ -82,13 +83,14 @@ typedef enum
 
     /* S2 motion: send after every TURN_*, U_TURN, REVERSE, DRIVE_DIST */
     VC_EV_MANOEUVRE_DONE, /* p1 = 1 completed, 0 failed (navigation_complete) */
+    VC_EV_MOTION_STOPPED,  /* S2 confirms MOTION_STOP reached zero speed */
 
     /* S3 line + barcode */
     VC_EV_LINE_LOST,     /* p1 = last side seen: -1 left, +1 right, 0 unknown */
     VC_EV_LINE_FOUND,    /* line_reacquired */
     VC_EV_JUNCTION,      /* p1 = junction type (S3 defines) */
     VC_EV_BARCODE_START, /* barcode_detected: start of bars seen */
-    VC_EV_BARCODE_DECODED, /* p1 = navigation_command_t, p2 = raw code */
+    VC_EV_BARCODE_DECODED, /* p1 = legacy nav, barcode_text = full A-Z code */
     VC_EV_BARCODE_FAILED,  /* barcode_read_failed */
     VC_EV_END_OF_COURSE,
 
@@ -100,9 +102,9 @@ typedef enum
     /* S5 obstacle */
     VC_EV_OBSTACLE,     /* p1 = distance (mm) */
     VC_EV_AVOID_DONE,   /* bypassed and line reacquired */
-    VC_EV_AVOID_FAILED, /* bypass done but line not found: VC searches */
+    VC_EV_AVOID_FAILED, /* bypass done but line not found: S6 searches */
 
-    /* VC internal */
+    /* S6 internal */
     VC_EV_TICK, /* periodic, drives state timeouts */
 
     VC_EV_COUNT
@@ -127,9 +129,11 @@ typedef enum
 #define VC_FC_IMPACT        0x0005
 #define VC_FC_STATE_TIMEOUT 0x0006 /* a state took too long */
 #define VC_FC_BARCODE       0x0007 /* barcode retries used up (non-critical) */
+#define VC_FC_JUNCTION_STOP 0x0008 /* S2 did not confirm stop at junction */
 #define VC_FC_WIFI_DOWN     0x1000 /* reported for S1 (non-critical) */
 
-/* One event, as copied into the message buffer.  16 bytes. */
+/* One event, copied into the message buffer.  barcode_text is populated
+   only for VC_EV_BARCODE_DECODED; all other producers set it to empty. */
 typedef struct
 {
     uint8_t  src;  /* vc_source_t */
@@ -138,6 +142,7 @@ typedef struct
     int32_t  p1;
     int32_t  p2;
     uint32_t time_ms; /* sender's tk_get_tim() low word, 0 if unknown */
+    char     barcode_text[16]; /* full decoded text for BARCODE_DECODED */
 } vc_event_t;
 
 /* ---------------------------------------------------------------------
@@ -148,7 +153,8 @@ typedef struct
  * --------------------------------------------------------------------- */
 typedef enum
 {
-    VC_MOVE_STOP = 0, /* value unused */
+    VC_MOVE_STOP = 0, /* value unused; ordinary stop, no completion event */
+    VC_MOVE_STOP_CONFIRM, /* stop and report S2's MFLG_STOPPED to the Vehicle Controller */
     VC_MOVE_FORWARD,  /* value = speed (mm/s) */
     VC_MOVE_STEER,    /* value = steering (-1000 left .. +1000 right) at current
                          speed */

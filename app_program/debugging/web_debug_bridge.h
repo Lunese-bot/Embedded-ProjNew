@@ -29,6 +29,30 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
 int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
                            const char * p_x);
 
+/* GET /b: the last barcode read for the dashboard's barcode recorder, as
+   {"seq":..,"n":..,"err":..,"txt":"..","w":[..]} with widths in 0.1 ms
+   (element 0 = black bar, then alternating). */
+int32_t web_debug_barcode(char * p_out, int32_t out_max);
+
+/* GET /r?p=<page>: the barcode sensor's raw readings (10 ms apart, oldest
+   first), its black / white switch levels and the wheel steps, at most
+   WD_LT_PAGE samples per reply (S3_LTRACE_N = 1400 does not fit one
+   WD_SNAP_MAX reply):
+   {"on":..,"off":..,"frz":..,"edge":..,"sw":..,"n":total,"p":page,
+    "q":read seq,"v":[..],"f":[..],"y":[..]}
+   live 0: the copy frozen when the last read ended, paged; the dashboard
+   asks page 0, 1, ... until it has n samples, all with the same q.
+   live 1 (GET /r?l): the newest WD_LT_PAGE samples, page ignored. */
+#define WD_LT_PAGE 700u
+int32_t web_debug_ltrace(char * p_out, int32_t out_max, int32_t live,
+                         int32_t page);
+
+/* GET /u?p=<page>: the IMU recorder, WD_IMU_PAGE samples per page, oldest
+   first: {"n":total,"p":page,"d":[ax,ay,az,pitch,state,safety,speed,
+   liftv, ...]}.  Page 0 freezes the recorder, the last page releases it. */
+#define WD_IMU_PAGE 160
+int32_t web_debug_imutrace(char * p_out, int32_t out_max, int32_t page);
+
 #endif /* WEB_DEBUG_BRIDGE_H */
 
 /*** end of file ***/

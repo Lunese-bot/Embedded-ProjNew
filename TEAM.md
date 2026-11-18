@@ -61,7 +61,7 @@ fixed.
 | GP3 | S2 | right wheel encoder (PWM slice 1 B counter) |
 | GP4 | | (Grove 3, left free by S2) |
 | GP5 | S2 | left wheel encoder (PWM slice 2 B counter) |
-| GP6 | S3 | IR_L, barcode sensor (digital in) |
+| GP6 | | (free: S3 IR_L moved to GP28 on 2026-11-05) |
 | GP7 | | |
 | GP8 | S2 | left motor M1A (PWM slice 4) |
 | GP9 | S2 | left motor M1B (PWM slice 4) |
@@ -78,9 +78,9 @@ fixed.
 | GP20 | | |
 | GP21 | | |
 | GP22 | | |
-| GP26 | S3 | IR_C, line position (digital in, or ADC0 when `S3_IR_USE_ADC=1`) |
-| GP27 | S3 | IR_R, line position (digital in, or ADC1 when `S3_IR_USE_ADC=1`) |
-| GP28 | | (ADC2 capable) |
+| GP26 | S3 | IR_C, line position, analogue ADC0 (`S3_IR_USE_ADC=1`; digital in when 0) |
+| GP27 | S3 | IR_R, line position, analogue ADC1 (`S3_IR_USE_ADC=1` or 2; digital in when 0) |
+| GP28 | S3 | IR_L, barcode sensor, analogue ADC2 (`S3_IR_L_ADC=1`) |
 
 ## 3. Peripherals
 
@@ -117,7 +117,7 @@ the drivers have no locking to stop it.
 | I2C1 | | | |
 | SPI0 | | | |
 | SPI1 | | | |
-| ADC (only when `S3_IR_USE_ADC=1`) | S3 | `line_task` | GP26, GP27 |
+| ADC | S3 | `line_task` | GP26, GP27, GP28 (IR C, R, L) |
 | PWM slices 1, 2 (encoder counters), 4, 5 (motors) | S2 | `motion_task` | GP3, GP5, GP8–GP11 |
 | PWM slice 6 | S5 | `s5_scan_task` | GP12 |
 | TIMER (read only, TIMERAWL) | shared, read only | S3 `line_task`, S5 `s5_scan_task` | — |

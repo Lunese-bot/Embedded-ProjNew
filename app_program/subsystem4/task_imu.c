@@ -13,11 +13,13 @@
  *        S4_I2C_MAX_CONSEC failed reads in a row -> ERROR + IMU_EVT_FAULT,
  *        then re-init every S4_REINIT_EVERY periods, at most S4_REINIT_MAX
  *        times -> IMU_EVT_FAULT_FATAL.  The Vehicle Controller decides
- *        whether that means Safe Stop; this task never touches the motors.
+ *        whether that means Safe Stop. Pickup/overturn additionally latches
+ *        S2's motor interlock directly, before publishing or queueing events.
  */
 
 #include "subsystem4.h"
 #include "drv_lsm303.h"
+#include "../subsystem2/subsystem2.h"
 
 #define S4_VERBOSE     1  /* 1 = print a status line ... */
 #define S4_PRINT_EVERY 50 /* ... every 50 periods (1 s) */
@@ -36,6 +38,75 @@ static int32_t g_reinit_cnt;  /* re-init attempts that failed */
 static bool    g_b_fatal;     /* gave up re-initialising */
 
 #define S4_TICK_TIMEOUT_PERIODS 5 /* tk_slp_tsk timeout, in periods */
+
+/* IMU recorder: a ring written by imu_task, read by the web task while
+   frozen.  No lock: a torn sample in a debug trace does not matter. */
+#define S4_REC_HOLD 250 /* a freeze releases itself after 5 s */
+static s4_rec_t          g_rec[S4_REC_N];
+static volatile uint32_t g_rec_idx; /* samples written, ever */
+static volatile uint32_t g_rec_frz; /* > 0: frozen, counts down */
+
+static int16_t clamp16(int32_t value)
+{
+    int32_t out = value;
+
+    if (out > INT16_MAX)
+    {
+        out = INT16_MAX;
+    }
+    else if (out < INT16_MIN)
+    {
+        out = INT16_MIN;
+    }
+    else
+    {
+        /* fits */
+    }
+    return (int16_t)out;
+}
+
+static void rec_step(const imu_sample_t * p_sample, int32_t speed_mm_s)
+{
+    s4_rec_t * p_rec;
+
+    if (g_rec_frz > 0U)
+    {
+        g_rec_frz--;
+    }
+    else
+    {
+        p_rec             = &g_rec[g_rec_idx % S4_REC_N];
+        p_rec->ax_mg      = p_sample->ax_mg;
+        p_rec->ay_mg      = p_sample->ay_mg;
+        p_rec->az_mg      = p_sample->az_mg;
+        p_rec->pitch_cdeg = g_terrain.st.pitch_cdeg;
+        p_rec->speed_mm_s = clamp16(speed_mm_s);
+        p_rec->lift_v     = clamp16(g_terrain.lift_v);
+        p_rec->state      = (uint8_t)g_terrain.st.state;
+        p_rec->safety     = g_terrain.st.safety_stop;
+        g_rec_idx++;
+    }
+}
+
+void s4_rec_freeze(int32_t on)
+{
+    g_rec_frz = (0 != on) ? S4_REC_HOLD : 0U;
+}
+
+uint32_t s4_rec_count(void)
+{
+    uint32_t idx = g_rec_idx;
+
+    return (idx < S4_REC_N) ? idx : S4_REC_N;
+}
+
+void s4_rec_get(uint32_t k, s4_rec_t * p_out)
+{
+    uint32_t idx   = g_rec_idx;
+    uint32_t count = (idx < S4_REC_N) ? idx : S4_REC_N;
+
+    *p_out = g_rec[((idx - count) + k) % S4_REC_N];
+}
 
 /*
  * Cyclic handler: interrupt context.  Short, never waits.
@@ -88,6 +159,12 @@ static void send_event(imu_event_type_t type, imu_severity_t sev, int32_t value)
 static void report(uint32_t events, const imu_status_t * p_status)
 {
     int32_t tilt;
+
+    if (0U != (events & IMU_EV_SAFETY_STOP))
+    {
+        send_event(IMU_EVT_SAFETY_STOP, IMU_SEV_CRITICAL,
+                   p_status->safety_stop);
+    }
 
     if (0U != (events & IMU_EV_CAL_DONE))
     {
@@ -219,6 +296,7 @@ static void sample_step(uint32_t ticks)
     imu_sample_t sample;
     lsm303_raw_t raw;
     uint32_t     events;
+    int32_t      speed;
     ER           ercd;
 
     ercd = lsm303_read(&raw);
@@ -240,7 +318,24 @@ static void sample_step(uint32_t ticks)
 
         /* 3. Algorithm */
         remap(&raw, &sample);
-        events = imu_terrain_update(&g_terrain, &sample, g_s4_speed_mm_s);
+        speed  = g_s4_speed_mm_s;
+        events = imu_terrain_update(&g_terrain, &sample, speed);
+        rec_step(&sample, speed);
+
+        /* Before mutex, logging or event queues: stop does not depend on
+           dashboard mode, controller polling or available queue space. */
+        if (g_terrain.st.safety_stop != IMU_SAFETY_NONE)
+        {
+            s2_latch_imu_stop();
+        }
+        else if (0U != g_s2_imu_stop)
+        {
+            s2_clear_imu_stop(); /* set down again: Start / Reset works */
+        }
+        else
+        {
+            /* no safety stop */
+        }
 
         /* 4. Publish, 5. events */
         publish();
