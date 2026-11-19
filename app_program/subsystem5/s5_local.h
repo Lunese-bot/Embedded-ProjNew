@@ -97,6 +97,7 @@ extern const char * s5_state_name(s5_state_t state);
 /* Tasks */
 extern void s5_scan_task(int32_t stacd, void * p_exinf);
 extern void s5_avoid_task(int32_t stacd, void * p_exinf);
+extern bool s5_port_line_both_black(void); /* both C and R in the live sample */
 
 #endif /* S5_LOCAL_H */
 

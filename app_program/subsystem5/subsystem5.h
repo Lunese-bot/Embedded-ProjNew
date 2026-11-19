@@ -171,7 +171,7 @@ typedef enum
     S5_ST_PLANNING,
     S5_ST_BYPASSING,
     S5_ST_SEARCH_LINE,   /* driving back towards the line    */
-    S5_ST_LINE_RECOVERY, /* wider search, bounded retries    */
+    S5_ST_LINE_RECOVERY, /* forward search on approach heading */
     S5_ST_ERROR
 } s5_state_t;
 
