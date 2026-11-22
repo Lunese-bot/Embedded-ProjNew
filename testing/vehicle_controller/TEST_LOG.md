@@ -35,6 +35,7 @@ code, no Pico needed: VC-H01 … VC-H41, one `[TEST]` line each (see `test_vc_sm
 | ID | What is tested | Method | Steps / how | Expected result |
 |---|---|---|---|---|
 | VC-H01..H41 | every transition, time limit, fault rule and arbitration rule of `vc_sm.c` | auto (PC) | `cd app_program/vehicle_controller/host_test && make` | `SUMMARY 41 passed, 0 failed` |
+| S6-PA01..PA08 | pause gating, stop confirmation, resume and fault handling | auto (PC) | `app_program/vehicle_controller/host_test/test_vc_sm.c` | Eight PASS results; no motors involved |
 
 **Integration** (add to `testing/integration/TEST_LOG.md` with the other owner):
 
@@ -55,3 +56,4 @@ Add a new row for every run. Never edit or delete old rows.
 | Date | Test ID | Commit | Tester | Result | Log / evidence | Notes |
 |---|---|---|---|---|---|---|
 | 2026-10-15 | VC-H01..H41 | (base code, not committed yet) | Claude | PASS 41/41 | host run, gcc 13 | PC only; on-target tests not yet run |
+| 2026-11-22 | S6-PA01..PA08 | Uncommitted changes | Copilot | PASS | Host run: 74 total passed, 0 failed | State-machine tests only; remote pause remains disabled pending safety review |

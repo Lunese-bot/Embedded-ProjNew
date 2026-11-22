@@ -19,6 +19,7 @@
 #define W_HUMP 6
 #define W_FAULT 16
 #define W_WIFI 1
+#define W_PAUSED 1
 
 typedef struct {
 	uint8_t *data;
@@ -118,6 +119,7 @@ void s1_tlm_encode(const S1_TLM *tlm, uint8_t out[S1_TLM_BYTES])
 	put_bits(&bits, tlm->fault_code > 0xFFFFu ?
 		 0xFFFFu : tlm->fault_code, W_FAULT);
 	put_bits(&bits, tlm->wifi_up ? 1u : 0u, W_WIFI);
+	put_bits(&bits, tlm->paused ? 1u : 0u, W_PAUSED);
 }
 
 int s1_tlm_decode(const uint8_t *in, int len, S1_TLM *tlm)
@@ -147,6 +149,7 @@ int s1_tlm_decode(const uint8_t *in, int len, S1_TLM *tlm)
 	tlm->hump_max_um = (int32_t)get_bits(&bits, W_HUMP) * S1_HUMP_STEP_UM;
 	tlm->fault_code = get_bits(&bits, W_FAULT);
 	tlm->wifi_up = (uint8_t)get_bits(&bits, W_WIFI);
+	tlm->paused = (uint8_t)get_bits(&bits, W_PAUSED);
 	return 0;
 }
 
@@ -163,6 +166,28 @@ S1_CMD s1_cmd_code(uint8_t byte)
 uint8_t s1_cmd_seq(uint8_t byte)
 {
 	return byte & 0x3Fu;
+}
+
+S1_REQUEST s1_cmd_decode(const uint8_t *payload, int len)
+{
+	S1_CMD code;
+
+	if (payload == 0 || (len != 1 && len != 2)) return S1_REQ_INVALID;
+	code = s1_cmd_code(payload[0]);
+	if (len == 1) {
+		switch (code) {
+		case S1_CMD_START: return S1_REQ_START;
+		case S1_CMD_STOP: return S1_REQ_STOP;
+		case S1_CMD_RESET: return S1_REQ_RESET;
+		default: return S1_REQ_INVALID;
+		}
+	}
+	if (code != S1_CMD_RESERVED) return S1_REQ_INVALID;
+	switch (payload[1]) {
+	case S1_EXT_PAUSE: return S1_REQ_PAUSE;
+	case S1_EXT_RESUME: return S1_REQ_RESUME;
+	default: return S1_REQ_INVALID;
+	}
 }
 
 uint8_t s1_ack_encode(S1_ACK result, uint8_t seq)

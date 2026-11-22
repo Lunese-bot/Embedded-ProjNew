@@ -103,7 +103,7 @@ static void incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
 		if(!rx_topic_truncated && topic_is(rx_topic, S1_TOPIC_CMD)) {
 			s1_bridge_on_command((const uint8_t *)rx_data,
 					     (rx_truncated || rx_len != rx_expected_len)
-					     ? 2 : (int32_t)rx_len);
+					     ? -1 : (int32_t)rx_len);
 		}
 	}
 }

@@ -50,7 +50,11 @@ void telemetry_task(int32_t stacd, void * p_exinf)
         tk_slp_tsk(TMO_FEVR); /* every 200 ms */
         tick++;
 
-        vc_get_status(&vc_st);
+        if (E_OK != vc_get_status(&vc_st))
+        {
+            tm_printf((uint8_t *)"s1: failed to read controller status\n");
+            continue;
+        }
         s2_get_status(&motion_st);
         s3_get_line_status(&line_st);
         s4_get_status(&imu_st);
@@ -82,6 +86,7 @@ void telemetry_task(int32_t stacd, void * p_exinf)
         tlm.hump_max_um  = imu_st.max_peak_um;
         tlm.fault_code   = vc_st.last_fault_code;
         tlm.wifi_up      = g_s1_stat.wifi_up;
+        tlm.paused       = vc_st.paused;
         s1_tlm_encode(&tlm, frame);
         (void)s1_post(S1_TOPIC_TLM, frame, sizeof(frame));
 

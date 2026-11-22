@@ -78,6 +78,8 @@ typedef enum
     VC_EV_CMD_START, /* start the mission */
     VC_EV_CMD_STOP,  /* stop: go to FAULT (operator stop) */
     VC_EV_CMD_RESET, /* acknowledge fault, back to IDLE */
+    VC_EV_CMD_PAUSE, /* request pause while following the line */
+    VC_EV_CMD_RESUME, /* resume after stop confirmation */
     VC_EV_WIFI_DOWN, /* non-critical: keep navigating */
     VC_EV_WIFI_UP,
 
@@ -130,6 +132,7 @@ typedef enum
 #define VC_FC_STATE_TIMEOUT 0x0006 /* a state took too long */
 #define VC_FC_BARCODE       0x0007 /* barcode retries used up (non-critical) */
 #define VC_FC_JUNCTION_STOP 0x0008 /* S2 did not confirm stop at junction */
+#define VC_FC_PAUSE_INTERRUPTED 0x0009 /* unsafe event while paused */
 #define VC_FC_WIFI_DOWN     0x1000 /* reported for S1 (non-critical) */
 
 /* One event, copied into the message buffer.  barcode_text is populated
@@ -204,6 +207,7 @@ typedef struct
     uint32_t             events_handled;
     uint32_t             moves_rejected; /* requests from a non-owner */
     bool                 wifi_up;
+    bool                 paused;
 } vc_status_t;
 
 #endif /* VC_TYPES_H */

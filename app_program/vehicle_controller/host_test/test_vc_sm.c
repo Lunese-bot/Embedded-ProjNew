@@ -541,6 +541,55 @@ static void test_line_search(void)
           "AVOID: barcode reading switched off");
 }
 
+static void test_pause_resume(void)
+{
+    start_mission();
+    feed(VC_SRC_COMMS, VC_EV_CMD_PAUSE, 0, 0);
+    CHECK("S6-PA01",
+          g_sm.st.paused && !g_sm.pause_stopped &&
+              has_move(VC_MOVE_STOP_CONFIRM, 0, 0),
+          "pause in FOLLOW_LINE requests a confirmed stop");
+    feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_STEER, 200);
+    CHECK("S6-PA02", g_sm.st.paused && (0 == g_actions.n),
+          "paused controller rejects steering");
+    feed(VC_SRC_COMMS, VC_EV_CMD_RESUME, 0, 0);
+    CHECK("S6-PA03", g_sm.st.paused && (0 == g_actions.n),
+          "resume before stop confirmation does not move");
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    feed(VC_SRC_COMMS, VC_EV_CMD_RESUME, 0, 0);
+    CHECK("S6-PA04",
+          !g_sm.st.paused && has_move(VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS, 1),
+          "resume after confirmed stop restarts line following");
+
+    start_mission();
+    feed(VC_SRC_LINE, VC_EV_LINE_LOST, 1, 0);
+    feed(VC_SRC_COMMS, VC_EV_CMD_PAUSE, 0, 0);
+    CHECK("S6-PA05", !g_sm.st.paused && (VC_ST_LOST_LINE == g_sm.st.state) &&
+          (0 == g_actions.n), "pause rejected during line recovery");
+
+    start_mission();
+    feed(VC_SRC_COMMS, VC_EV_CMD_PAUSE, 0, 0);
+    feed(VC_SRC_OBST, VC_EV_OBSTACLE, 100, 0);
+    CHECK("S6-PA06", (VC_ST_FAULT == g_sm.st.state) && !g_sm.st.paused &&
+          has_move(VC_MOVE_SAFE_STOP, 0, 0),
+          "obstacle while paused enters safe fault without avoidance movement");
+
+    start_mission();
+    feed(VC_SRC_COMMS, VC_EV_CMD_PAUSE, 0, 0);
+    g_now_ms += VC_JUNCTION_STOP_MS;
+    feed(VC_SRC_VC, VC_EV_TICK, 0, 0);
+    CHECK("S6-PA07", (VC_ST_FAULT == g_sm.st.state) &&
+          has_move(VC_MOVE_SAFE_STOP, 0, 0),
+          "missing stop confirmation enters safe fault");
+
+    start_mission();
+    feed(VC_SRC_COMMS, VC_EV_CMD_PAUSE, 0, 0);
+    feed(VC_SRC_IMU, VC_EV_IMPACT, 0, 0);
+    feed(VC_SRC_COMMS, VC_EV_CMD_RESUME, 0, 0);
+    CHECK("S6-PA08", (VC_ST_FAULT == g_sm.st.state) && (0 == g_actions.n),
+          "impact while paused faults; resume cannot reset the fault");
+}
+
 int main(void)
 {
     test_startup();
@@ -553,6 +602,7 @@ int main(void)
     test_terrain();
     test_faults();
     test_line_search();
+    test_pause_resume();
 
     printf("[TEST] vehicle_controller host SUMMARY %d passed, %d failed\n", g_passed,
            g_failed);

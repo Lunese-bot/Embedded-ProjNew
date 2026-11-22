@@ -92,6 +92,8 @@ canvas { width: 100%; height: 90px; display: block; }
   <button class="cmd" data-cmd="start" disabled>Start</button>
   <button class="cmd" data-cmd="stop" disabled>Stop</button>
   <button class="cmd" data-cmd="reset" disabled>Reset</button>
+  <button class="cmd" data-cmd="pause" data-safety-gated="true" title="Pending motion-stop safety review" disabled>Pause</button>
+  <button class="cmd" data-cmd="resume" data-safety-gated="true" title="Pending motion-stop safety review" disabled>Resume</button>
   <span id="status"><span class="dot" id="dot"></span><span id="statusText">Not connected</span></span>
 </header>
 
@@ -161,6 +163,7 @@ canvas { width: 100%; height: 90px; display: block; }
                 "EXECUTE_ACTION", "TERRAIN_CHECK", "FAULT",
                 "MISSION_COMPLETE"];
   const CMD_CODES = { start: 0, stop: 1, reset: 2 };
+  const EXT_CODES = { pause: 0, resume: 1 };
   const ACK_RESULTS = ["queued", "busy", "rejected", "reserved"];
   let mqttCommandSeq = 0, lastMqttTlmSeq = null;
   const pendingCommands = new Map();
@@ -241,12 +244,13 @@ canvas { width: 100%; height: 90px; display: block; }
     j.maxhump = read(6) * 0.5;
     j.fault = read(16);
     j.wifi = !!read(1);
+    j.paused = !!read(1);
     return j;
   }
   function onTelemetry(j) {
     const t = Date.now(); lastTlm = t;
     const st = String(j.st ?? "–");
-    txt("t_st", st);
+    txt("t_st", st + (j.paused ? " (paused)" : ""));
     $("t_st").className = "state" + (/FAULT/i.test(st) ? " fault" : /IDLE|COMPLETE/i.test(st) ? "" : " run");
     if (Array.isArray(j.v)) { txt("t_vl", j.v[0]); txt("t_vr", j.v[1]); push(series.vl, t, j.v[0]); push(series.vr, t, j.v[1]); }
     if (j.odo != null) txt("t_odo", j.odo);
@@ -462,15 +466,19 @@ canvas { width: 100%; height: 90px; display: block; }
   };
   function mqttUi(on) {
     $("btnMqtt").textContent = on ? "Disconnect MQTT" : "Connect MQTT";
-    document.querySelectorAll(".cmd").forEach(b => b.disabled = !on);
+    document.querySelectorAll(".cmd").forEach(b => b.disabled = !on || b.dataset.safetyGated === "true");
   }
   document.querySelectorAll(".cmd").forEach(b => b.onclick = () => {
     if (b.dataset.cmd === "start" && !confirm("Start the mission? The wheels will turn.")) return;
+    if (b.dataset.cmd === "resume" && !confirm("Resume line following? The wheels will turn.")) return;
     const code = CMD_CODES[b.dataset.cmd];
-    if (code == null || !mqttClient) return;
+    const ext = EXT_CODES[b.dataset.cmd];
+    if ((code == null && ext == null) || !mqttClient) return;
     mqttCommandSeq = (mqttCommandSeq + 1) & 63;
     pendingCommands.set(mqttCommandSeq, b.dataset.cmd);
-    mqttClient.publish("robot/g10/cmd", new Uint8Array([(code << 6) | mqttCommandSeq]));
+    const payload = ext == null ? [(code << 6) | mqttCommandSeq] :
+      [0xC0 | mqttCommandSeq, ext];
+    mqttClient.publish("robot/g10/cmd", new Uint8Array(payload));
     addEvent("sent " + b.dataset.cmd + " (seq " + mqttCommandSeq + ")");
   });
 

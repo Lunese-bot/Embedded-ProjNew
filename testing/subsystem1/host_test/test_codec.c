@@ -151,6 +151,35 @@ int main(void)
 	}
 	CHECK("S1-H11", valid, "ack results and echoed sequences round-trip");
 
+	memset(&input, 0, sizeof(input));
+	input.version = S1_PROTO_VERSION;
+	input.paused = 1;
+	s1_tlm_encode(&input, frame);
+	CHECK("S1-H13", (frame[S1_TLM_BYTES - 1] & 1u) &&
+	      s1_tlm_decode(frame, S1_TLM_BYTES, &output) == 0 &&
+	      output.paused == 1, "paused status uses the former padding bit");
+
+	{
+		const uint8_t start[] = {0x01};
+		const uint8_t reset[] = {0x83};
+		const uint8_t pause[] = {0xC2, 0x00};
+		const uint8_t resume[] = {0xC3, 0x01};
+		const uint8_t bad_prefix[] = {0x02, 0x00};
+		const uint8_t bad_opcode[] = {0xC2, 0x02};
+
+		CHECK("S1-H14", s1_cmd_decode(start, 1) == S1_REQ_START &&
+		      s1_cmd_decode(reset, 1) == S1_REQ_RESET &&
+		      s1_cmd_decode(pause, 2) == S1_REQ_PAUSE &&
+		      s1_cmd_decode(resume, 2) == S1_REQ_RESUME &&
+		      s1_cmd_seq(pause[0]) == 2, "legacy and extended commands decode");
+		CHECK("S1-H15", s1_cmd_decode(pause, 1) == S1_REQ_INVALID &&
+		      s1_cmd_decode(bad_prefix, 2) == S1_REQ_INVALID &&
+		      s1_cmd_decode(bad_opcode, 2) == S1_REQ_INVALID &&
+		      s1_cmd_decode(pause, 3) == S1_REQ_INVALID &&
+		      s1_cmd_decode(NULL, 2) == S1_REQ_INVALID,
+		      "malformed and reserved command frames are rejected");
+	}
+
 	printf("[TEST] subsystem1 host SUMMARY %d passed, %d failed\n",
 	       passed, failed);
 	return failed ? 1 : 0;

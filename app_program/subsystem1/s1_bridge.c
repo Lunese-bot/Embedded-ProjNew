@@ -64,34 +64,54 @@ static void post_ack(S1_ACK result, uint8_t seq)
 {
     uint8_t ack = s1_ack_encode(result, seq);
 
-    (void)s1_post(S1_TOPIC_ACK, &ack, sizeof(ack));
+    app_check(s1_post(S1_TOPIC_ACK, &ack, sizeof(ack)), "s1 command ack");
+}
+
+void s1_bridge_command_result(uint8_t seq, int32_t accepted)
+{
+    post_ack(accepted ? S1_ACK_QUEUED : S1_ACK_REJECTED, seq);
 }
 
 void s1_bridge_on_command(const uint8_t * p_payload, int32_t len)
 {
     uint8_t command_byte;
-    S1_CMD  command;
+    S1_REQUEST command;
     vc_event_type_t event;
 
     g_s1_stat.commands++;
-    if ((len != 1) || (p_payload == NULL))
+    if ((p_payload == NULL) || ((len != 1) && (len != 2)))
     {
         post_ack(S1_ACK_REJECTED, 0);
         return;
     }
     command_byte = p_payload[0];
-    command = s1_cmd_code(command_byte);
+    command = s1_cmd_decode(p_payload, len);
     switch (command)
     {
-    case S1_CMD_START:
+    case S1_REQ_START:
         event = VC_EV_CMD_START;
         break;
-    case S1_CMD_STOP:
+    case S1_REQ_STOP:
         event = VC_EV_CMD_STOP;
         break;
-    case S1_CMD_RESET:
+    case S1_REQ_RESET:
         event = VC_EV_CMD_RESET;
         break;
+    case S1_REQ_PAUSE:
+    case S1_REQ_RESUME:
+#if S1_ENABLE_REMOTE_PAUSE
+        event = (command == S1_REQ_PAUSE) ? VC_EV_CMD_PAUSE :
+                                            VC_EV_CMD_RESUME;
+        if (vc_post_event(VC_SRC_COMMS, event, s1_cmd_seq(command_byte), 0,
+                          TMO_POL) < E_OK)
+        {
+            post_ack(S1_ACK_BUSY, s1_cmd_seq(command_byte));
+        }
+        /* The controller acknowledges after checking its actual state. */
+#else
+        post_ack(S1_ACK_REJECTED, s1_cmd_seq(command_byte));
+#endif
+        return;
     default:
         post_ack(S1_ACK_REJECTED, s1_cmd_seq(command_byte));
         return;

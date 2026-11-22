@@ -21,13 +21,19 @@
 #define S1_BRIDGE_FULL_TOPIC_MAX \
     (sizeof(S1_TOPIC_ROOT) + S1_BRIDGE_TOPIC_MAX)
 
+/* Remote pause relies on S2's stop path; leave disabled pending its review. */
+#ifndef S1_ENABLE_REMOTE_PAUSE
+#define S1_ENABLE_REMOTE_PAUSE 0
+#endif
+
 /* Take the next queued message without blocking. The payload is binary and
    is not NUL-terminated; return its exact byte length, or 0 when empty. */
 int32_t s1_bridge_pop(char * p_topic, int32_t topic_max, uint8_t * p_payload,
                       int32_t payload_max);
 
-/* S1_TOPIC_CMD carries one command byte. S1_TOPIC_ACK returns one ack byte. */
+/* Commands are one byte or a two-byte extension; acknowledgements are one byte. */
 void s1_bridge_on_command(const uint8_t * p_payload, int32_t len);
+void s1_bridge_command_result(uint8_t seq, int32_t accepted);
 
 /* Broker connection state, from mqtt_utk.c's connection callback */
 void s1_bridge_set_connected(int32_t connected);

@@ -252,8 +252,10 @@ They need the SDK's `lib/lwip` submodule and a `config/wifi_secrets.h`
 (copy `config/wifi_secrets.example.h`). This guide does not cover them.
 With MQTT enabled, Subsystem 1 publishes versioned 14-byte telemetry frames
 to `robot/g10/t`. The dashboard sends one-byte `start`, `stop`, and `reset`
-commands to `robot/g10/cmd` and receives one-byte queue-status acknowledgements
-on `robot/g10/ack`. The bit layout and scales are documented in `TEAM.md`.
+commands to `robot/g10/cmd` and receives one-byte acknowledgements on
+`robot/g10/ack`. Two-byte pause and resume commands are implemented but
+**disabled by default**, pending motion-stop safety review. See `TEAM.md`
+and `app_program/subsystem1/s1_codec.h` for the protocol.
 
 ---
 
