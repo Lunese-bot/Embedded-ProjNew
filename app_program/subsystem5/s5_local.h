@@ -41,7 +41,7 @@
                                     with gentle servo ramps ~5.2 s (wide
                                     obstacle, 25 fine angles); was 4000,
                                     which a wide scan could overrun */
-#define S5_TURN_TMO_MS      3000 /* a TURN must finish within      */
+#define S5_TURN_TMO_MS      6000 /* allow slow turns to finish */
 #define S5_MOVE_SLACK_MS    2000 /* added to distance/speed        */
 /* Silent pings in a row -> fault (only counted while scanning, open
    space also gives no echo) */
@@ -97,6 +97,7 @@ extern const char * s5_state_name(s5_state_t state);
 /* Tasks */
 extern void s5_scan_task(int32_t stacd, void * p_exinf);
 extern void s5_avoid_task(int32_t stacd, void * p_exinf);
+extern bool s5_port_line_both_black(void); /* both C and R in the live sample */
 
 #endif /* S5_LOCAL_H */
 

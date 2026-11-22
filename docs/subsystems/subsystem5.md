@@ -24,10 +24,10 @@ a real Pico yet.
 | `subsystem5.c` | creates kernel objects, starts tasks, status snapshot (mutex) |
 | `task_obstacle_scan.c` | **Obstacle Detection & Scanning task** (pri 21): 20 ms monitoring, coarse + fine scan |
 | `task_obstacle_avoid.c` | **Obstacle Avoidance task** (pri 20): command handling, bypass, line recovery |
-| `obstacle_logic.c/.h` | pure algorithms (profile, side choice, bypass plan, recovery) + all tuning values |
+| `obstacle_logic.c/.h` | pure algorithms (profile, side choice, bypass plan, recovery) and tuning values |
 | `drv_ultrasonic.c/.h` | HC-SR04 driver, timed with the RP2040 1 MHz TIMER |
 | `drv_servo.c/.h` | servo on PWM slice 6, 50 Hz, angle calibration constants |
-| `s5_ports.c` | weak hook for line detection (Buddy 3 overrides it) |
+| `s5_ports.c` | reads line feedback through the existing hook and live sensor mask |
 | `s5_local.h` | private to the folder: flags, timings, bench mode |
 | `subsystem5_test.c` | S5-U01..U11 for `make TEST=1` |
 
@@ -41,26 +41,60 @@ a real Pico yet.
 ```
 
 1. Scan task pings straight ahead every 20 ms. 3 readings in a row under
-   250 mm → `S5_EVT_OBSTACLE_DETECTED`.
+   225 mm trigger `S5_EVT_OBSTACLE_DETECTED`.
 2. The controller stops the car and sends `S5_CMD_START_AVOID`.
-3. Coarse scan (−60…+60° in 30° steps), then fine scan (5° steps, 20° past
-   each edge) → profile: distance, edges, width, left/right clearance, side.
-4. The bypass is sent as `S5_EVT_MOTION_REQ` steps (stop, turn 45°, diagonal,
-   turn back, pass, turn in, search). Each waits for `S5_CMD_MOTION_DONE`
-   with the same `seq`. S5 never drives the motors (design review 8.3).
-5. Search steps stop early when the line is seen. Then S5 turns back to the
-   original heading → `S5_EVT_LINE_REACQUIRED`. If not found: up to 3 wider
-   searches → `S5_EVT_AVOID_FAILED`; the controller decides retry or Safe Stop (FR8).
+3. The coarse scan sweeps −60° to +60° in 30° steps. The fine scan uses 5°
+   steps up to 20° past each edge, within ±45°. The profile records distance,
+   edges, width, left and right clearance, and the bypass side.
+   If the scan places the centre of the obstacle at least 10° to one side,
+   the first turn is toward the opposite side if it has enough clearance.
+   If that side is blocked, the car stops and backs away. The `s5: fine`
+   serial line shows the scan distance, width, edges and clearance on each side.
+4. The bypass is sent as `S5_EVT_MOTION_REQ` steps. S5 stops, turns 35° away
+   from the line and drives 80 mm. It turns another 10° and drives sideways
+   far enough to clear the obstacle by the half-width of the car plus a
+   20 mm margin. It straightens, passes the obstacle, and turns 40° inward
+   to search. Each step waits for `S5_CMD_MOTION_DONE` with the
+   same `seq`. The Vehicle Controller forwards these requests to Motion Control.
+5. The return search covers the outbound offset plus 40 mm sideways. When
+   the sensors see black, S5 waits for the wheels to stop, realigns, and checks
+   again. If it sees black, S5 creeps forward 25 mm, stops, and checks for black
+   once more before handing control back. S5 checks 15° to each side if it
+   cannot confirm the line at the approach heading. If the first probe is
+   white, it can crawl up to 100 mm toward the last sighting. When both C
+   and R see black at an angled probe, S5 turns back to the approach heading
+   and confirms the line there.
+6. If the first inward drive ends without a sighting, S5 stops, takes a
+   fresh IR reading, and can search up to 85 mm farther on the same heading.
+   If a sighting is lost during braking or alignment, S5 logs that phase
+   and goes directly to straight recovery. For straight recovery, S5 turns
+   to the original approach heading if needed and searches forward up to
+   175 mm at 60 mm/s. If that pass cannot confirm the line, S5 stops
+   and takes a fresh IR reading before searching up to 30 mm farther at the
+   same heading. If the 30 mm search cannot confirm tape, S5 stops, samples
+   again, and can search once more for up to 35 mm on the same heading.
+   Each search checks a fresh endpoint reading and uses the same tape
+   verification before handing control back. If S5 still cannot confirm
+   the line, `S5_EVT_AVOID_FAILED` puts the controller in Safe Stop until reset.
+   The line task pauses IR sampling during the scan, detour and pivots. S5
+   enables sampling for the search passes and the checks after alignment.
+   The first fresh steering command restarts line following at 60 mm/s nominal.
+   The controller allows about half a second of steering before restoring cruise.
+   The default Straight junction setting keeps line following active through
+   crossings. For the dashboard's other junction actions, detection rearms
+   after normal tracking resumes and C and R have gone ten samples without
+   both seeing black.
 
 ## What is stubbed or still to do
 
-- **Bench mode is ON** (`S5_BENCH_MODE 1` in `s5_local.h`): S5 starts the
-  avoidance itself and treats each motion request as done after 500 ms,
-  so you can test sensing and scanning with no controller or motors.
-  Set it to 0 to integrate.
-- **Line detection is a stub** (`s5_port_line_detected()` returns FALSE).
-  Buddy 3 provides the real one, so on the bench every bypass ends in 3
-  recoveries and AVOID_FAILED.
+- **Bench mode** defaults to 0 in `s5_local.h` so the Vehicle Controller
+  can execute the movement requests. With `S5_BENCH_MODE=1`, S5 starts
+  avoidance itself and treats each motion request as done after 500 ms.
+  This lets you test sensing and scanning without a controller or motors.
+- **Standalone line detection is a stub** (`s5_port_line_detected()` returns
+  FALSE). In the integrated build, S5 checks the C and R readings through
+  the existing line feedback. In standalone mode the bypass ends in
+  AVOID_FAILED when all search attempts are exhausted.
 - **The Vehicle Controller side is not written here.** It must read
   `g_mbf_s5_evt`, forward motion requests to Motion Control and answer
   `MOTION_DONE`. The interface was sent to the Vehicle Controller
@@ -98,7 +132,7 @@ a real Pico yet.
 | IF-S5a | VC → S5 | message buffer (owned by S5) | `g_mbf_s5_cmd` | `s5_cmd_t` |
 | IF-S5b | S5 → VC | message buffer (owned by S5) | `g_mbf_s5_evt` | `s5_evt_t` (incl. `s5_motion_req_t`) |
 | IF-S5c | S5 → any | function + mutex | `s5_get_status()` | `s5_status_t` |
-| IF-S5d | S3 → S5 | weak function | `s5_port_line_detected()` | TRUE = an IR sensor sees the line |
+| IF-S5d | S3 → S5 | weak function and live mask | `s5_port_line_detected()`, `g_s3_black_mask_live` | C or R detects the tape. The mask distinguishes a simultaneous C and R sighting. |
 
 Kernel objects used by S5: 2 tasks, 2 message buffers, 1 event flag, 1 mutex.
 

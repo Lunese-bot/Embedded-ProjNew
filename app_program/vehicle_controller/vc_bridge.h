@@ -27,6 +27,7 @@
 
 /* One authorised movement command (called by vc_port_move) */
 extern ER vc_bridge_s2_move(vc_move_t move, int32_t value);
+extern void vc_bridge_s2_set_obstacle_mode(bool active);
 
 /* Next S2 event (manoeuvre done, fault) as a VC event */
 extern bool vc_bridge_s2_next(vc_event_t * p_event);
@@ -39,6 +40,7 @@ extern ER vc_bridge_s2_request(vc_request_t req, int32_t arg);
 /* Next S3 event, or S3's latest steering as a move request while S3
    owns motion in `state` */
 extern bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state);
+extern void vc_bridge_s3_set_obstacle_mode(bool b_active);
 
 /* Controller request for S3 (called by vc_port_request) */
 extern ER vc_bridge_s3_request(vc_request_t req, int32_t arg);
@@ -61,8 +63,8 @@ extern bool vc_bridge_s5_next(vc_event_t * p_event);
 extern void vc_bridge_s5_after(const vc_event_t * p_event,
                                vc_state_t state_after, bool b_rejected);
 
-/* Motion Control finished (or failed) a manoeuvre while S5 owns motion */
-extern void vc_bridge_s5_manoeuvre_done(bool b_ok);
+/* Motion Control event while S5 owns motion. Acknowledge the matching move. */
+extern void vc_bridge_s5_motion_event(const vc_event_t * p_event);
 
 /* Controller request for S5 (called by vc_port_request) */
 extern ER vc_bridge_s5_request(vc_request_t req, int32_t arg);

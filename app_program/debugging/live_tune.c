@@ -23,7 +23,7 @@ volatile int32_t g_lt_lost      = S3_LOST_SAMPLES;
 volatile int32_t g_lt_steer_inv = 0;
 volatile int32_t g_lt_bc_en     = 1;   /* start with barcode reading ON; was 0 = off */
 volatile int32_t g_lt_imu_en    = 0;   /* start with IMU checking OFF */
-volatile int32_t g_lt_obst_en   = 0;   /* start with obstacle checking OFF */
+volatile int32_t g_lt_obst_en   = 1;   /* stop and avoid obstacles by default */
 volatile int32_t g_lt_lost_en    = 0;  /* start with lost-line handling OFF */
 volatile int32_t g_lt_dmin      = S2_DUTY_MIN_RUN;
 volatile int32_t g_lt_curve     = VC_CURVE_SLOW_PERMILLE;
@@ -32,7 +32,7 @@ volatile int32_t g_lt_ff_r      = S2_PID_KFF_BOOST_R;
 volatile int32_t g_lt_ilim      = (int32_t)S2_PID_I_LIMIT;
 char             g_lt_bc_text[16] = "-";
 char             g_lt_bc_hist[48] = "";
-volatile int32_t g_lt_next_nav  = 0;   /* junction action from the barcode */
+volatile int32_t g_lt_next_nav  = NAV_STRAIGHT; /* follow the line through junctions */
 volatile int32_t g_lt_bc_edge   = S3_BC_EDGE;       /* barcode edge finder on/off */
 volatile int32_t g_lt_bc_swing  = S3_BC_EDGE_SWING; /* raw rise/fall that counts */
 volatile int32_t g_lt_bc_floor  = S3_BC_EDGE_FLOOR; /* raw: below = always white */

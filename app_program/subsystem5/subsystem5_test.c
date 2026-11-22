@@ -91,18 +91,21 @@ void subsystem5_test(void)
                            &profile);
     count = s5_plan_bypass(&profile, plan, S5_PLAN_MAX);
     TEST_CHECK("S5-U08",
-               (7 == count) && (S5_MOVE_STOP == plan[0].m.kind) &&
+               (9 == count) && (S5_MOVE_STOP == plan[0].m.kind) &&
                    (-S5_BYPASS_TURN_DEG == plan[1].m.angle_deg) &&
-                   (S5_BYPASS_TURN_DEG == plan[5].m.angle_deg) &&
-                   (1U == plan[6].search_line),
-               "plan: right bypass = stop, R45, fwd, L45, fwd, L45, search");
+                   (S5_BYPASS_FIRST_MM == plan[2].m.distance_mm) &&
+                   (S5_RETURN_TURN_DEG == plan[7].m.angle_deg) &&
+                   (1U == plan[8].search_line),
+               "plan: short first leg and shallow return search");
 
-    count = s5_plan_recovery(S5_SIDE_RIGHT, 2, plan, S5_PLAN_MAX);
+    count = s5_plan_straight_recovery(S5_RETURN_TURN_DEG, plan, S5_PLAN_MAX);
     TEST_CHECK("S5-U09",
-               (2 == count) && (0U != plan[1].search_line) &&
-                   ((S5_RECOVERY_BASE_MM + (2 * S5_RECOVERY_STEP_MM)) ==
-                    plan[1].m.distance_mm),
-               "recovery: attempt 3 searches further");
+               (2 == count) && (S5_MOVE_TURN == plan[0].m.kind) &&
+                   (-S5_RETURN_TURN_DEG == plan[0].m.angle_deg) &&
+                   (S5_MOVE_FORWARD == plan[1].m.kind) &&
+                   (0U != plan[1].search_line) &&
+                   (S5_RECOVERY_STRAIGHT_MM == plan[1].m.distance_mm),
+               "recovery: one pivot to approach heading and one straight search");
 
     tk_dly_tsk(300); /* let the scan task run a few periods */
     TEST_CHECK("S5-U10",

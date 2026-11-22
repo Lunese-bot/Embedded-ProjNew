@@ -104,7 +104,7 @@ typedef enum
     /* S5 obstacle */
     VC_EV_OBSTACLE,     /* p1 = distance (mm) */
     VC_EV_AVOID_DONE,   /* bypassed and line reacquired */
-    VC_EV_AVOID_FAILED, /* bypass done but line not found: S6 searches */
+    VC_EV_AVOID_FAILED, /* bypass/recovery failed: stop */
 
     /* S6 internal */
     VC_EV_TICK, /* periodic, drives state timeouts */

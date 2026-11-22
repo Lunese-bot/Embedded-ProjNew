@@ -223,6 +223,15 @@ The configured telemetry period is 200 ms, but its hardware timing and stale
 queue handling on reconnect still need validation; old queued snapshots can
 currently be replayed after reconnect.
 
+### Obstacle avoidance and junctions
+
+The obstacle-avoidance configuration enables obstacle checking and defaults
+to driving straight through junctions instead of executing barcode-directed
+turns. With `S2_WEBDEBUG=1`, the robot's live-tuning dashboard can select
+"barcode decides"; with `S2_WEBDEBUG=0`, straight-through behavior is fixed.
+Obstacle avoidance, braking distance and line reacquisition require supervised
+hardware validation; the existing motion-stop safety issue remains unresolved.
+
 ## 6. Kernel object budget
 
 Limits are set in `config/config.h`. If the team needs more, raise the

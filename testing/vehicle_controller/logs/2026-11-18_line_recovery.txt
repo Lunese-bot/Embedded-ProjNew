@@ -1,0 +1,72 @@
+﻿[TEST] S6-H01 PASS  IDLE ignores move requests
+[TEST] S6-H02 PASS  start -> MISSION_START, self check requested
+[TEST] S6-H03 PASS  all READY -> FOLLOW_LINE at cruise speed
+[TEST] S6-H04 PASS  optional IMU/obstacle missing -> run degraded, reported
+[TEST] S6-H05 PASS  motion/line missing -> FAULT
+[TEST] S6-H06 PASS  FOLLOW_LINE: S3 steering forwarded
+[TEST] S6-H07 PASS  FOLLOW_LINE: S5 move rejected
+[TEST] S6-H08 PASS  invalid move code rejected
+[TEST] S6-H08a PASS  internal stop-confirm handshake cannot be requested by a subsystem
+[TEST] S6-H09 PASS  barcode start -> DECODE_BARCODE, slow
+[TEST] S6-H10 PASS  DECODE: S3 speed capped to slow
+[TEST] S6-H11 PASS  DECODE: line loss ignored
+[TEST] S6-H12 PASS  full barcode text buffered; no unconfirmed mapping is assumed
+[TEST] S6-H13 PASS  junction issues STOP and waits; no turn is issued yet
+[TEST] S6-H13b PASS  after S2 confirms stopped, unknown barcode defaults to straight clear
+[TEST] S6-H13a PASS  junction action complete clears buffered barcode
+[TEST] S6-H13c PASS  full barcode string maps to LEFT; matching is not first-character based
+[TEST] S6-H13d PASS  configured full-string rule executes only after stop confirmation
+[TEST] S6-H13e PASS  action-only event sets RIGHT and keeps following
+[TEST] S6-H13f PASS  junction after it: stop, then turn RIGHT
+[TEST] S6-H13g PASS  after the turn: follow the line again, action cleared
+[TEST] S6-H14 PASS  junction without barcode still stops first
+[TEST] S6-H14a PASS  no barcode -> move straight far enough to clear junction
+[TEST] S6-H14b PASS  resume line following after junction clear completes
+[TEST] S6-H14c PASS  stop confirmation timeout -> critical safe stop
+[TEST] S6-H15 PASS  barcode retry within limit
+[TEST] S6-H16 PASS  retries used up -> keep following, non-critical report
+[TEST] S6-H17 PASS  barcode read timeouts count as failures
+[TEST] S6-H18 PASS  unconfigured UTURN text defaults to straight, not U-turn
+[TEST] S6-H18a PASS  junction clearing timeout -> LOST_LINE recovery
+[TEST] S6-H42 PASS  junction during DECODE_BARCODE is not dropped: stop first
+[TEST] S6-H43 PASS  then straight across and follow again
+[TEST] S6-H44 PASS  failed read returns to FOLLOW_LINE at once (retry 0)
+[TEST] S6-H50 PASS  pivot counts: 60 deg ~461, 90 deg ~692 (track 130, 692 ticks/rev)
+[TEST] S6-H52 PASS  LEFT asks S2 for the max angle and watches for the line
+[TEST] S6-H51 PASS  line seen at the start of the turn ends nothing
+[TEST] S6-H53 PASS  line before the gate (the arm it came from) is ignored
+[TEST] S6-H54 PASS  line after the gate ends the turn: follow the new arm
+[TEST] S6-H55 PASS  no line seen: turn ends at the max angle, follow as before
+[TEST] S6-H56 PASS  U-turn watches with the 150 deg gate
+[TEST] S6-H57 PASS  U-turn: side arm at 90 deg ignored
+[TEST] S6-H58 PASS  U-turn: line at 170 deg ends it
+[TEST] S6-H59 PASS  STRAIGHT: line events do not end the clearing drive
+[TEST] S6-H19 PASS  line lost -> stop, search
+[TEST] S6-H20 PASS  line found -> FOLLOW_LINE
+[TEST] S6-H21 PASS  line recovery bounded -> FAULT
+[TEST] S6-H22 PASS  obstacle stops before scan starts
+[TEST] S6-OBS01 PASS  no bypass movement before physical stop
+[TEST] S6-OBS02 PASS  physical stop confirmation starts scan
+[TEST] S6-OBS03 PASS  duplicate stop indication does not restart scan
+[TEST] S6-H23 PASS  AVOID: line loss ignored, S5 moves forwarded
+[TEST] S6-OBS05 PASS  S5 stop for a line sighting waits for physical confirmation
+[TEST] S6-H24 PASS  confirmed line reacquisition restores cruise and line following
+[TEST] S6-H35 PASS  exhausted obstacle recovery latches a stop
+[TEST] S6-OBS04 PASS  missing stop confirmation faults instead of moving
+[TEST] S6-H25 PASS  avoid timeout -> FAULT
+[TEST] S6-H26 PASS  highest hump kept
+[TEST] S6-H36 PASS  hump crossed while reading a barcode is still recorded
+[TEST] S6-H27 PASS  WiFi down: keep navigating
+[TEST] S6-H28 PASS  recoverable line fault -> LOST_LINE
+[TEST] S6-H29 PASS  impact -> FAULT, stop all
+[TEST] S6-H30 PASS  FAULT: no motion accepted
+[TEST] S6-H31 PASS  FAULT: start ignored until reset
+[TEST] S6-H32 PASS  reset -> IDLE, motion latch cleared
+[TEST] S6-H33 PASS  remote stop -> FAULT
+[TEST] S6-H34 PASS  end of course -> MISSION_COMPLETE
+[TEST] S6-H37 PASS  search turns towards the side the line was last seen
+[TEST] S6-H38 PASS  LOST_LINE: S3 steering rejected while searching
+[TEST] S6-H39 PASS  second attempt turns twice as far the other way
+[TEST] S6-H40 PASS  subsystems may not request RESET
+[TEST] S6-H41 PASS  AVOID: barcode reading switched off
+[TEST] vehicle_controller host SUMMARY 71 passed, 0 failed

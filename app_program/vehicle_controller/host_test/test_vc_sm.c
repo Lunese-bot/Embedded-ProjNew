@@ -433,30 +433,76 @@ static void test_line_loss(void)
 /* obstacle */
 static void test_obstacle(void)
 {
+    bool b_early_cruise = false;
+
     start_mission();
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
     CHECK("S6-H22",
           (VC_ST_AVOID_OBSTACLE == g_sm.st.state) &&
-              has_request(VC_SRC_OBST, VC_REQ_OBST_AVOID),
-          "obstacle -> AVOID");
+              has_move(VC_MOVE_STOP_CONFIRM, 0, 1) &&
+              !has_request(VC_SRC_OBST, VC_REQ_OBST_AVOID),
+          "obstacle stops before scan starts");
+    feed(VC_SRC_OBST, VC_EV_MOVE_REQUEST, VC_MOVE_TURN_LEFT, 30);
+    CHECK("S6-OBS01", !has_move(VC_MOVE_TURN_LEFT, 30, 1),
+          "no bypass movement before physical stop");
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    CHECK("S6-OBS02", has_request(VC_SRC_OBST, VC_REQ_OBST_AVOID),
+          "physical stop confirmation starts scan");
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    CHECK("S6-OBS03", !has_request(VC_SRC_OBST, VC_REQ_OBST_AVOID),
+          "duplicate stop indication does not restart scan");
     feed(VC_SRC_LINE, VC_EV_LINE_LOST, 0, 0);
     feed(VC_SRC_OBST, VC_EV_MOVE_REQUEST, VC_MOVE_TURN_LEFT, 30);
     CHECK("S6-H23",
           (VC_ST_AVOID_OBSTACLE == g_sm.st.state) &&
               has_move(VC_MOVE_TURN_LEFT, 30, 1),
           "AVOID: line loss ignored, S5 moves forwarded");
+    feed(VC_SRC_OBST, VC_EV_MOVE_REQUEST, VC_MOVE_STOP, 0);
+    CHECK("S6-OBS05", has_move(VC_MOVE_STOP_CONFIRM, 0, 1),
+          "S5 stop for a line sighting waits for physical confirmation");
     feed(VC_SRC_OBST, VC_EV_AVOID_DONE, 0, 0);
-    CHECK("S6-H24", VC_ST_FOLLOW_LINE == g_sm.st.state,
-          "avoid done -> FOLLOW_LINE");
+    CHECK("S6-H24", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+              has_move(VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS, 1) &&
+              !has_move(VC_MOVE_FORWARD, 0, 0),
+          "confirmed line reacquisition waits for steering at slow speed");
+    for (uint32_t waited = 0; waited < 1000; waited += HOST_TICK_MS)
+    {
+        g_now_ms += HOST_TICK_MS;
+        feed(VC_SRC_VC, VC_EV_TICK, 0, 0);
+        b_early_cruise |= has_move(VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS, 1);
+    }
+    feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_STEER, 100);
+    CHECK("S6-OBS08",
+          !b_early_cruise && has_move(VC_MOVE_STEER, 100, 1) &&
+              !has_move(VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS, 1),
+          "the first fresh steering command drives at the slow speed");
+    for (uint32_t sample = 2; sample < VC_REJOIN_STEER_SAMPLES; sample++)
+    {
+        feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_STEER, 0);
+        b_early_cruise |= has_move(VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS, 1);
+    }
+    feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_STEER, 0);
+    CHECK("S6-OBS09",
+          !b_early_cruise && has_move(VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS, 1),
+          "cruise resumes on the expected steering sample");
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     feed(VC_SRC_OBST, VC_EV_AVOID_FAILED, 0, 0);
     CHECK("S6-H35",
-          (VC_ST_LOST_LINE == g_sm.st.state) &&
+          (VC_ST_FAULT == g_sm.st.state) &&
               (VC_FC_AVOID_FAILED == g_sm.st.last_fault_code) &&
-              (VC_FAULT_RECOVERABLE == g_sm.st.last_fault_sev),
-          "avoid failed -> bounded line search (recoverable)");
-    feed(VC_SRC_LINE, VC_EV_LINE_FOUND, 0, 0);
+              (VC_FAULT_CRITICAL == g_sm.st.last_fault_sev) &&
+              has_move(VC_MOVE_SAFE_STOP, 0, 1) &&
+              !has_request(VC_SRC_LINE, VC_REQ_LINE_SEARCH),
+          "exhausted obstacle recovery latches a stop");
+    start_mission();
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
+    advance(VC_JUNCTION_STOP_MS);
+    CHECK("S6-OBS04", VC_ST_FAULT == g_sm.st.state && has_move(VC_MOVE_SAFE_STOP, 0, 1),
+          "missing stop confirmation faults instead of moving");
+    start_mission();
+    feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     advance(VC_AVOID_MS + 20);
     CHECK("S6-H25", VC_ST_FAULT == g_sm.st.state, "avoid timeout -> FAULT");
 }
@@ -588,6 +634,20 @@ static void test_pause_resume(void)
     feed(VC_SRC_COMMS, VC_EV_CMD_RESUME, 0, 0);
     CHECK("S6-PA08", (VC_ST_FAULT == g_sm.st.state) && (0 == g_actions.n),
           "impact while paused faults; resume cannot reset the fault");
+
+    start_mission();
+    feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    feed(VC_SRC_OBST, VC_EV_AVOID_DONE, 0, 0);
+    feed(VC_SRC_COMMS, VC_EV_CMD_PAUSE, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    feed(VC_SRC_COMMS, VC_EV_CMD_RESUME, 0, 0);
+    CHECK("S6-PA09",
+          !g_sm.st.paused && (0u != g_sm.rejoin_steer_left) &&
+          has_move(VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS, 1) &&
+          !has_move(VC_MOVE_FORWARD, 0, 0) &&
+          !has_move(VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS, 1),
+          "resume during post-bypass handoff waits for slow fresh steering");
 }
 
 int main(void)

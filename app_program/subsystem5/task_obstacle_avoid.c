@@ -9,11 +9,9 @@
  *        3. send each step as S5_EVT_MOTION_REQ and wait for its
  *           S5_CMD_MOTION_DONE; "search" steps stop early when the line
  *           is seen (s5_port_line_detected)
- *        4. line found  -> turn back to the original heading,
- *                          S5_EVT_LINE_REACQUIRED
- *           not found   -> up to S5_MAX_RECOVERY wider searches, then
- *                          S5_EVT_AVOID_FAILED (the controller decides:
- *                          retry, or Safe Stop, FR8)
+ *        4. line found  -> stop, realign and check the line is still visible
+ *           not found   -> one retry on the inward heading after a missed
+ *                          return, then straighten and search forward
  *        5. tell the scan task to go back to monitoring (S5_FLG_RESUME)
  *      ABORT or DISABLE at any point ends the manoeuvre at once.
  */
@@ -24,7 +22,10 @@
 typedef enum
 {
     STEP_DONE,    /* motion finished                 */
-    STEP_LINE,    /* search step stopped on the line */
+    STEP_LINE,    /* the line was seen during a search */
+    STEP_DOUBLE_BLACK, /* both sensors see black at an angled rejoin probe */
+    STEP_NO_LINE, /* a search finished without seeing tape */
+    STEP_LINE_LOST, /* tape sighting lost during braking or alignment */
     STEP_FAILED,  /* controller reported failure     */
     STEP_TIMEOUT, /* no MOTION_DONE in time          */
     STEP_ABORT    /* ABORT / DISABLE received        */
@@ -32,6 +33,7 @@ typedef enum
 
 static uint16_t g_seq_next = 1;
 static int32_t  g_heading_deg; /* sum of completed turns since START */
+static const s5_step_t g_stop_step = { .m.kind = S5_MOVE_STOP };
 
 #define S5_DEFAULT_SPEED_MM_S 100 /* used when a move gives no speed */
 #define S5_MS_PER_S           1000U
@@ -103,7 +105,14 @@ static uint16_t send_motion(const s5_motion_req_t * p_req)
        them would make the IDLE Vehicle Controller reject each one and
        answer MOTION_DONE ok=0, racing the bench's own "done". */
 #else
-    s5_send_evt(&evt);
+    if (S5_MOVE_STOP == p_req->kind)
+    {
+        (void)s5_send_critical(&evt);
+    }
+    else
+    {
+        (void)s5_send_evt(&evt);
+    }
 #endif
     return evt.u.motion.seq;
 }
@@ -165,10 +174,9 @@ static void bench_fake_motion(const s5_step_t * p_step, uint16_t seq)
 #endif
 
 /* Send one step and wait for it to finish. */
-static step_result_t run_step(const s5_step_t * p_step)
+static step_result_t run_motion(const s5_step_t * p_step)
 {
     s5_cmd_t      cmd;
-    s5_step_t     stop = { 0 };
     uint16_t      seq;
     TMO           left = step_timeout_ms(&p_step->m);
     TMO           slice;
@@ -214,8 +222,6 @@ static step_result_t run_step(const s5_step_t * p_step)
         }
         else if ((0U != p_step->search_line) && (s5_port_line_detected()))
         {
-            stop.m.kind = S5_MOVE_STOP;
-            (void)send_motion(&stop.m);
             result     = STEP_LINE;
             b_finished = true;
         }
@@ -227,19 +233,46 @@ static step_result_t run_step(const s5_step_t * p_step)
     return result;
 }
 
-/* Run a plan.  Stops at the first result other than STEP_DONE. */
-static step_result_t run_plan(const s5_step_t * p_plan, int32_t count)
+/* Finish braking before acting on a sighting. The line can slip out from
+   under the sensors while the wheels slow down. */
+static step_result_t run_step(const s5_step_t * p_step)
 {
-    int32_t       idx;
-    step_result_t result = STEP_DONE;
+    step_result_t result;
 
-    for (idx = 0; (idx < count) && (STEP_DONE == result); idx++)
+    if ((0U != p_step->search_line) && s5_port_line_detected())
     {
-        if (0U != p_plan[idx].search_line)
+        result = STEP_LINE;
+    }
+    else
+    {
+        result = run_motion(p_step);
+    }
+
+    if ((0U != p_step->search_line) && (STEP_DONE == result))
+    {
+        /* The final encoder update can arrive before the next IR sample. */
+        tk_dly_tsk(S5_PERIOD_MS);
+        if (s5_port_line_detected())
         {
-            s5_set_state(S5_ST_SEARCH_LINE);
+            result = STEP_LINE;
         }
-        result = run_step(&p_plan[idx]);
+    }
+    if (STEP_LINE == result)
+    {
+        result = run_motion(&g_stop_step);
+        if (STEP_DONE == result)
+        {
+            tk_dly_tsk(S5_PERIOD_MS); /* check with a fresh stopped IR sample */
+            if (s5_port_line_detected())
+            {
+                result = STEP_LINE;
+            }
+            else
+            {
+                tm_printf((uint8_t *)"s5: line lost during braking\n");
+                result = STEP_LINE_LOST;
+            }
+        }
     }
     return result;
 }
@@ -251,17 +284,138 @@ static void report(s5_evt_type_t type, s5_fault_code_t code)
     /* Cast: both enums fit the 8-bit message fields. */
     evt.type = (uint8_t)type;
     evt.code = (uint8_t)code;
-    s5_send_evt(&evt);
     if (S5_FAULT_NONE != code)
     {
         s5_set_fault(code);
     }
+    if ((S5_EVT_FAULT == type) || (S5_EVT_AVOID_FAILED == type))
+    {
+        (void)s5_send_critical(&evt);
+    }
+    else
+    {
+        (void)s5_send_evt(&evt);
+    }
 }
 
-/* Turn back to the heading the car had before the bypass. */
+static void start_line_sampling(void)
+{
+    s5_port_set_line_search(true);
+    tk_dly_tsk(S5_PERIOD_MS); /* allow a fresh IR sample before checking */
+}
+
+/* Both sensors at an angle may be crossing the tape. Turn back to the
+   approach heading before accepting that sighting. */
+static step_result_t sample_rejoin(void)
+{
+    if ((0 != g_heading_deg) && s5_port_line_both_black())
+    {
+        return STEP_DOUBLE_BLACK;
+    }
+    return s5_port_line_detected() ? STEP_LINE : STEP_DONE;
+}
+
+/* Optionally look for a nearby line before checking that black remains
+   visible after a short forward drive. */
+static step_result_t confirm_line_ahead(bool b_search_nearby)
+{
+    const s5_step_t creep = { .m = { .kind = S5_MOVE_FORWARD,
+                                     .speed_mm_s = S5_SEARCH_SPEED_MM_S,
+                                     .distance_mm = S5_REJOIN_CHECK_MM } };
+    step_result_t result = run_motion(&g_stop_step);
+
+    if (STEP_DONE == result)
+    {
+        start_line_sampling();
+        result = sample_rejoin();
+        if ((STEP_DONE == result) && b_search_nearby)
+        {
+            const s5_step_t search = {
+                .m = { .kind = S5_MOVE_FORWARD,
+                       .speed_mm_s = S5_SEARCH_SPEED_MM_S,
+                       .distance_mm = S5_REJOIN_SEARCH_MM },
+                .search_line = 1u
+            };
+
+            tm_printf((uint8_t *)"s5: creeping toward the last line sighting\n");
+            result = run_step(&search);
+            if (STEP_LINE == result)
+            {
+                tk_dly_tsk(S5_PERIOD_MS);
+                result = sample_rejoin();
+            }
+            else if (STEP_LINE_LOST == result)
+            {
+                result = STEP_DONE; /* keep checking nearby headings */
+            }
+        }
+        if (STEP_LINE == result)
+        {
+            result = run_motion(&creep);
+            if (STEP_DONE == result)
+            {
+                result = run_motion(&g_stop_step);
+            }
+            if (STEP_DONE == result)
+            {
+                tk_dly_tsk(S5_PERIOD_MS); /* sample with the wheels stopped */
+                result = sample_rejoin();
+                if (STEP_DONE == result)
+                {
+                    tm_printf((uint8_t *)"s5: line lost during rejoin crawl\n");
+                }
+            }
+        }
+        s5_port_set_line_search(false);
+    }
+    return result;
+}
+
+/* First probe toward the last sighting. Moving the forward-mounted sensors
+   while aligning can put them a few centimetres to the other side of it. */
+static step_result_t check_rejoin(int32_t sighting_heading_deg)
+{
+    const int32_t first = (sighting_heading_deg < 0) ? -S5_REJOIN_PROBE_DEG
+                                                    : S5_REJOIN_PROBE_DEG;
+    const int32_t headings[] = { first, -first, 0 };
+    s5_step_t turn = { .m.kind = S5_MOVE_TURN };
+    step_result_t result = confirm_line_ahead(false);
+    uint32_t idx;
+
+    if (STEP_DONE == result)
+    {
+        tm_printf((uint8_t *)"s5: checking nearby headings for the line\n");
+    }
+    for (idx = 0u; (STEP_DONE == result) &&
+                   (idx < sizeof(headings) / sizeof(headings[0])); idx++)
+    {
+        /* Heading is relative to the original approach. The largest
+           move is twice the probe angle when switching sides. */
+        turn.m.angle_deg = (int8_t)(headings[idx] - g_heading_deg);
+        result = run_step(&turn);
+        if (STEP_DONE == result)
+        {
+            result = confirm_line_ahead((0u == idx) && (0 != sighting_heading_deg));
+        }
+    }
+    return result;
+}
+
+static step_result_t turn_to_approach(void)
+{
+    /* Cast: the net turn of a bypass is within +-127 degrees. */
+    s5_step_t turn = {
+        .m = { .kind = S5_MOVE_TURN, .angle_deg = (int8_t)(-g_heading_deg) }
+    };
+
+    return (0 != g_heading_deg) ? run_step(&turn) : STEP_DONE;
+}
+
+/* Turn back to the approach heading. Continue searching if that moves
+   the sensors off the line again. */
 static step_result_t realign(void)
 {
-    s5_step_t     step   = { 0 };
+    const int32_t sighting_heading_deg = g_heading_deg;
     step_result_t result = STEP_DONE;
 
     if ((0 != g_heading_deg) && (ROBOT_IR_TO_AXLE_MM > 0))
@@ -276,14 +430,80 @@ static step_result_t realign(void)
         fwd.m.speed_mm_s  = S5_SEARCH_SPEED_MM_S;
         result            = run_step(&fwd);
     }
-    if ((0 != g_heading_deg) && (STEP_DONE == result))
+    if (STEP_DONE == result)
     {
-        step.m.kind      = S5_MOVE_TURN;
-        /* Cast: the net turn of a bypass is within +-127 degrees. */
-        step.m.angle_deg = (int8_t)(-g_heading_deg);
-        result           = run_step(&step);
+        result = turn_to_approach();
+    }
+    if (STEP_DONE == result)
+    {
+        result = check_rejoin(sighting_heading_deg);
+    }
+    if (STEP_DOUBLE_BLACK == result)
+    {
+        tm_printf((uint8_t *)"s5: both line sensors black, returning to approach heading\n");
+        result = turn_to_approach();
+        if (STEP_DONE == result)
+        {
+            result = confirm_line_ahead(false);
+        }
     }
     return result;
+}
+
+/* The final search distinguishes a full-distance miss from a lost sighting.
+   Only the former can extend the initial return on the same heading. */
+static step_result_t run_plan(const s5_step_t * p_plan, int32_t count,
+                              s5_state_t search_state)
+{
+    int32_t       idx;
+    step_result_t result = STEP_DONE;
+
+    for (idx = 0; (idx < count) && (STEP_DONE == result); idx++)
+    {
+        bool b_searching = (0U != p_plan[idx].search_line);
+
+        if (b_searching)
+        {
+            s5_set_state(search_state);
+            start_line_sampling();
+        }
+        result = run_step(&p_plan[idx]);
+        if (b_searching)
+        {
+            s5_port_set_line_search(false);
+            if (STEP_DONE == result)
+            {
+                tm_printf((uint8_t *)"s5: search ended without seeing the line\n");
+                result = STEP_NO_LINE;
+            }
+        }
+    }
+    if (STEP_LINE == result)
+    {
+        result = realign();
+        if (STEP_DONE == result)
+        {
+            tm_printf((uint8_t *)"s5: line lost during alignment\n");
+            result = STEP_LINE_LOST;
+        }
+    }
+    return result;
+}
+
+static step_result_t retry_search(uint16_t distance_mm, s5_state_t search_state)
+{
+    const s5_step_t plan[] = {
+        { .m = { .kind = S5_MOVE_STOP } },
+        { .m = { .kind = S5_MOVE_FORWARD, .distance_mm = distance_mm,
+                 .speed_mm_s = S5_SEARCH_SPEED_MM_S }, .search_line = 1u }
+    };
+
+    return run_plan(plan, sizeof(plan) / sizeof(plan[0]), search_state);
+}
+
+static bool search_missed(step_result_t result)
+{
+    return (STEP_NO_LINE == result) || (STEP_LINE_LOST == result);
 }
 
 /* 1. Ask the scan task for a profile.  Returns true when there is an
@@ -328,15 +548,14 @@ static void report_result(step_result_t result)
     switch (result)
     {
         case STEP_LINE:
-            if (STEP_ABORT != realign())
-            {
-                s5_count_avoid_ok();
-                tm_printf((uint8_t *)"s5: line reacquired\n");
-                report(S5_EVT_LINE_REACQUIRED, S5_FAULT_NONE);
-            }
+            s5_count_avoid_ok();
+            tm_printf((uint8_t *)"s5: line reacquired\n");
+            report(S5_EVT_LINE_REACQUIRED, S5_FAULT_NONE);
             break;
-        case STEP_DONE: /* every recovery ran out */
-            report(S5_EVT_AVOID_FAILED, S5_FAULT_NONE);
+        case STEP_NO_LINE:
+        case STEP_LINE_LOST:
+            tm_printf((uint8_t *)"s5: black line not confirmed after recovery, stopping\n");
+            report(S5_EVT_AVOID_FAILED, S5_FAULT_LINE_NOT_FOUND);
             break;
         case STEP_TIMEOUT:
             report(S5_EVT_FAULT, S5_FAULT_MOTION_TIMEOUT);
@@ -356,7 +575,6 @@ static void bypass(const s5_profile_t * p_prof)
 {
     s5_step_t     plan[S5_PLAN_MAX];
     int32_t       count;
-    int32_t       attempt;
     step_result_t result;
 
     /* 2. plan */
@@ -364,26 +582,38 @@ static void bypass(const s5_profile_t * p_prof)
     count = s5_plan_bypass(p_prof, plan, S5_PLAN_MAX);
     if (S5_SIDE_NONE == p_prof->bypass_side)
     {
-        (void)run_plan(plan, count); /* stop + back off */
+        (void)run_plan(plan, count, S5_ST_SEARCH_LINE); /* stop + back off */
         report(S5_EVT_AVOID_FAILED, S5_FAULT_BLOCKED);
     }
     else
     {
         /* 3. bypass */
         s5_set_state(S5_ST_BYPASSING);
-        result = run_plan(plan, count);
+        result = run_plan(plan, count, S5_ST_SEARCH_LINE);
+        if (STEP_NO_LINE == result)
+        {
+            tm_printf((uint8_t *)"s5: retrying the return for %d mm\n",
+                      S5_SEARCH_RETRY_MM);
+            result = retry_search(S5_SEARCH_RETRY_MM, S5_ST_SEARCH_LINE);
+        }
 
-        /* 4. bounded line recovery */
-        for (attempt = 0; (STEP_DONE == result) && (attempt < S5_MAX_RECOVERY);
-             attempt++)
+        /* 4. recover by searching along the original approach heading */
+        if (search_missed(result))
         {
             s5_set_state(S5_ST_LINE_RECOVERY);
-            tm_printf((uint8_t *)"s5: line not found, recovery %d/%d\n",
-                      attempt + 1, S5_MAX_RECOVERY);
-            /* Cast: bypass_side holds an s5_side_t value. */
-            count  = s5_plan_recovery((s5_side_t)p_prof->bypass_side, attempt,
-                                      plan, S5_PLAN_MAX);
-            result = run_plan(plan, count);
+            tm_printf((uint8_t *)"s5: searching straight at the approach heading\n");
+            count = s5_plan_straight_recovery(g_heading_deg, plan, S5_PLAN_MAX);
+            result = run_plan(plan, count, S5_ST_LINE_RECOVERY);
+        }
+        if (search_missed(result))
+        {
+            tm_printf((uint8_t *)"s5: short %d mm line search\n", S5_FINAL_SEARCH_MM);
+            result = retry_search(S5_FINAL_SEARCH_MM, S5_ST_LINE_RECOVERY);
+        }
+        if (search_missed(result))
+        {
+            tm_printf((uint8_t *)"s5: final %d mm line search\n", S5_EXTRA_SEARCH_MM);
+            result = retry_search(S5_EXTRA_SEARCH_MM, S5_ST_LINE_RECOVERY);
         }
         report_result(result);
     }
@@ -416,6 +646,7 @@ static void handle_command(const s5_cmd_t * p_cmd)
     {
         case S5_CMD_ENABLE:
             tk_set_flg(g_flg_s5, S5_FLG_ENABLED);
+            tk_set_flg(g_flg_s5, S5_FLG_RESUME);
             s5_set_state(S5_ST_MONITORING);
             break;
         case S5_CMD_DISABLE:

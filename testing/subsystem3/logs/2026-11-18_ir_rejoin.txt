@@ -1,0 +1,97 @@
+﻿[TEST] H-C01 PASS  all 43 characters decode forwards and backwards
+[TEST] H-C02 PASS  "*LR2*" at 2:1 ratio
+[TEST] H-C03 PASS  +-20% jitter tolerated at 2.5:1
+[TEST] H-C04 PASS  2x speed change across barcode tolerated
+[TEST] H-C05 PASS  element count not 10n-1 rejected
+[TEST] H-C06 PASS  no wide/narrow contrast rejected
+[TEST] H-C07 PASS  barcode without '*' framing rejected
+[TEST] H-C08 PASS  output overflow reported, not written past
+[TEST] H-L01 PASS  centred line -> FOLLOW, no steering
+[TEST] H-L02 PASS  line left -> position -1000, steer left
+[TEST] H-L03 PASS  lost after 5 white samples, last side kept
+[TEST] H-L04a PASS  no junction while barcode scanning
+[TEST] H-L04b PASS  junction after 3 all-black samples
+[TEST] H-L06 PASS  straddle is the default, C/R weights symmetric
+[TEST] H-L07 PASS  both white -> FOLLOW and straight
+[TEST] H-L08a PASS  C black -> steer left
+[TEST] H-L08b PASS  R black -> steer right
+[TEST] H-L09a PASS  1 s of white is not lost
+[TEST] H-L09b PASS  straddle: 10 s of white stays FOLLOW and straight (no LOST)
+[TEST] H-L09d PASS  C black still steers left
+[TEST] H-L09e PASS  C and R both black -> JUNCTION
+[TEST] H-L10 PASS  R black: starts at 100, grows to 300 after 20 more samples
+[TEST] H-L11a PASS  both black holds the correction
+[TEST] H-L11b PASS  medium correction (310) then white: straight at once
+[TEST] H-L12 PASS  other side starts gently again
+[TEST] H-L13 PASS  short touch then white: straight at once
+[TEST] H-L14a PASS  long left correction then white: keeps turning left (line outside)
+[TEST] H-L14b PASS  still turning after 0.5 s of white
+[TEST] H-L15 PASS  line came back in, then white: straight (no new hold)
+[TEST] H-L16a PASS  curve memory gives up after HOLD_MAX
+[TEST] H-L16b PASS  and does not start again on white
+[TEST] H-L16c PASS  other sensor during hold: gentle right (100)
+[TEST] H-L12b PASS  Kp 0 and Kd 0: no steering
+[TEST] H-L17a PASS  R black 10 samples: 190
+[TEST] H-L17b PASS  short white gap: straight (no over-correction)
+[TEST] H-L17c PASS  R black again soon: carries on, not back to the first nudge
+[TEST] H-L17d PASS  after a long white gap: first nudge again
+[TEST] H-L17e PASS  other side always starts gently
+[TEST] H-L17f PASS  R flickering on a curve: grows and the curve memory takes over
+[TEST] H-L19a PASS  R over white reads 0, C digital black reads 1000
+[TEST] H-L19b PASS  R over black reads 1000 (direction from the config values)
+[TEST] H-L19c PASS  halfway reads about 500 = the black threshold
+[TEST] H-L19d PASS  C analogue over white reads 0
+[TEST] H-L19e PASS  C analogue over black reads 1000
+[TEST] H-L19f PASS  L analogue over white reads 0
+[TEST] H-L19g PASS  L analogue over black reads 1000
+[TEST] H-L05a PASS  calibration with 3000-count span accepted
+[TEST] H-L05b PASS  digital L=black, C mid-scale=500, R floor=0
+[TEST] H-L05c PASS  calibration with 100-count span rejected
+[TEST] H-L20 PASS  L+C+R black (bar): straight the whole bar, no build-up
+[TEST] H-L21 PASS  white after a bar: straight, no curve memory
+[TEST] H-L22 PASS  scanning: C+R black -> straight and turn forgotten
+[TEST] H-L23 PASS  no barcode: C+R black still holds the right turn
+[TEST] H-L24 PASS  L+C black, R white (curve): still steers left
+[TEST] H-L25 PASS  coincident black on the rejoin keeps following without a turn
+[TEST] H-L26 PASS  ordinary steering is available before junctions are rearmed
+[TEST] H-L27 PASS  a short gap does not rearm junctions
+[TEST] H-L28 PASS  a new junction is detected after the sensors settle
+        blurred *A*: the thinnest gaps only get down to 1400 (white = 200)
+[TEST] H-E00 PASS  test signal is as blurry as MY's (gaps stay above 900)
+[TEST] H-E01 PASS  edge finder: blurred *A* gives 29 bars+spaces
+[TEST] H-E02 PASS  edge finder: blurred *A* decodes as A
+        drift: 29 runs: 90 100 90 30 140 50 140 50 50 40 140 50 50 40 60 110 90 20 140 50 60 110 90 20 140 50 140 50 60 ms
+[TEST] H-E03 PASS  edge finder: still decodes A with the baseline drifting +600
+        weak slow *A*: 29 runs, longest white inside 360 ms: 150 360 120 120 360 120 360 120 120 120 360 120 120 120 120 360 120 120 360 120 120 360 120 120 360 120 360 120 120 ms
+[TEST] H-E06 PASS  weak, slow, blurred *A* (bars only reach 950) decodes as A
+[TEST] H-E07 PASS  no white gap inside it is long enough to end the read early
+        real trace: 11 bars+spaces found (fixed cut-off found 1): 200 20 220 150 40 70 560 80 470 150 240 ms
+[TEST] H-E04 PASS  real 'A' trace: edge finder sees at least 6 bars (cut-off saw 1)
+[TEST] H-E05 PASS  white paper noise (140-260) never counts as a bar
+        slowing pass: 29 bars+spaces; by time Z (0), by distance Z (0)
+        first bar: 50 ms vs next wide bar 100 ms; 39 vs 42 counts
+[TEST] H-D01 PASS  slowing on the first bar: distance widths still decode Z
+[TEST] H-D02 PASS  first bar (read while slowing) measures like the next same-width bar by distance
+        wobbly bar: 2 level changes, bar 70 ms
+[TEST] H-E08 PASS  real wobbly bar (top dips 370) stays ONE bar, full width
+        creeping white: 3 runs: 30 100 20 ms
+[TEST] H-E09 PASS  white creeping up before a bar: space keeps its width, bar is not fattened
+[TEST] H-C09 PASS  bars all read fat (or all thin) and spaces the opposite: A-Z still decode
+[TEST] H-D03 PASS  early end: no 2-letter code's first 29 bars decode (both directions)
+[TEST] H-D04 PASS  early end: every one-letter code decodes at 29 bars, both ways
+[TEST] H-P01 PASS  partial: one '*' damaged, every letter still read, both ways
+[TEST] H-P02 PASS  partial: both '*' damaged gives no letter
+[INFO] partial: 0 of 2000 random width lists gave a letter
+[TEST] H-P03 PASS  partial: random widths give a letter at most 1 % of the time
+[INFO] shape: 208 of 208 clean letters read, 0 wrong
+[TEST] H-G01 PASS  shape: A-Z both ways, ratio 2.5/3.0, blur 0.25/0.45 module all read
+[INFO] shape: one gap 60 % filled in: 51 of 104 read, 0 wrong
+[TEST] H-G02 PASS  shape: a shallow thin gap (60 % grey): 40 % still read, none wrong
+[INFO]   Z gap 5 -> Q err 30 margin 38 fit 47
+[INFO] shape: one gap 100 % filled in: 29 of 104 read, 1 wrong
+[TEST] H-G03 PASS  shape: a thin gap printed black: at most 2 % wrong
+[TEST] H-G04 PASS  shape: works by time (no wheel data)
+[TEST] H-G05 PASS  shape: plain white gives no letter
+[INFO] shape: 0 of 3000 random bar patterns gave a letter
+[TEST] H-G06 PASS  shape: random bars give a letter at most 0.1 % of the time
+[TEST] subsystem3-host SUMMARY 82 passed, 0 failed

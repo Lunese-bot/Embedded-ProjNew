@@ -309,8 +309,8 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
             er           = obst_stop();
             break;
         case 'G':
-            g_lt_obst_en = 1; /* the next mission start enables it again */
-            er           = E_OK;
+            g_lt_obst_en = 1;
+            er           = monitoring_on();
             break;
         case 'y': er = s3_request(S3_REQ_CALIBRATE); break;
         case 'Y': er = s3_request(S3_REQ_RESET_LINE); break;
@@ -604,6 +604,14 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
         n = kv(p_out, n, out_max, "state", (int32_t)o.state);
         n = kv(p_out, n, out_max, "fault", (int32_t)o.last_fault);
         n = kv(p_out, n, out_max, "dist", (int32_t)o.last_distance_mm);
+        if (0U != o.profile.valid)
+        {
+            n = kv(p_out, n, out_max, "widthMm", (int32_t)o.profile.width_mm);
+        }
+        else
+        {
+            n = put_str(p_out, n, out_max, "\"widthMm\":null,");
+        }
         n = kv(p_out, n, out_max, "servo", servo_get_deg());
         n = kv(p_out, n, out_max, "pings", (int32_t)o.pings);
         n = kv(p_out, n, out_max, "timeouts", (int32_t)o.echo_timeouts);

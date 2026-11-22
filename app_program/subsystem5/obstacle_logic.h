@@ -14,10 +14,10 @@
 #include "subsystem5.h"
 
 /* ---- Detection -------------------------------------------------- */
-#define S5_DETECT_MM      250 /* obstacle closer than this ...   */
+#define S5_DETECT_MM      225 /* obstacle closer than this ...   */
 #define S5_DETECT_COUNT   3   /* ... this many pings in a row     */
 #define S5_HIT_RANGE_MM   500 /* during a scan: "part of it"      */
-#define S5_SCAN_MAX_DEG   60  /* scan no wider than this (= SERVO_MAX_DEG) */
+#define S5_SCAN_MAX_DEG   45  /* scan no wider than this (= SERVO_MAX_DEG) */
 #define S5_CLUSTER_GAP_MM 150 /* jump that separates two objects  */
 
 /* ---- Stopping distance (Tribunal 1, Version C) -------------------
@@ -35,7 +35,7 @@
  *  The build fails if the detect distance stops covering the total. */
 #define S5_TOP_SPEED_MM_S      400 /* = S2_MAX_SPEED_MM_S (subsystem2.h) */
 #define S5_LATENCY_MS          ((S5_DETECT_COUNT * 20) + 12 + 10)
-#define S5_REACTION_MM         ((S5_TOP_SPEED_MM_S * S5_LATENCY_MS) / 1000)
+#define S5_REACTION_MM         ((S5_TOP_SPEED_MM_S * S5_LATENCY_MS + 999) / 1000)
 #define S5_BRAKING_MM          100 /* TODO measure at top speed (S5-U22) */
 #define S5_STOP_MARGIN_MM      50
 #define S5_STOP_NEEDED_MM \
@@ -47,22 +47,29 @@ _Static_assert(S5_DETECT_MM >= S5_STOP_NEEDED_MM,
 /* ---- Robot geometry (measure the real car) ---------------------- */
 #define S5_ROBOT_HALF_WIDTH_MM 80
 #define S5_ROBOT_LENGTH_MM     200
-#define S5_SIDE_MARGIN_MM      60  /* extra gap beside the obstacle    */
+#define S5_SIDE_MARGIN_MM      20  /* extra gap beside the obstacle    */
 #define S5_OBSTACLE_DEPTH_MM   150 /* assumed: ultrasonic can't see it */
 #define S5_MIN_CLEAR_MM        300 /* free range needed on bypass side */
+#define S5_SIDE_BIAS_DEG        10 /* obstacle centre clearly to one side */
 
 /* ---- Bypass manoeuvre ------------------------------------------- */
-#define S5_BYPASS_TURN_DEG   45
-#define S5_BYPASS_SPEED_MM_S 150
-#define S5_SEARCH_SPEED_MM_S 100
-#define S5_SEARCH_EXTRA_MM   100 /* drive this far past expected line */
+#define S5_BYPASS_TURN_DEG   35
+#define S5_BYPASS_FIRST_MM   80 /* short first diagonal before moving farther sideways */
+#define S5_BYPASS_CLEARANCE_DEG 45 /* heading for the rest of the side clearance */
+#define S5_RETURN_TURN_DEG   40
+#define S5_BYPASS_SPEED_MM_S 60
+#define S5_SEARCH_SPEED_MM_S 60
+#define S5_SEARCH_MARGIN_MM   40 /* extra sideways reach on the return search */
+#define S5_SEARCH_RETRY_MM    85 /* straight retry after a return with no sighting */
+#define S5_REJOIN_PROBE_DEG   15 /* check to either side after alignment */
+#define S5_REJOIN_SEARCH_MM  100 /* short drive toward the last sighting */
+#define S5_REJOIN_CHECK_MM    25 /* creep before confirming the line */
 #define S5_REVERSE_MM        150 /* when no side is safe              */
 
 /* ---- Line recovery (bounded, NFR5) ------------------------------ */
-#define S5_MAX_RECOVERY      3
-#define S5_RECOVERY_TURN_DEG 20
-#define S5_RECOVERY_BASE_MM  100
-#define S5_RECOVERY_STEP_MM  50
+#define S5_RECOVERY_STRAIGHT_MM 175 /* search along the original heading */
+#define S5_FINAL_SEARCH_MM       30 /* first short creep on that heading */
+#define S5_EXTRA_SEARCH_MM       35 /* one more creep if tape is unconfirmed */
 
 /* One ultrasonic sample taken during a scan */
 typedef struct
@@ -88,6 +95,11 @@ extern int32_t s5_sin1000(int32_t deg);
 extern bool s5_build_profile(const s5_sample_t * p_samples, int32_t count,
                              s5_profile_t * p_profile);
 
+/* Ordered coarse + fine samples; the fine value wins at equal angles. */
+extern int32_t s5_merge_samples(const s5_sample_t *a, int32_t na,
+                                const s5_sample_t *b, int32_t nb,
+                                s5_sample_t *out, int32_t max);
+
 /* Pick the bypass side for a profile (also stored in p->bypass_side). */
 extern s5_side_t s5_choose_side(s5_profile_t * p_profile);
 
@@ -100,9 +112,10 @@ extern int32_t s5_lateral_needed_mm(const s5_profile_t * p_profile,
 extern int32_t s5_plan_bypass(const s5_profile_t * p_profile,
                               s5_step_t * p_plan, int32_t max);
 
-/* Steps of recovery attempt (0-based) after the line was not found. */
-extern int32_t s5_plan_recovery(s5_side_t side, int32_t attempt,
-                                s5_step_t * p_plan, int32_t max);
+/* Face the approach heading, then search along it. heading_deg is relative
+   to the heading before the bypass. */
+extern int32_t s5_plan_straight_recovery(int32_t heading_deg,
+                                        s5_step_t * p_plan, int32_t max);
 
 /* Angles for the coarse scan, and the fine scan around a profile */
 extern int32_t s5_coarse_angles(int8_t * p_deg, int32_t max);
