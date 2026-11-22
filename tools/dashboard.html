@@ -156,9 +156,10 @@ canvas { width: 100%; height: 90px; display: block; }
   const series = { vl: [], vr: [], line: [], us: [], pitch: [] };
   const allLines = [];
   let lastTlm = 0, mqttClient = null, port = null, reader = null;
-  const STATES = ["IDLE", "MISSION_START", "FOLLOW_LINE", "LOST_LINE", "AVOID_OBSTACLE",
-                  "DECODE_BARCODE", "EXECUTE_ACTION", "TERRAIN_CHECK", "FAULT",
-                  "MISSION_COMPLETE"];
+  const STATES = ["IDLE", "MISSION_START", "FOLLOW_LINE", "JUNCTION_STOP",
+                "LOST_LINE", "AVOID_OBSTACLE", "DECODE_BARCODE",
+                "EXECUTE_ACTION", "TERRAIN_CHECK", "FAULT",
+                "MISSION_COMPLETE"];
   const CMD_CODES = { start: 0, stop: 1, reset: 2 };
   const ACK_RESULTS = ["queued", "busy", "rejected", "reserved"];
   let mqttCommandSeq = 0, lastMqttTlmSeq = null;
