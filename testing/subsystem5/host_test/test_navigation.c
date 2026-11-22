@@ -48,6 +48,10 @@ ER s2_cmd_drive_dist(int32_t speed, int32_t distance)
 ER s2_cmd_turn(int32_t speed, int32_t angle)
 { speed_sent = speed; angle_sent = angle; return E_OK; }
 ER s2_get_status(motion_status_t *out) { *out = (motion_status_t){0}; return E_OK; }
+static void app_check(ER err, const char *name); /* used by vc_bridge_s2.c, defined below */
+/* S2 stop-generation state read by vc_bridge_s2.c */
+volatile uint32_t g_s2_imu_stop;
+uint32_t s2_stop_epoch(void) { return 0u; }
 #include "../../../app_program/vehicle_controller/vc_bridge_s2.c"
 #include "../../../app_program/subsystem5/obstacle_logic.c"
 
@@ -424,13 +428,13 @@ static void test_line_recovery(void)
 
         simulate_bypass((s5_side_t)side, TAPE_ABSENT);
         assert(1 == robot.recovery_passes && 0 == robot.successes);
-        assert(1 == robot.recovery_turns && 40 * sign == robot.recovery_turn_deg);
+        assert(1 == robot.recovery_turns && S5_RETURN_TURN_DEG * sign == robot.recovery_turn_deg);
         assert(1 == robot.return_retries && 1 == robot.short_searches);
         assert(1 == robot.extra_searches);
         assert(S5_EVT_AVOID_FAILED == robot.outcome && robot.critical_outcome);
         assert(S5_FAULT_LINE_NOT_FOUND == robot.fault);
     }
-    puts("[TEST] S5-H09 PASS  missing tape triggers one 40-degree pivot and straight recovery");
+    puts("[TEST] S5-H09 PASS  missing tape triggers one return-angle pivot and straight recovery");
 
     for (int32_t side = S5_SIDE_LEFT; side <= S5_SIDE_RIGHT; side++)
     {
@@ -465,7 +469,7 @@ static void test_short_searches(void)
 
         simulate_bypass((s5_side_t)side, TAPE_LOST_DURING_BRAKING);
         assert(0 == robot.return_retries && 1 == robot.recovery_passes);
-        assert(1 == robot.recovery_turns && 40 * sign == robot.recovery_turn_deg);
+        assert(1 == robot.recovery_turns && S5_RETURN_TURN_DEG * sign == robot.recovery_turn_deg);
         assert(robot.braking_loss_logged && !robot.alignment_loss_logged);
         assert(!robot.initial_miss_logged);
         assert(0 == robot.rejoin_stops && 1 == robot.short_searches && 1 == robot.extra_searches);
@@ -481,20 +485,20 @@ static void test_short_searches(void)
         simulate_bypass((s5_side_t)side, TAPE_ON_SHORT_SEARCH);
         assert(1 == robot.return_retries && 1 == robot.short_searches && 0 == robot.extra_searches);
         assert(1 == robot.recovery_passes && 1 == robot.rejoin_stops);
-        assert(1 == robot.recovery_turns && 40 * sign == robot.recovery_turn_deg);
+        assert(1 == robot.recovery_turns && S5_RETURN_TURN_DEG * sign == robot.recovery_turn_deg);
         assert(S5_EVT_LINE_REACQUIRED == robot.outcome && 1 == robot.successes);
 
         simulate_bypass((s5_side_t)side, TAPE_AT_SHORT_ENDPOINT);
         assert(1 == robot.return_retries && 1 == robot.short_searches && 0 == robot.extra_searches);
         assert(1 == robot.recovery_passes && 1 == robot.sightings);
-        assert(1 == robot.recovery_turns && 40 * sign == robot.recovery_turn_deg);
+        assert(1 == robot.recovery_turns && S5_RETURN_TURN_DEG * sign == robot.recovery_turn_deg);
         assert(1 == robot.search_stops && 1 == robot.rejoin_stops);
         assert(S5_EVT_LINE_REACQUIRED == robot.outcome && 1 == robot.successes);
 
         simulate_bypass((s5_side_t)side, TAPE_AT_FINAL_ENDPOINT);
         assert(1 == robot.return_retries && 1 == robot.short_searches && 1 == robot.extra_searches);
         assert(1 == robot.recovery_passes && 1 == robot.sightings);
-        assert(1 == robot.recovery_turns && 40 * sign == robot.recovery_turn_deg);
+        assert(1 == robot.recovery_turns && S5_RETURN_TURN_DEG * sign == robot.recovery_turn_deg);
         assert(1 == robot.search_stops && 1 == robot.rejoin_stops);
         assert(S5_EVT_LINE_REACQUIRED == robot.outcome && 1 == robot.successes);
     }
@@ -676,7 +680,7 @@ int main(void)
         assert(plan[3].m.angle_deg == 10 * sign);
         assert(plan[4].m.kind == S5_MOVE_FORWARD);
         assert(plan[5].m.angle_deg == -45 * sign);
-        assert(plan[7].m.angle_deg == -40 * sign);
+        assert(plan[7].m.angle_deg == -S5_RETURN_TURN_DEG * sign);
         const int32_t side_x1000 = plan[2].m.distance_mm * s5_sin1000(35) +
                                    plan[4].m.distance_mm * s5_sin1000(45);
         const int32_t forward_mm = (plan[2].m.distance_mm * s5_sin1000(55) +
@@ -686,12 +690,12 @@ int main(void)
         assert(forward_mm + plan[6].m.distance_mm ==
                profile.distance_mm + S5_OBSTACLE_DEPTH_MM + S5_ROBOT_LENGTH_MM);
         const s5_step_t * search = &plan[steps - 1];
-        const int32_t inward_x1000 = search->m.distance_mm * s5_sin1000(40);
-        const int32_t needed_x1000 = (lateral + 40) * 1000;
+        const int32_t inward_x1000 = search->m.distance_mm * s5_sin1000(S5_RETURN_TURN_DEG);
+        const int32_t needed_x1000 = (lateral + S5_SEARCH_MARGIN_MM) * 1000;
 
         assert(search->search_line);
         assert(inward_x1000 >= needed_x1000);
-        assert(inward_x1000 < needed_x1000 + s5_sin1000(40));
+        assert(inward_x1000 < needed_x1000 + s5_sin1000(S5_RETURN_TURN_DEG));
         for (int i = 0; i < steps; i++)
         {
             if (plan[i].m.kind == S5_MOVE_FORWARD) { assert(plan[i].m.speed_mm_s == 60); }
@@ -699,7 +703,7 @@ int main(void)
     }
     puts("PASS both bypass directions stop first, drive slowly and search for black line");
     puts("[TEST] S5-H19 PASS  35-degree first turn and short drive retain projected clearance");
-    puts("[TEST] S5-H13 PASS  the 40-degree return covers the offset plus 40 mm sideways");
+    puts("[TEST] S5-H13 PASS  the return turn covers the offset plus the search margin sideways");
     test_line_recovery();
     test_short_searches();
     test_search_stop_confirmation();
