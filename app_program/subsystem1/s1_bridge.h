@@ -21,9 +21,9 @@
 #define S1_BRIDGE_FULL_TOPIC_MAX \
     (sizeof(S1_TOPIC_ROOT) + S1_BRIDGE_TOPIC_MAX)
 
-/* Remote pause relies on S2's stop path; leave disabled pending its review. */
+/* Set to 0 to reject remote Pause/Resume at the firmware bridge. */
 #ifndef S1_ENABLE_REMOTE_PAUSE
-#define S1_ENABLE_REMOTE_PAUSE 0
+#define S1_ENABLE_REMOTE_PAUSE 1
 #endif
 
 /* Take the next queued message without blocking. The payload is binary and

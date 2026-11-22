@@ -10,6 +10,10 @@
 
 #if APP_TEST
 
+/* The byte-sized capture buffer can hold more than S1_QUEUE_LINES messages. */
+#define S1_CAPTURE_SCAN_LIMIT \
+    (S1_QUEUE_LINES * (S1_LINE_MAX + (int32_t)sizeof(int32_t)))
+
 static bool str_eq(const char * p_lhs, const char * p_rhs)
 {
     while ((*p_lhs != '\0') && (*p_lhs == *p_rhs))
@@ -29,9 +33,12 @@ void subsystem1_test(void)
     uint8_t        invalid_command = 0xC0;
     const uint8_t  binary_sample[] = { 0x41, 0x00, 0xFF };
     uint32_t       before;
+    SYSTIM         started;
+    SYSTIM         now;
     int32_t        idx;
     int32_t        len     = 0;
     bool           b_found = false;
+    bool           b_drained = false;
 
     TEST_INIT();
 
@@ -40,9 +47,13 @@ void subsystem1_test(void)
                E_OK == s1_post("selftest", binary_sample,
                                (int32_t)sizeof(binary_sample)),
                "s1_post queues a binary payload");
-    for (idx = 0; (idx < (2 * S1_QUEUE_LINES)) && (!b_found); idx++)
+    for (idx = 0; (idx < S1_CAPTURE_SCAN_LIMIT) && (!b_found); idx++)
     {
-        len     = s1_bridge_pop(topic, sizeof(topic), payload, sizeof(payload));
+        len     = s1_test_bridge_pop(topic, sizeof(topic), payload, sizeof(payload));
+        if (len <= 0)
+        {
+            break;
+        }
         b_found = (len > 0) && (str_eq(topic, S1_TOPIC_ROOT "selftest"));
     }
     TEST_CHECK("S1-U01b", b_found &&
@@ -52,12 +63,38 @@ void subsystem1_test(void)
                (payload[2] == binary_sample[2]),
                "bridge preserves payload bytes and exact length");
 
-    /* S1-U02: telemetry_task produces a binary frame within 400 ms */
-    tk_dly_tsk(400);
-    len = s1_bridge_pop(topic, sizeof(topic), payload, sizeof(payload));
-    TEST_CHECK("S1-U02", (len == S1_TLM_BYTES) &&
-               str_eq(topic, S1_TOPIC_ROOT S1_TOPIC_TLM) &&
-               (s1_tlm_decode(payload, len, &tlm) == 0),
+    /* Discard old copies, then observe a fresh frame without consuming MQTT's queue. */
+    for (idx = 0; idx < S1_CAPTURE_SCAN_LIMIT; idx++)
+    {
+        len = s1_test_bridge_pop(topic, sizeof(topic), payload, sizeof(payload));
+        if (len <= 0)
+        {
+            b_drained = (0 == len);
+            break;
+        }
+    }
+    b_found = false;
+    if (b_drained)
+    {
+        tk_get_tim(&started);
+        do
+        {
+            len = s1_test_bridge_pop(topic, sizeof(topic), payload, sizeof(payload));
+            b_found = (len == S1_TLM_BYTES) &&
+                      str_eq(topic, S1_TOPIC_ROOT S1_TOPIC_TLM) &&
+                      (s1_tlm_decode(payload, len, &tlm) == 0);
+            if (!b_found)
+            {
+                tk_dly_tsk(20);
+            }
+            tk_get_tim(&now);
+        } while ((!b_found) && ((now.lo - started.lo) < 400U));
+    }
+    else
+    {
+        tm_printf((uint8_t *)"[TEST] S1-U02 info: capture queue did not drain\n");
+    }
+    TEST_CHECK("S1-U02", b_found,
                "14-byte versioned telemetry frame queued");
 
     /* S1-U03: reserved command code is counted and rejected. */

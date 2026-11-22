@@ -124,6 +124,10 @@ static void test_startup(void)
     feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_FORWARD, 200);
     CHECK("S6-H01", (VC_ST_IDLE == g_sm.st.state) && (0 == g_actions.n),
           "IDLE ignores move requests");
+    feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
+    CHECK("S6-SAFE01", (VC_ST_IDLE == g_sm.st.state) &&
+              has_move(VC_MOVE_RESET, 0, 0),
+          "reset in IDLE is forwarded to motion control");
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
     CHECK("S6-H02",
           (VC_ST_MISSION_START == g_sm.st.state) &&
@@ -155,6 +159,14 @@ static void test_startup(void)
     advance(VC_SELF_CHECK_MS + 20);
     CHECK("S6-H05", VC_ST_FAULT == g_sm.st.state,
           "motion/line missing -> FAULT");
+
+    vc_sm_init(&g_sm, g_now_ms);
+    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_READY, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_FAULT, VC_FAULT_CRITICAL, 0x2011);
+    CHECK("S6-SAFE02", (VC_ST_FAULT == g_sm.st.state) &&
+              has_move(VC_MOVE_SAFE_STOP, 0, 0),
+          "safe stop after motion READY faults the mission");
 }
 
 /* arbitration */

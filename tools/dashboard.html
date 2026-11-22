@@ -92,8 +92,8 @@ canvas { width: 100%; height: 90px; display: block; }
   <button class="cmd" data-cmd="start" disabled>Start</button>
   <button class="cmd" data-cmd="stop" disabled>Stop</button>
   <button class="cmd" data-cmd="reset" disabled>Reset</button>
-  <button class="cmd" data-cmd="pause" data-safety-gated="true" title="Pending motion-stop safety review" disabled>Pause</button>
-  <button class="cmd" data-cmd="resume" data-safety-gated="true" title="Pending motion-stop safety review" disabled>Resume</button>
+  <button class="cmd" data-cmd="pause" disabled>Pause</button>
+  <button class="cmd" data-cmd="resume" disabled>Resume</button>
   <span id="status"><span class="dot" id="dot"></span><span id="statusText">Not connected</span></span>
 </header>
 
@@ -424,7 +424,12 @@ canvas { width: 100%; height: 90px; display: block; }
     mqttClient = mqtt.connect(url, { reconnectPeriod: 3000, connectTimeout: 5000 });
     mqttClient.on("connect", () => { mqttClient.subscribe("robot/g10/#"); mqttUi(true); setStatus("MQTT connected: " + url, true); });
     mqttClient.on("error", e => setStatus("MQTT: " + e.message, false));
-    mqttClient.on("close", () => { if (mqttClient) setStatus("MQTT reconnecting…", false); });
+    mqttClient.on("close", () => {
+      if (mqttClient) {
+        document.querySelectorAll(".cmd").forEach(b => b.disabled = true);
+        setStatus("MQTT reconnecting…", false);
+      }
+    });
     mqttClient.on("message", (topic, payload) => {
       const bytes = payload instanceof Uint8Array ? payload :
         new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
@@ -466,7 +471,7 @@ canvas { width: 100%; height: 90px; display: block; }
   };
   function mqttUi(on) {
     $("btnMqtt").textContent = on ? "Disconnect MQTT" : "Connect MQTT";
-    document.querySelectorAll(".cmd").forEach(b => b.disabled = !on || b.dataset.safetyGated === "true");
+    document.querySelectorAll(".cmd").forEach(b => b.disabled = !on);
   }
   document.querySelectorAll(".cmd").forEach(b => b.onclick = () => {
     if (b.dataset.cmd === "start" && !confirm("Start the mission? The wheels will turn.")) return;

@@ -953,6 +953,10 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
                 {
                     enter(p_sm, VC_ST_MISSION_START, now_ms, p_out);
                 }
+                else if (VC_EV_CMD_RESET == type)
+                {
+                    move(p_out, VC_MOVE_RESET, 0);
+                }
                 break;
             case VC_ST_MISSION_START:
                 on_mission_start(p_sm, p_event, type, in_state, now_ms, p_out);

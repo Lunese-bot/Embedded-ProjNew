@@ -44,9 +44,9 @@
 /* ---------------------------------------------------------------------
  *  IF-M1: motion commands, Vehicle Controller -> subsystem 2.
  *  Sent by COPY through a message buffer, so the sender needs no memory
- *  pool and may reuse its variable at once.  The control loop reads
- *  every queued command each period; the newest one wins, except that
- *  MOTION_SAFE_STOP latches until MOTION_RESET.
+ *  pool and may reuse its variable at once. Send only through the helpers:
+ *  they stamp the stop generation. The control loop reads at most one
+ *  queue's worth each period. SAFE_STOP latches until MOTION_RESET.
  * --------------------------------------------------------------------- */
 typedef enum
 {
@@ -57,13 +57,14 @@ typedef enum
                           set MFLG_CMD_DONE                         */
     MOTION_TURN,       /* pivot on the spot by angle_deg (+ = left,
                           - = right), then stop, MFLG_CMD_DONE      */
-    MOTION_SAFE_STOP,  /* NFR8: motors off at once, latched        */
+    MOTION_SAFE_STOP,  /* NFR8: request latched stop                 */
     MOTION_RESET       /* leave SAFE_STOP / FAULT, back to IDLE    */
 } motion_cmd_type_t;
 
 typedef struct
 {
     uint32_t seq;         /* sender's sequence number, echoed in status */
+    uint32_t stop_epoch;  /* emergency-stop generation at submission */
     int32_t  type;        /* motion_cmd_type_t */
     int32_t  speed_mm_s;  /* signed forward speed, |v| <= S2_MAX_SPEED  */
     int32_t  steer_mm_s;  /* DRIVE only: + = turn left (right wheel
@@ -76,21 +77,26 @@ typedef struct
 #define S2_MAX_SPEED_MM_S 400 /* commands are clamped to this */
 #define S2_CMD_QUEUE_LEN  8   /* messages the buffer can hold */
 
-extern ID g_mbf_motion_cmd; /* IF-M1, owned by S2 */
+extern ID g_mbf_motion_cmd; /* IF-M1, owned by S2; do not send directly */
 
-/* Helpers: fill a motion_cmd_t and send it without waiting (TMO_POL).
-   Return E_OK, or E_TMOUT if the queue is full.  Call from TASKS only. */
+/* Helpers: send without waiting (TMO_POL). E_OK means queued, not executed.
+   E_TMOUT means the queue is full; other kernel or safety errors may occur.
+   Call from TASKS only. */
 extern ER s2_cmd_stop(void);
 extern ER s2_cmd_drive(int32_t speed_mm_s, int32_t steer_mm_s);
 extern ER s2_cmd_drive_dist(int32_t speed_mm_s, int32_t distance_mm);
 extern ER s2_cmd_turn(int32_t speed_mm_s, int32_t angle_deg);
 extern ER s2_cmd_reset(void);
-extern ER s2_send_cmd(motion_cmd_t * p_cmd); /* sets cmd->seq */
+extern ER s2_send_cmd(motion_cmd_t * p_cmd); /* stamps queued commands */
 
-/* Emergency stop: may be called from any task.  Sets MFLG_ESTOP_REQ,
-   which the control loop checks before anything else, AND queues a
-   MOTION_SAFE_STOP.  The motors stop within one period (10 ms). */
+/* Emergency stop: may be called from any task. It invalidates older
+   queued commands and signals the control loop independently of the queue.
+   The stop latency must be verified on target under load. */
 extern ER s2_emergency_stop(void);
+
+/* Current stop generation; compare with the generation in a status snapshot
+   to detect a stop requested after that snapshot was published. */
+extern uint32_t s2_stop_epoch(void);
 
 /* IMU lift/overturn interlock: blocks every command, RESET included, while
    set.  The IMU clears it once the robot is set down; then RESET / Start. */
@@ -141,6 +147,7 @@ typedef struct
     uint32_t loop_count; /* control periods run */
     uint32_t overruns;   /* periods missed (loop took > 10 ms) */
     uint32_t time_ms;    /* tk_get_tim() when this snapshot was made */
+    uint32_t stop_epoch; /* latest stop generation applied by motion_task */
 } motion_status_t;
 
 extern ID g_mtx_motion; /* IF-M2, owned by S2 */

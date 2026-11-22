@@ -174,7 +174,7 @@ sends to it or waits on it. Agree on the data format before coding.
 |---|---|---|---|---|---|
 | IF-T1 | any → S1 | message buffer (owned by S1) | `g_mbf_telemetry`, `s1_post()` | topic suffix + exact payload length (binary-safe); drained by `mqtt_utk.c` with `TMO_POL` | |
 | IF-T2 | S1 → VC | VC's event buffer | `vc_post_event(VC_SRC_COMMS, ...)` | MQTT commands and acknowledgements as specified below; WiFi up/down | |
-| IF-M1 | VC → S2 | message buffer (owned by S2) | `g_mbf_motion_cmd` | `motion_cmd_t`, or `s2_cmd_drive/drive_dist/turn/stop/reset()` | |
+| IF-M1 | VC → S2 | message buffer (owned by S2) | `g_mbf_motion_cmd` | Use `s2_send_cmd()` or `s2_cmd_drive/drive_dist/turn/stop/reset()`; never send directly | |
 | IF-M2 | S2 → anyone | shared data under mutex (owned by S2) | `g_mtx_motion`, `s2_get_status()` | `motion_status_t` | |
 | IF-M3 | S2 → VC | event flag (owned by S2) | `g_flg_motion` | `MFLG_CMD_DONE`, `_STOPPED`, `_SAFE_STOPPED`, `_FAULT`, `_CMD_TIMEOUT` | |
 | — | any → S2 | function | `s2_emergency_stop()` | latched Safe Stop until `MOTION_RESET` | |
@@ -196,6 +196,14 @@ sends to it or waits on it. Agree on the data format before coding.
 Each interface is tested by at least one integration test
 (`testing/integration/TEST_LOG.md`).
 
+Reset in controller IDLE or FAULT requests an S2 reset; queue acceptance does
+not confirm that the latch cleared. An active IMU interlock rejects the reset,
+so it must be requested again after the interlock clears. During startup, the
+controller waits for a published S2 IDLE status with no IMU interlock and no
+newer stop generation before accepting motion READY. A reported S2 Safe Stop
+is a critical controller fault during a mission. These checks do not replace
+independent review or measured stop timing.
+
 ### MQTT commands and telemetry
 
 The existing one-byte commands retain bits 7-6 as `00` start, `01` stop,
@@ -206,14 +214,16 @@ Other extension opcodes and lengths are rejected. The one-byte ack contains
 two result bits (0 queued/accepted, 1 busy, 2 rejected) and the echoed
 six-bit sequence. An ack does not prove that the wheels have stopped.
 
-Remote pause and resume are **disabled by default** (`S1_ENABLE_REMOTE_PAUSE`
-is 0); their dashboard buttons are also disabled. They must not be enabled until the motion-stop path has been fixed,
-reviewed with Buddy 2 and tested on the robot. In particular, S2 can currently
-process a queued reset and drive after an emergency-stop flag when its queue
-is full. When enabled for testing after that review, pause is accepted only
-in FOLLOW_LINE; resume is accepted only after S2 confirms the stop. Events
-such as an obstacle or line loss during pause enter FAULT rather than start
-automatic movement. A missing stop confirmation also enters FAULT.
+Remote Pause and Resume are enabled by default; set `S1_ENABLE_REMOTE_PAUSE`
+to 0 at build time to reject them. The dashboard enables its command buttons
+only while MQTT is connected; it does not detect this firmware setting.
+Pause is accepted only in FOLLOW_LINE, and Resume only after S2 confirms the
+stop. Events such as an obstacle or line loss during pause enter FAULT rather
+than start automatic movement. A missing stop confirmation also enters FAULT.
+S2 rejects commands submitted before an emergency-stop request, but the
+software stop is not a physical power cutoff and does not synchronously turn
+off the motors. Independent review and measured stopping validation remain
+necessary for each hardware setup.
 
 Telemetry remains 14 bytes, version 1. Its layout and placeholder scales
 are in `app_program/subsystem1/s1_codec.h`. The former final padding bit is

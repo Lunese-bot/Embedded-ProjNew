@@ -62,6 +62,12 @@ extern ID             g_mbf_telemetry;
 extern comms_status_t g_s1_stat; /* counters, single-word updates */
 extern void           telemetry_task(int32_t stacd, void * p_exinf);
 
+#if APP_TEST
+extern ID g_mbf_s1_test;
+extern int32_t s1_test_bridge_pop(char * p_topic, int32_t topic_max,
+                                  uint8_t * p_payload, int32_t payload_max);
+#endif
+
 #endif /* SUBSYSTEM1_H */
 
 /*** end of file ***/

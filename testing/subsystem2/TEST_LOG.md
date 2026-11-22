@@ -20,6 +20,7 @@ Define a test here before running it. Test IDs never change.
 | S2-U08 | after STOP: IDLE, both duties 0 | IF-M1, IF-M2 | auto | `subsystem2_test.c` | `[TEST] S2-U08 PASS` |
 | S2-U09 | emergency stop within 100 ms, latched, DRIVE ignored | NFR8, IF-M3 | auto | `subsystem2_test.c` | `[TEST] S2-U09 PASS` |
 | S2-U10 | RESET returns to IDLE | FR8 | auto | `subsystem2_test.c` | `[TEST] S2-U10 PASS` |
+| S2-U11 | Stop ordering with full queue, interleaved commands, IMU and generation exhaustion | NFR8, IF-M1 | host simulation | `host_test/test_emergency_stop.c`, SMP and single-core | `S2-U11 emergency-stop ordering: PASS` |
 | S2-M01 | each wheel turns forward for a forward command | FR3 | manual | Robot on a stand, `S2_DEMO 1`. Watch both wheels on "forward 300 mm". Flip `S2_MOTOR_x_INVERT` if one turns backwards | both wheels forward |
 | S2-M02 | encoder counts one revolution | FR3, A4 | manual | Mark a wheel, turn it by hand 10 turns, read `ticks_l/ticks_r` from the status print | 10 × `S2_TICKS_PER_REV` ± 1 |
 | S2-M03 | minimum moving duty | FR3 | manual | Raise `S2_DUTY_MIN_MOVE` from 100 in steps of 25 until both wheels start reliably | value recorded |

@@ -24,7 +24,12 @@
  */
 #define INITTASK_EXINF		(0x0)
 #define INITTASK_ITSKPRI	(1)
+#if defined(APP_TEST) && APP_TEST
+/* The initial task runs the subsystem tests, including their large fixtures. */
+#define INITTASK_STKSZ		(8*1024)
+#else
 #define INITTASK_STKSZ		(1*1024)
+#endif
 #define INITTASK_DSNAME		"inittsk"
 
 #if USE_IMALLOC

@@ -8,8 +8,9 @@
 #include "s1_codec.h"
 #include "../vehicle_controller/vehicle_controller.h"
 
-int32_t s1_bridge_pop(char * p_topic, int32_t topic_max, uint8_t * p_payload,
-                      int32_t payload_max)
+static int32_t bridge_pop_from(ID mbf, bool count_sent, char * p_topic,
+                               int32_t topic_max, uint8_t * p_payload,
+                               int32_t payload_max)
 {
     uint8_t line[S1_LINE_MAX];
     int32_t msg_len;
@@ -23,7 +24,7 @@ int32_t s1_bridge_pop(char * p_topic, int32_t topic_max, uint8_t * p_payload,
     {
         return -1;
     }
-    msg_len = tk_rcv_mbf(g_mbf_telemetry, (char *)line, TMO_POL);
+    msg_len = tk_rcv_mbf(mbf, (char *)line, TMO_POL);
     if (msg_len <= 0)
     {
         return 0;
@@ -56,9 +57,28 @@ int32_t s1_bridge_pop(char * p_topic, int32_t topic_max, uint8_t * p_payload,
     {
         p_payload[idx] = line[topic_len + 1 + idx];
     }
-    g_s1_stat.sent++;
+    if (count_sent)
+    {
+        g_s1_stat.sent++;
+    }
     return payload_len;
 }
+
+int32_t s1_bridge_pop(char * p_topic, int32_t topic_max, uint8_t * p_payload,
+                      int32_t payload_max)
+{
+    return bridge_pop_from(g_mbf_telemetry, true, p_topic, topic_max,
+                           p_payload, payload_max);
+}
+
+#if APP_TEST
+int32_t s1_test_bridge_pop(char * p_topic, int32_t topic_max,
+                           uint8_t * p_payload, int32_t payload_max)
+{
+    return bridge_pop_from(g_mbf_s1_test, false, p_topic, topic_max,
+                           p_payload, payload_max);
+}
+#endif
 
 static void post_ack(S1_ACK result, uint8_t seq)
 {
