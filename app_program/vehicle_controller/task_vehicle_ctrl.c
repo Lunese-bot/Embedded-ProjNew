@@ -23,6 +23,7 @@
 #include "vc_ports.h"
 #include "vc_bridge.h"
 #include "../subsystem2/subsystem2.h" /* g_s2_odo_ticks for TICK p2 */
+#include "../subsystem1/s1_bridge.h"
 
 static vc_sm_t      g_vc_sm; /* the live controller */
 static vc_actions_t g_vc_actions;
@@ -104,6 +105,7 @@ static void handle(const vc_event_t * p_event, uint32_t now, bool b_from_s5)
 {
     vc_state_t before   = g_vc_sm.st.state;
     uint32_t   rejected = g_vc_sm.st.moves_rejected;
+    bool       was_paused = g_vc_sm.st.paused;
     bool       b_avoiding;
 
     vc_sm_handle(&g_vc_sm, p_event, now, &g_vc_actions);
@@ -115,6 +117,15 @@ static void handle(const vc_event_t * p_event, uint32_t now, bool b_from_s5)
     }
     run_actions(&g_vc_actions);
 
+    if ((VC_SRC_COMMS == p_event->src) &&
+        ((VC_EV_CMD_PAUSE == p_event->type) ||
+         (VC_EV_CMD_RESUME == p_event->type)))
+    {
+        bool accepted = (VC_EV_CMD_PAUSE == p_event->type) ?
+                        (!was_paused && g_vc_sm.st.paused) :
+                        (was_paused && !g_vc_sm.st.paused);
+        s1_bridge_command_result((uint8_t)p_event->p1, accepted);
+    }
     if (b_from_s5)
     {
         vc_bridge_s5_after(p_event, g_vc_sm.st.state,

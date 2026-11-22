@@ -11,6 +11,28 @@ comms_status_t g_s1_stat;
 
 static ID g_cyc_telemetry;
 
+#if APP_TEST
+ID g_mbf_s1_test;
+
+static void capture_test_message(const uint8_t * p_line, int32_t len)
+{
+    uint8_t old[S1_LINE_MAX];
+    ER ercd = tk_snd_mbf(g_mbf_s1_test, p_line, len, TMO_POL);
+
+    if (E_TMOUT == ercd)
+    {
+        int32_t received = tk_rcv_mbf(g_mbf_s1_test, old, TMO_POL);
+        if ((received < E_OK) && (received != E_TMOUT))
+        {
+            app_check(received, "s1 test capture receive");
+            return;
+        }
+        ercd = tk_snd_mbf(g_mbf_s1_test, p_line, len, TMO_POL);
+    }
+    app_check(ercd, "s1 test capture send");
+}
+#endif
+
 /* Cyclic handler: wake telemetry_task every S1_PERIOD_MS */
 static void telemetry_cyclic_isr(void * p_exinf)
 {
@@ -26,7 +48,19 @@ ER subsystem1_init(void)
     cmbf.bufsz  = S1_QUEUE_LINES * ((S1_LINE_MAX / 2) + 4); /* typical line */
     cmbf.maxmsz = S1_LINE_MAX;
     g_mbf_telemetry = tk_cre_mbf(&cmbf);
-    return (g_mbf_telemetry < E_OK) ? g_mbf_telemetry : E_OK;
+    if (g_mbf_telemetry < E_OK)
+    {
+        return g_mbf_telemetry;
+    }
+#if APP_TEST
+    cmbf.bufsz = S1_QUEUE_LINES * (S1_LINE_MAX + sizeof(int32_t));
+    g_mbf_s1_test = tk_cre_mbf(&cmbf);
+    if (g_mbf_s1_test < E_OK)
+    {
+        return g_mbf_s1_test;
+    }
+#endif
+    return E_OK;
 }
 
 ER subsystem1_start(void)
@@ -92,6 +126,12 @@ ER s1_post(const char * p_topic, const void * p_data, int32_t data_len)
         g_s1_stat.dropped++;
         ercd = tk_snd_mbf(g_mbf_telemetry, line, len, TMO_POL);
     }
+#if APP_TEST
+    if (E_OK == ercd)
+    {
+        capture_test_message(line, len);
+    }
+#endif
     return ercd;
 }
 

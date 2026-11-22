@@ -34,6 +34,9 @@ Test IDs never change and are never reused, even if a test is dropped.
    A test that needs eyes or instruments (an LED blinks, a motor turns, a
    scope shows 1 kHz) is a *manual* test. Write its steps in the table instead.
 3. **Build the test image and flash it.**
+   The initial task receives a larger stack in `TEST=1` builds because it
+   runs all subsystem tests. A passing build alone does not verify stack usage
+   or motor safety on the robot.
    ```sh
    cd build_make
    make TEST=1 -j8        # -> mtk3pico_smp1_usb_cdc_wifi_test.uf2

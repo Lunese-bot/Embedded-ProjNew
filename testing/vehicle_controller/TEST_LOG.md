@@ -35,10 +35,16 @@ code, no Pico needed: VC-H01 … VC-H41, one `[TEST]` line each (see `test_vc_sm
 | ID | What is tested | Method | Steps / how | Expected result |
 |---|---|---|---|---|
 | VC-H01..H41 | every transition, time limit, fault rule and arbitration rule of `vc_sm.c` | auto (PC) | `cd app_program/vehicle_controller/host_test && make` | `SUMMARY 41 passed, 0 failed` |
+| S6-PA01..PA08 | pause gating, stop confirmation, resume and fault handling | auto (PC) | `app_program/vehicle_controller/host_test/test_vc_sm.c` | Eight PASS results; no motors involved |
+| S6-PA09 | resume during post-obstacle handoff | auto (PC) | Pause and resume after avoidance, before fresh steering | Remain at slow handoff speed and wait for steering |
 | S6-OBS05 | S5 stop request while looking for black line | auto (PC) | Send a stop request during avoidance | Controller asks S2 to confirm the wheels stopped |
 | S6-OBS06..OBS07 | Queued junctions and steering at the bypass handoff | auto (PC) | Feed timed events and sensor snapshots into `test_vc_s3.c` | Drop old events and steering. A new junction honors the configured action. |
 | S6-H24, S6-OBS08..OBS09 | Slow handoff to line following after a bypass | auto (PC) | Confirm avoidance, then send fresh steering requests | Wait for steering before moving. Restore cruise after the slow steering interval. |
 | S6-OBS10 | Straight mode preserves steering through a junction | auto (PC) | Select Straight with a junction queued | Ignore the junction and keep issuing steering commands. |
+| S6-BC01 | Barcode event publication | auto (PC) | Feed a decoded barcode to `test_vc_s3.c`, including a simulated publish error | Publish the encoded text, report errors, and preserve the controller event. |
+| S6-SAFE01 | Reset while VC is IDLE | auto (PC) | Send Reset to the state machine in IDLE | Forward Reset to S2 without starting a mission. |
+| S6-SAFE02 | Safe Stop after motion READY | auto (PC) | Report a critical S2 stop during self-check | Enter FAULT and request Safe Stop. |
+| S6-SAFE03 | S2 readiness and reset | auto (PC) | Simulate status errors, latched stops, pending resets, interlock, and stop-generation changes in the S2 bridge | No READY until a current, unlatched IDLE snapshot; report Safe Stop once per generation. |
 
 **Integration** (add to `testing/integration/TEST_LOG.md` with the other owner):
 
@@ -60,7 +66,11 @@ Add a new row for every run. Never edit or delete old rows.
 |---|---|---|---|---|---|---|
 | 2026-11-18 | host suite plus S6-OBS01..OBS04 | working tree | Codex | PASS 70/70 | [host log](logs/2026-11-18_restore_stop_avoid.txt) | Detection requests physical stop; confirmation starts scan; premature motion rejected; missing confirmation faults |
 | 2026-10-15 | VC-H01..H41 | (base code, not committed yet) | Claude | PASS 41/41 | host run, gcc 13 | PC only; on-target tests not yet run |
+| 2026-11-22 | S6-PA01..PA08 | Uncommitted changes | Copilot | PASS | Host run: 74 total passed, 0 failed | State-machine tests only; remote pause remains disabled pending safety review |
 | 2026-11-18 | host suite including S6-OBS05 | dffa830 + working tree | Codex | PASS 71/71 | [host log](logs/2026-11-18_line_recovery.txt) | Confirmed stop for S5 search. Reacquisition restores cruise. Exhaustion puts the mission in FAULT. |
 | 2026-11-18 | controller and S3 bridge suite | dffa830 + working tree | Codex | PASS 71 controller and 2 bridge checks | [host log](logs/2026-11-18_ir_rejoin.txt) | Junctions and steering from before the handoff are discarded. |
 | 2026-11-18 | controller suite including S6-OBS08..OBS09 | dffa830 + working tree | Codex | PASS 73/73 | [host log](logs/2026-11-18_direction_rejoin.txt) | The first steering sample starts slow line following. Cruise resumes on the expected sample. |
 | 2026-11-18 | controller and S3 bridge suite including S6-OBS10 | dffa830 + working tree | Codex | PASS 73 controller and 3 bridge checks | [controller log](logs/2026-11-18_straight_junction_vc.txt), [bridge log](logs/2026-11-18_straight_junction.txt) | Straight mode keeps forwarding steering through a queued junction. |
+| 2026-11-22 | merged controller suite including S6-PA09 | Pending merge | Copilot | PASS | Host run: 82 controller checks and 3 bridge checks passed | Host-only; no hardware tested |
+| 2026-11-22 | S6-SAFE01..SAFE03 | Uncommitted changes | Copilot | PASS | Host run: 84 controller checks, 3 S3 bridge checks and S2 readiness regression passed | Simulated status and interlock; target verification and physical stop timing remain outstanding |
+| 2026-11-22 | S6-BC01 | Uncommitted changes | Copilot | PASS | Host S3 bridge regression | Simulated S1 queue; no robot barcode test |

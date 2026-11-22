@@ -5,17 +5,21 @@
 CC     ?= cc
 CFLAGS := -std=c99 -Wall -Wextra -Werror -DVC_HOST_TEST -DVC_JUNCTION_HOLD_MS=0 -DVC_BARCODE_RULES_TEST -I..
 
-run: test_vc_sm test_vc_s3
+run: test_vc_sm test_vc_s3 test_vc_s2
 	./test_vc_sm
 	./test_vc_s3
+	./test_vc_s2
 
 test_vc_sm: test_vc_sm.c ../vc_sm.c ../vc_barcode_rules.c ../vc_barcode_config.h ../vc_sm.h ../vc_types.h ../../robot_types.h host_types.h
 	$(CC) $(CFLAGS) -o $@ test_vc_sm.c ../vc_sm.c ../vc_barcode_rules.c
 
-test_vc_s3: test_vc_s3.c ../vc_bridge_s3.c ../vc_bridge.h ../vc_sm.h ../vc_types.h host_types.h ../../subsystem3/subsystem3.h
-	$(CC) -std=c11 -Wall -Wextra -Werror -o $@ test_vc_s3.c
+test_vc_s3: test_vc_s3.c ../vc_bridge_s3.c ../vc_bridge.h ../vc_sm.h ../vc_types.h host_types.h ../../subsystem3/subsystem3.h ../../subsystem1/s1_codec.c ../../subsystem1/s1_codec.h
+	$(CC) -std=c11 -Wall -Wextra -Werror -o $@ test_vc_s3.c ../../subsystem1/s1_codec.c
+
+test_vc_s2: test_vc_s2.c ../vc_bridge_s2.c ../vc_bridge.h ../vc_sm.h ../vc_types.h host_types.h ../../subsystem2/subsystem2.h
+	$(CC) -std=c11 -Wall -Wextra -Werror -o $@ test_vc_s2.c
 
 clean:
-	rm -f test_vc_sm test_vc_s3
+	rm -f test_vc_sm test_vc_s3 test_vc_s2
 
 .PHONY: run clean

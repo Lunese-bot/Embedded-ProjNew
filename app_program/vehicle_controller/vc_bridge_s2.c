@@ -27,7 +27,8 @@
  *        MFLG_STOPPED      -> VC_EV_MOTION_STOPPED after a requested STOP
  *        MFLG_FAULT        -> CRITICAL fault 0x20nn (nn = motion_fault_t)
  *        MFLG_CMD_TIMEOUT  -> CRITICAL fault 0x2010 (steering stopped)
- *        SELF_CHECK        -> VC_EV_READY if S2 is not latched in a fault
+ *        SAFE_STOP status  -> CRITICAL fault 0x2011
+ *        SELF_CHECK        -> VC_EV_READY once S2 is idle and unlatched
  *      VC_MOVE_STOP_CONFIRM clears stale MFLG_STOPPED before issuing STOP,
  *      so the junction state advances only on its own stop confirmation.
  */
@@ -42,6 +43,7 @@
 
 #define VC_TURN_SPEED_MMS   120 /* wheel speed for pivot turns */
 #define S2_FC_TIMEOUT       0x2010
+#define S2_FC_SAFE_STOP     0x2011
 #define S2_FC_FAULT_BASE    0x2000U /* | motion_fault_t in the low byte */
 #define S2_FC_FAULT_MASK    0xFFU
 #define VC_STEER_FULL_SCALE 1000 /* S3 steering request -1000..+1000 */
@@ -95,6 +97,8 @@ static bool     g_b_driving = false; /* last command was a DRIVE */
 static uint32_t g_got;               /* flag bits not yet handed out */
 static bool     g_b_ready_pending;
 static bool     g_b_waiting_stop;
+static bool     g_b_safe_stop_reported;
+static uint32_t g_reported_stop_epoch;
 
 ER vc_bridge_s2_move(vc_move_t move, int32_t value)
 {
@@ -190,10 +194,12 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
             break;
         case VC_MOVE_SAFE_STOP:
             g_b_driving = false;
+            g_b_ready_pending = false;
             ercd        = s2_emergency_stop();
             break;
         case VC_MOVE_RESET:
             g_b_driving = false;
+            g_b_ready_pending = false;
             ercd        = s2_cmd_reset();
             break;
         default:
@@ -220,24 +226,39 @@ bool vc_bridge_s2_next(vc_event_t * p_event)
     UINT            ptn;
     motion_status_t motion_st;
     bool            b_event = true;
+    ER              ercd;
 
-    if ((!g_b_ready_pending) && (0U == g_got) &&
+    ercd = s2_get_status(&motion_st);
+    if (ercd < E_OK)
+    {
+        app_check(ercd, "vc->s2 status");
+        return false;
+    }
+
+    if ((MSTATE_SAFE_STOP == motion_st.state) &&
+        (!g_b_safe_stop_reported ||
+         (motion_st.stop_epoch != g_reported_stop_epoch)))
+    {
+        g_b_safe_stop_reported = true;
+        g_reported_stop_epoch = motion_st.stop_epoch;
+        make(p_event, VC_EV_FAULT, VC_FAULT_CRITICAL, S2_FC_SAFE_STOP);
+        return true;
+    }
+    if (MSTATE_SAFE_STOP != motion_st.state)
+    {
+        g_b_safe_stop_reported = false;
+    }
+
+    if ((0U == g_got) &&
         (E_OK == tk_wai_flg(g_flg_motion, S2_EVENT_BITS, TWF_ORW | TWF_BITCLR,
                             &ptn, TMO_POL)))
     {
         g_got = ptn & S2_EVENT_BITS;
     }
 
-    if (g_b_ready_pending)
-    {
-        g_b_ready_pending = false;
-        make(p_event, VC_EV_READY, 0, 0);
-    }
-    else if (0U != (g_got & MFLG_FAULT))
+    if (0U != (g_got & MFLG_FAULT))
     {
         g_got &= ~MFLG_FAULT;
-        motion_st.fault = 0;
-        s2_get_status(&motion_st);
         /* Cast: mask the fault code as unsigned; the result is < 0x2100 */
         make(p_event, VC_EV_FAULT, VC_FAULT_CRITICAL,
              (int32_t)(S2_FC_FAULT_BASE |
@@ -266,6 +287,14 @@ bool vc_bridge_s2_next(vc_event_t * p_event)
         g_got &= ~MFLG_CMD_DONE;
         make(p_event, VC_EV_MANOEUVRE_DONE, 1, 0);
     }
+    else if (g_b_ready_pending && (motion_st.loop_count != 0U) &&
+             (MSTATE_IDLE == motion_st.state) && (0U == g_s2_imu_stop) &&
+             (motion_st.stop_epoch != UINT32_MAX) &&
+             (motion_st.stop_epoch == s2_stop_epoch()))
+    {
+        g_b_ready_pending = false;
+        make(p_event, VC_EV_READY, 0, 0);
+    }
     else
     {
         b_event = false;
@@ -275,11 +304,8 @@ bool vc_bridge_s2_next(vc_event_t * p_event)
 
 ER vc_bridge_s2_request(vc_request_t req, int32_t arg)
 {
-    motion_status_t motion_st;
-
     (void)arg;
-    if ((VC_REQ_SELF_CHECK == req) && (E_OK == s2_get_status(&motion_st)) &&
-        (MSTATE_FAULT != motion_st.state))
+    if (VC_REQ_SELF_CHECK == req)
     {
         g_b_ready_pending = true;
     }

@@ -173,8 +173,8 @@ sends to it or waits on it. Agree on the data format before coding.
 | ID | From → To | Mechanism | Object ID name | Data / meaning | Agreed by |
 |---|---|---|---|---|---|
 | IF-T1 | any → S1 | message buffer (owned by S1) | `g_mbf_telemetry`, `s1_post()` | topic suffix + exact payload length (binary-safe); drained by `mqtt_utk.c` with `TMO_POL` | |
-| IF-T2 | S1 → VC | VC's event buffer | `vc_post_event(VC_SRC_COMMS, ...)` | MQTT `robot/g10/cmd`: one byte, bits 7-6 `00` start / `01` stop / `10` reset, bits 5-0 sequence; one-byte result/sequence ack on `robot/g10/ack`; WiFi up/down | |
-| IF-M1 | VC → S2 | message buffer (owned by S2) | `g_mbf_motion_cmd` | `motion_cmd_t`, or `s2_cmd_drive/drive_dist/turn/stop/reset()` | |
+| IF-T2 | S1 → VC | VC's event buffer | `vc_post_event(VC_SRC_COMMS, ...)` | MQTT commands and acknowledgements as specified below; WiFi up/down | |
+| IF-M1 | VC → S2 | message buffer (owned by S2) | `g_mbf_motion_cmd` | Use `s2_send_cmd()` or `s2_cmd_drive/drive_dist/turn/stop/reset()`; never send directly | |
 | IF-M2 | S2 → anyone | shared data under mutex (owned by S2) | `g_mtx_motion`, `s2_get_status()` | `motion_status_t` | |
 | IF-M3 | S2 → VC | event flag (owned by S2) | `g_flg_motion` | `MFLG_CMD_DONE`, `_STOPPED`, `_SAFE_STOPPED`, `_FAULT`, `_CMD_TIMEOUT` | |
 | — | any → S2 | function | `s2_emergency_stop()` | latched Safe Stop until `MOTION_RESET` | |
@@ -195,6 +195,60 @@ sends to it or waits on it. Agree on the data format before coding.
 
 Each interface is tested by at least one integration test
 (`testing/integration/TEST_LOG.md`).
+
+Reset in controller IDLE or FAULT requests an S2 reset; queue acceptance does
+not confirm that the latch cleared. An active IMU interlock rejects the reset,
+so it must be requested again after the interlock clears. During startup, the
+controller waits for a published S2 IDLE status with no IMU interlock and no
+newer stop generation before accepting motion READY. A reported S2 Safe Stop
+is a critical controller fault during a mission. These checks do not replace
+independent review or measured stop timing.
+
+### MQTT commands and telemetry
+
+The existing one-byte commands retain bits 7-6 as `00` start, `01` stop,
+`10` reset and bits 5-0 as sequence. A single byte with code `11` remains
+invalid. A two-byte extension uses `11` plus the six-bit sequence in its
+first byte, followed by `00` for pause or `01` for resume (hexadecimal).
+Other extension opcodes and lengths are rejected. The one-byte ack contains
+two result bits (0 queued/accepted, 1 busy, 2 rejected) and the echoed
+six-bit sequence. An ack does not prove that the wheels have stopped.
+
+Decoded barcode text is also sent once on `robot/g10/barcode`, using six-bit
+MSB-first character codes: 1 through 43 index
+`0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%`; zero bits pad the last byte.
+The payload is 1-8 bytes for 1-10 characters. Delivery is best-effort, not a
+retained last value; queued events can be delayed or dropped, especially
+while disconnected. The dashboard displays the last reading it received.
+USB console barcode lines also update the dashboard's last-reading tile.
+
+Remote Pause and Resume are enabled by default; set `S1_ENABLE_REMOTE_PAUSE`
+to 0 at build time to reject them. The dashboard enables its command buttons
+only while MQTT is connected; it does not detect this firmware setting.
+Pause is accepted only in FOLLOW_LINE, and Resume only after S2 confirms the
+stop. Events such as an obstacle or line loss during pause enter FAULT rather
+than start automatic movement. A missing stop confirmation also enters FAULT.
+S2 rejects commands submitted before an emergency-stop request, but the
+software stop is not a physical power cutoff and does not synchronously turn
+off the motors. Independent review and measured stopping validation remain
+necessary for each hardware setup.
+
+Telemetry remains 14 bytes, version 1. Its layout and placeholder scales
+are in `app_program/subsystem1/s1_codec.h`. The former final padding bit is
+now the paused flag; older version-1 decoders ignore that bit. A paused flag
+means a pause was requested, not that physical stopping has been confirmed.
+The configured telemetry period is 200 ms, but its hardware timing and stale
+queue handling on reconnect still need validation; old queued snapshots can
+currently be replayed after reconnect.
+
+### Obstacle avoidance and junctions
+
+The obstacle-avoidance configuration enables obstacle checking and defaults
+to driving straight through junctions instead of executing barcode-directed
+turns. With `S2_WEBDEBUG=1`, the robot's live-tuning dashboard can select
+"barcode decides"; with `S2_WEBDEBUG=0`, straight-through behavior is fixed.
+Obstacle avoidance, braking distance and line reacquisition require supervised
+hardware validation; the existing motion-stop safety issue remains unresolved.
 
 ## 6. Kernel object budget
 

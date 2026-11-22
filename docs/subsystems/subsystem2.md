@@ -34,11 +34,36 @@ real robot yet.**
 
 | ID | From → To | Mechanism | Object | Data |
 |---|---|---|---|---|
-| IF-M1 | Vehicle Controller → S2 | message buffer (owned by S2) | `g_mbf_motion_cmd` | `motion_cmd_t`, or call `s2_cmd_drive/drive_dist/turn/stop/reset()` |
+| IF-M1 | Vehicle Controller → S2 | message buffer (owned by S2) | `g_mbf_motion_cmd` | Call `s2_send_cmd()` or `s2_cmd_drive/drive_dist/turn/stop/reset()`; never send directly |
 | IF-M2 | S2 → anyone | shared data under mutex (owned by S2) | `g_mtx_motion` | `motion_status_t` via `s2_get_status()` |
 | IF-M3 | S2 → Vehicle Controller | event flag (owned by S2) | `g_flg_motion` | `MFLG_CMD_DONE`, `MFLG_STOPPED`, `MFLG_SAFE_STOPPED`, `MFLG_FAULT`, `MFLG_CMD_TIMEOUT` |
 | — | any task → S2 | function | `s2_emergency_stop()` | latched Safe Stop until `MOTION_RESET` |
 | IF-S4-3 | S2 → S4 | function (owned by S4) | `s4_set_speed_mm_s()` | measured vehicle speed, mm/s, every 10 ms, for hump height |
+
+### Emergency stop ordering
+
+Each task-context emergency stop advances a synchronized stop generation,
+independently of the bounded command queue. The motion task turns the motors
+off and latches the stop on observing a new generation; commands stamped
+before it, including RESET, are discarded. A RESET submitted after the request
+can clear the latch after it is applied, unless the IMU interlock is active.
+A later stop invalidates that RESET again. `MOTION_SAFE_STOP` submitted through
+`s2_send_cmd()` uses the same path. Direct writes to the command buffer or
+the internal stop-request flag bypass this protection and are prohibited.
+
+The generation saturates rather than wrapping: at its maximum, motion remains
+latched until restart and new commands return `E_LIMIT`. The stop signal is checked during command processing
+and before motor output, but it does not synchronously cut motor power.
+Buddy 2 must review the change and measure stop latency under load on the
+robot; software simulation and a successful build do not establish safe operation.
+
+The controller forwards an explicit Reset even when it is already IDLE.
+Queueing Reset does not confirm execution: an active IMU interlock rejects it,
+and a later stop invalidates it. The controller's startup self-check waits for
+an S2 IDLE snapshot with the latest applied stop generation and no IMU
+interlock. If a Safe Stop is observed during a mission, it reports a critical
+fault. After an interlock clears, request Reset again and wait for S2 to leave
+Safe Stop before requesting Start.
 
 IF-S4-3 is already wired: `task_motion.c` calls `s4_set_speed_mm_s()` at
 the end of every period. It is declared weak, so the build still links

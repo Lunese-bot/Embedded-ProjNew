@@ -603,6 +603,14 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
         n = kv(p_out, n, out_max, "state", (int32_t)o.state);
         n = kv(p_out, n, out_max, "fault", (int32_t)o.last_fault);
         n = kv(p_out, n, out_max, "dist", (int32_t)o.last_distance_mm);
+        if (0U != o.profile.valid)
+        {
+            n = kv(p_out, n, out_max, "widthMm", (int32_t)o.profile.width_mm);
+        }
+        else
+        {
+            n = put_str(p_out, n, out_max, "\"widthMm\":null,");
+        }
         n = kv(p_out, n, out_max, "servo", servo_get_deg());
         n = kv(p_out, n, out_max, "pings", (int32_t)o.pings);
         n = kv(p_out, n, out_max, "timeouts", (int32_t)o.echo_timeouts);

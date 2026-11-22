@@ -9,6 +9,9 @@
 
 #include "subsystem2.h"
 #include "s2_config.h"
+#if TK_SUPPORT_SMP
+#include <tk/smp.h>
+#endif
 
 ID g_mbf_motion_cmd; /* IF-M1 */
 ID g_mtx_motion;     /* IF-M2 */
@@ -16,6 +19,20 @@ ID g_flg_motion;     /* IF-M3 */
 ID g_tid_motion;
 ID g_cyc_motion;
 volatile uint32_t g_s2_imu_stop; /* set by IMU lift/overturn, cleared when set down */
+#if TK_SUPPORT_SMP
+static UW g_stop_epoch, g_s2_seq;
+#else
+static volatile UW g_stop_epoch, g_s2_seq;
+#endif
+
+uint32_t s2_stop_epoch(void)
+{
+#if TK_SUPPORT_SMP
+    return atomic_add(&g_stop_epoch, 0);
+#else
+    return g_stop_epoch;
+#endif
+}
 
 void s2_latch_imu_stop(void)
 {
@@ -24,7 +41,7 @@ void s2_latch_imu_stop(void)
         return;
     }
     g_s2_imu_stop = 1U;
-    (void)tk_set_flg(g_flg_motion, MFLG_ESTOP_REQ);
+    app_check(s2_emergency_stop(), "s2 IMU emergency stop");
     (void)tk_wup_tsk(g_tid_motion);
 }
 
@@ -141,14 +158,31 @@ ER subsystem2_start(void)
 /* ---------------------------------------------------------------------
  *  IF-M1 helpers.  These run in the CALLER's task.
  * --------------------------------------------------------------------- */
-static uint32_t g_s2_seq = 0;
-
 ER s2_send_cmd(motion_cmd_t * p_cmd)
 {
-    /* Only the Vehicle Controller sends commands (one task), so this
-       counter needs no lock.  s2_emergency_stop() from another task
-       may share a number; that is harmless, seq is only a label. */
+#if !TK_SUPPORT_SMP
+    UW intsts;
+#endif
+    if (p_cmd == NULL)
+    {
+        return E_PAR;
+    }
+    if (MOTION_SAFE_STOP == p_cmd->type)
+    {
+        return s2_emergency_stop();
+    }
+#if TK_SUPPORT_SMP
+    p_cmd->seq = atomic_inc(&g_s2_seq);
+#else
+    DI(intsts);
     p_cmd->seq = ++g_s2_seq;
+    EI(intsts);
+#endif
+    p_cmd->stop_epoch = s2_stop_epoch();
+    if (p_cmd->stop_epoch == UINT32_MAX)
+    {
+        return E_LIMIT;
+    }
     return tk_snd_mbf(g_mbf_motion_cmd, p_cmd, sizeof(motion_cmd_t), TMO_POL);
 }
 
@@ -192,11 +226,30 @@ ER s2_cmd_reset(void)
 
 ER s2_emergency_stop(void)
 {
-    /* The flag works even if the command queue is full */
-    ER ercd = tk_set_flg(g_flg_motion, MFLG_ESTOP_REQ);
+#if TK_SUPPORT_SMP
+    UW epoch;
+    UW old;
 
-    (void)send_simple(MOTION_SAFE_STOP, 0, 0, 0, 0);
-    return ercd;
+    epoch = atomic_add(&g_stop_epoch, 0);
+    while (epoch != UINT32_MAX)
+    {
+        old = atomic_cmpxchg(&g_stop_epoch, epoch + 1U, epoch);
+        if (old == epoch)
+        {
+            break;
+        }
+        epoch = old;
+    }
+#else
+    UW intsts;
+    DI(intsts);
+    if (g_stop_epoch != UINT32_MAX)
+    {
+        g_stop_epoch++;
+    }
+    EI(intsts);
+#endif
+    return tk_set_flg(g_flg_motion, MFLG_ESTOP_REQ);
 }
 
 #if S2_DEMO

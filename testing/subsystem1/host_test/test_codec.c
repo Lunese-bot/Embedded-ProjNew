@@ -151,6 +151,58 @@ int main(void)
 	}
 	CHECK("S1-H11", valid, "ack results and echoed sequences round-trip");
 
+	memset(&input, 0, sizeof(input));
+	input.version = S1_PROTO_VERSION;
+	input.paused = 1;
+	s1_tlm_encode(&input, frame);
+	CHECK("S1-H13", (frame[S1_TLM_BYTES - 1] & 1u) &&
+	      s1_tlm_decode(frame, S1_TLM_BYTES, &output) == 0 &&
+	      output.paused == 1, "paused status uses the former padding bit");
+
+	{
+		const uint8_t start[] = {0x01};
+		const uint8_t reset[] = {0x83};
+		const uint8_t pause[] = {0xC2, 0x00};
+		const uint8_t resume[] = {0xC3, 0x01};
+		const uint8_t bad_prefix[] = {0x02, 0x00};
+		const uint8_t bad_opcode[] = {0xC2, 0x02};
+
+		CHECK("S1-H14", s1_cmd_decode(start, 1) == S1_REQ_START &&
+		      s1_cmd_decode(reset, 1) == S1_REQ_RESET &&
+		      s1_cmd_decode(pause, 2) == S1_REQ_PAUSE &&
+		      s1_cmd_decode(resume, 2) == S1_REQ_RESUME &&
+		      s1_cmd_seq(pause[0]) == 2, "legacy and extended commands decode");
+		CHECK("S1-H15", s1_cmd_decode(pause, 1) == S1_REQ_INVALID &&
+		      s1_cmd_decode(bad_prefix, 2) == S1_REQ_INVALID &&
+		      s1_cmd_decode(bad_opcode, 2) == S1_REQ_INVALID &&
+		      s1_cmd_decode(pause, 3) == S1_REQ_INVALID &&
+		      s1_cmd_decode(NULL, 2) == S1_REQ_INVALID,
+		      "malformed and reserved command frames are rejected");
+	}
+
+	{
+		uint8_t barcode[S1_BARCODE_MAX_BYTES];
+		const uint8_t expected[] = {0x2c, 0xc0};
+		const uint8_t max_expected[] = {0x2c, 0xc3, 0x4e, 0x3d,
+						0x04, 0x52, 0x4d, 0x40};
+		const uint8_t symbols_expected[] = {0x06, 0x79, 0x69,
+						    0xa2, 0xaa, 0xc0};
+
+		CHECK("S1-H17",
+		      s1_barcode_encode((const uint8_t *)"AB", 2, barcode) == 2 &&
+		      memcmp(barcode, expected, sizeof(expected)) == 0 &&
+		      s1_barcode_encode((const uint8_t *)"ABCDEFGHIJ", 10, barcode) == 8 &&
+		      memcmp(barcode, max_expected, sizeof(max_expected)) == 0,
+		      "barcode characters use the compact six-bit wire format");
+		CHECK("S1-H18",
+		      s1_barcode_encode((const uint8_t *)"0 -/$+%", 7, barcode) == 6 &&
+		      memcmp(barcode, symbols_expected, sizeof(symbols_expected)) == 0 &&
+		      s1_barcode_encode((const uint8_t *)"a", 1, barcode) == -1 &&
+		      s1_barcode_encode((const uint8_t *)"", 0, barcode) == -1 &&
+		      s1_barcode_encode((const uint8_t *)"ABCDEFGHIJK", 11, barcode) == -1,
+		      "valid Code 39 characters are accepted and invalid readings rejected");
+	}
+
 	printf("[TEST] subsystem1 host SUMMARY %d passed, %d failed\n",
 	       passed, failed);
 	return failed ? 1 : 0;

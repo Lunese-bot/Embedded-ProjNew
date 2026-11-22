@@ -19,6 +19,7 @@
 #define W_HUMP 6
 #define W_FAULT 16
 #define W_WIFI 1
+#define W_PAUSED 1
 
 typedef struct {
 	uint8_t *data;
@@ -118,6 +119,7 @@ void s1_tlm_encode(const S1_TLM *tlm, uint8_t out[S1_TLM_BYTES])
 	put_bits(&bits, tlm->fault_code > 0xFFFFu ?
 		 0xFFFFu : tlm->fault_code, W_FAULT);
 	put_bits(&bits, tlm->wifi_up ? 1u : 0u, W_WIFI);
+	put_bits(&bits, tlm->paused ? 1u : 0u, W_PAUSED);
 }
 
 int s1_tlm_decode(const uint8_t *in, int len, S1_TLM *tlm)
@@ -147,7 +149,29 @@ int s1_tlm_decode(const uint8_t *in, int len, S1_TLM *tlm)
 	tlm->hump_max_um = (int32_t)get_bits(&bits, W_HUMP) * S1_HUMP_STEP_UM;
 	tlm->fault_code = get_bits(&bits, W_FAULT);
 	tlm->wifi_up = (uint8_t)get_bits(&bits, W_WIFI);
+	tlm->paused = (uint8_t)get_bits(&bits, W_PAUSED);
 	return 0;
+}
+
+int s1_barcode_encode(const uint8_t *text, int len,
+		      uint8_t out[S1_BARCODE_MAX_BYTES])
+{
+	static const char alphabet[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
+	S1_BITS bits = { out, 0 };
+	int i;
+
+	if (text == 0 || out == 0 || len < 1 || len > S1_BARCODE_MAX_CHARS)
+		return -1;
+	for (i = 0; i < S1_BARCODE_MAX_BYTES; i++) out[i] = 0;
+	for (i = 0; i < len; i++) {
+		int code = 0;
+
+		while (alphabet[code] != '\0' &&
+		       (uint8_t)alphabet[code] != text[i]) code++;
+		if (alphabet[code] == '\0') return -1;
+		put_bits(&bits, (uint32_t)(code + 1), 6);
+	}
+	return (bits.position + 7) / 8;
 }
 
 uint8_t s1_cmd_encode(S1_CMD command, uint8_t seq)
@@ -163,6 +187,28 @@ S1_CMD s1_cmd_code(uint8_t byte)
 uint8_t s1_cmd_seq(uint8_t byte)
 {
 	return byte & 0x3Fu;
+}
+
+S1_REQUEST s1_cmd_decode(const uint8_t *payload, int len)
+{
+	S1_CMD code;
+
+	if (payload == 0 || (len != 1 && len != 2)) return S1_REQ_INVALID;
+	code = s1_cmd_code(payload[0]);
+	if (len == 1) {
+		switch (code) {
+		case S1_CMD_START: return S1_REQ_START;
+		case S1_CMD_STOP: return S1_REQ_STOP;
+		case S1_CMD_RESET: return S1_REQ_RESET;
+		default: return S1_REQ_INVALID;
+		}
+	}
+	if (code != S1_CMD_RESERVED) return S1_REQ_INVALID;
+	switch (payload[1]) {
+	case S1_EXT_PAUSE: return S1_REQ_PAUSE;
+	case S1_EXT_RESUME: return S1_REQ_RESUME;
+	default: return S1_REQ_INVALID;
+	}
 }
 
 uint8_t s1_ack_encode(S1_ACK result, uint8_t seq)

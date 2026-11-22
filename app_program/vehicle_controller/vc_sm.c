@@ -40,8 +40,9 @@ static const char * const g_state_names[VC_ST_COUNT] = {
 
 static const char * const g_event_names[VC_EV_COUNT] = {
     "NONE",          "READY",          "MOVE_REQUEST",    "FAULT",
-    "CMD_START",     "CMD_STOP",       "CMD_RESET",       "WIFI_DOWN",
-    "WIFI_UP",       "MANOEUVRE_DONE", "MOTION_STOPPED",  "LINE_LOST",
+    "CMD_START",     "CMD_STOP",       "CMD_RESET",       "CMD_PAUSE",
+    "CMD_RESUME",    "WIFI_DOWN",      "WIFI_UP",         "MANOEUVRE_DONE",
+    "MOTION_STOPPED", "LINE_LOST",
     "LINE_FOUND",    "JUNCTION",       "BARCODE_START",  "BARCODE_DECODED",
     "BARCODE_FAILED", "END_OF_COURSE", "HUMP_START",     "HUMP_CLEARED",
     "LIFTED",        "OBSTACLE",       "AVOID_DONE",     "AVOID_FAILED",
@@ -220,6 +221,8 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
 
     p_sm->st.prev_state     = prev;
     p_sm->st.state          = next;
+    p_sm->st.paused         = false;
+    p_sm->pause_stopped     = false;
     p_sm->st.state_since_ms = now_ms;
     p_sm->attempt_since_ms  = now_ms;
     emit(p_out, VC_ACT_STATE, VC_SRC_VC, (int32_t)next, (int32_t)prev);
@@ -899,6 +902,71 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
         p_sm->st.max_hump_um = p_event->p1;
     }
 
+    if (VC_EV_CMD_PAUSE == type)
+    {
+        if ((VC_ST_FOLLOW_LINE == p_sm->st.state) && !p_sm->st.paused)
+        {
+            p_sm->st.paused = true;
+            p_sm->pause_stopped = false;
+            p_sm->pause_since_ms = now_ms;
+            move(p_out, VC_MOVE_STOP_CONFIRM, 0);
+        }
+        return;
+    }
+    if (VC_EV_CMD_RESUME == type)
+    {
+        if (p_sm->st.paused && p_sm->pause_stopped)
+        {
+            p_sm->st.paused = false;
+            p_sm->pause_stopped = false;
+            request(p_out, VC_SRC_LINE, VC_REQ_LINE_FOLLOW, 0);
+            if (0u != p_sm->rejoin_steer_left)
+            {
+                move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS);
+            }
+            else
+            {
+                move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS);
+                move(p_out, VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS);
+            }
+        }
+        return;
+    }
+    if (p_sm->st.paused)
+    {
+        if (VC_EV_MOTION_STOPPED == type)
+        {
+            p_sm->pause_stopped = true;
+            return;
+        }
+        if ((VC_EV_TICK == type) && !p_sm->pause_stopped &&
+            (elapsed(now_ms, p_sm->pause_since_ms) >= VC_JUNCTION_STOP_MS))
+        {
+            go_fault(p_sm, VC_SRC_MOTION, VC_FC_JUNCTION_STOP, now_ms, p_out);
+            return;
+        }
+        if ((VC_EV_OBSTACLE == type) || (VC_EV_LINE_LOST == type) ||
+            (VC_EV_JUNCTION == type) || (VC_EV_BARCODE_START == type) ||
+            (VC_EV_BARCODE_DECODED == type) || (VC_EV_HUMP_START == type) ||
+            (VC_EV_END_OF_COURSE == type) ||
+            ((VC_EV_FAULT == type) &&
+             ((int32_t)VC_FAULT_RECOVERABLE == p_event->p1)))
+        {
+            go_fault(p_sm, (vc_source_t)p_event->src,
+                     VC_FC_PAUSE_INTERRUPTED, now_ms, p_out);
+            return;
+        }
+        if ((VC_EV_MOVE_REQUEST == type) || (VC_EV_TICK == type))
+        {
+            return;
+        }
+        if (handle_common(p_sm, p_event, now_ms, p_out))
+        {
+            return;
+        }
+        return;
+    }
+
     if (!handle_common(p_sm, p_event, now_ms, p_out))
     {
         switch (p_sm->st.state)
@@ -907,6 +975,10 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
                 if (VC_EV_CMD_START == type)
                 {
                     enter(p_sm, VC_ST_MISSION_START, now_ms, p_out);
+                }
+                else if (VC_EV_CMD_RESET == type)
+                {
+                    move(p_out, VC_MOVE_RESET, 0);
                 }
                 break;
             case VC_ST_MISSION_START:

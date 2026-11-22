@@ -267,7 +267,7 @@ ER s5_send_critical_to(ID mbf, s5_evt_t * p_evt)
         g_s5_estops++;
         tm_printf((uint8_t *)"s5: event %d LOST (queue full) -> emergency stop\n",
                   (int32_t)p_evt->type);
-        (void)g_s5_stop_fn(); /* motors off within one S2 period, latched */
+        app_check(g_s5_stop_fn(), "s5 emergency stop");
     }
     return ercd;
 }

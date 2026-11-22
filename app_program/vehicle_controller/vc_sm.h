@@ -136,6 +136,8 @@ typedef struct
     uint32_t             junction_stop_ms; /* JUNCTION_STOP: when S2 confirmed the stop */
     uint8_t              junction_stopped; /* JUNCTION_STOP: 1 = standing, holding */
     uint8_t              exec_phase;       /* EXECUTE_ACTION: 1 = advancing before the turn */
+    bool                 pause_stopped;
+    uint32_t             pause_since_ms;
     uint32_t             odo;              /* last S2 odometer (L + R counts) seen in an event */
     uint32_t             turn_odo0;        /* odometer when the junction turn began */
     uint32_t             turn_gate;        /* counts before the line may end the turn, 0 = not watching */

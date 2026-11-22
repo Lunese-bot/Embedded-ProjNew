@@ -54,27 +54,46 @@ ER s2_get_status(motion_status_t *out) { *out = (motion_status_t){0}; return E_O
 typedef enum
 {
     TAPE_ABSENT,
-    TAPE_ON_LATER_PASS,
+    TAPE_ON_INITIAL_RETURN,
+    TAPE_ON_RETURN_RETRY,
+    TAPE_LOST_DURING_BRAKING,
+    TAPE_ON_SHORT_SEARCH,
+    TAPE_AT_SHORT_ENDPOINT,
+    TAPE_AT_FINAL_ENDPOINT,
+    TAPE_ON_STRAIGHT_RECOVERY,
     TAPE_ON_LEFT_PROBE,
     TAPE_ON_RIGHT_PROBE,
     TAPE_LOST_AFTER_ALIGNMENT,
     TAPE_LOST_DURING_REJOIN,
-    TAPE_ON_NEARBY_CRAWL
+    TAPE_ON_NEARBY_CRAWL,
+    TAPE_DOUBLE_BLACK_ON_PROBE,
+    TAPE_DOUBLE_BLACK_LOST_AFTER_TURN
 } tape_scenario_t;
 
 static struct
 {
     uint32_t now_ms;
+    uint32_t last_move_completed_ms;
     s5_state_t state;
     s5_motion_req_t move;
+    uint8_t last_completed_move;
     bool waiting_for_motion;
     tape_scenario_t tape;
     bool black;
+    bool double_black_seen;
     bool ir_search_enabled;
+    uint32_t ir_started_ms;
     int32_t heading;
     int32_t first_sighting_heading;
-    int32_t recovery_headings[S5_MAX_RECOVERY];
-    uint16_t recovery_distances[S5_MAX_RECOVERY];
+    int32_t initial_search_heading;
+    int32_t return_retries;
+    int32_t short_searches;
+    int32_t extra_searches;
+    bool initial_miss_logged;
+    bool braking_loss_logged;
+    bool alignment_loss_logged;
+    int32_t recovery_turns;
+    int32_t recovery_turn_deg;
     int32_t recovery_passes;
     int32_t sightings;
     int32_t search_stops;
@@ -93,6 +112,39 @@ static bool bridge_input_ready;
 static s5_cmd_t bridge_reply;
 static int32_t bridge_replies;
 
+static bool double_black_scenario(void)
+{
+    return (TAPE_DOUBLE_BLACK_ON_PROBE == robot.tape) ||
+           (TAPE_DOUBLE_BLACK_LOST_AFTER_TURN == robot.tape);
+}
+
+static bool tape_appears_during_search(void)
+{
+    if ((TAPE_ABSENT == robot.tape) || (TAPE_AT_SHORT_ENDPOINT == robot.tape) ||
+        (TAPE_AT_FINAL_ENDPOINT == robot.tape) ||
+        (S5_MOVE_FORWARD != robot.move.kind))
+    {
+        return false;
+    }
+    if (0 == robot.sightings)
+    {
+        if (TAPE_ON_RETURN_RETRY == robot.tape)
+        {
+            return 85 == robot.move.distance_mm;
+        }
+        if (TAPE_ON_SHORT_SEARCH == robot.tape)
+        {
+            return 30 == robot.move.distance_mm;
+        }
+        return S5_ST_SEARCH_LINE == robot.state;
+    }
+    return (1 == robot.sightings) &&
+           (((TAPE_ON_NEARBY_CRAWL == robot.tape) &&
+             (S5_REJOIN_SEARCH_MM == robot.move.distance_mm)) ||
+            ((TAPE_ON_STRAIGHT_RECOVERY == robot.tape) &&
+             (S5_ST_LINE_RECOVERY == robot.state) && (175 == robot.move.distance_mm)));
+}
+
 static int32_t tk_rcv_mbf(ID id, void *out, TMO timeout)
 {
     if (g_mbf_s5_evt == id)
@@ -107,13 +159,7 @@ static int32_t tk_rcv_mbf(ID id, void *out, TMO timeout)
     }
 
     assert(g_mbf_s5_cmd == id && robot.waiting_for_motion);
-    if ((TAPE_ABSENT != robot.tape) && (S5_MOVE_FORWARD == robot.move.kind) &&
-        (((S5_ST_SEARCH_LINE == robot.state) && (0 == robot.sightings)) ||
-         ((TAPE_ON_NEARBY_CRAWL == robot.tape) && (1 == robot.sightings) &&
-          (S5_REJOIN_SEARCH_MM == robot.move.distance_mm)) ||
-         ((TAPE_ON_LATER_PASS == robot.tape) &&
-          (S5_ST_LINE_RECOVERY == robot.state) && (2 == robot.recovery_passes) &&
-          (1 == robot.sightings))))
+    if (tape_appears_during_search())
     {
         /* Tape appears while creeping, before the distance move finishes. */
         if (0 == robot.sightings)
@@ -127,6 +173,10 @@ static int32_t tk_rcv_mbf(ID id, void *out, TMO timeout)
     }
     if (S5_MOVE_STOP == robot.move.kind)
     {
+        if (TAPE_LOST_DURING_BRAKING == robot.tape)
+        {
+            robot.black = false;
+        }
         if (robot.rejoin_drives > robot.rejoin_stops)
         {
             assert(robot.ir_search_enabled);
@@ -136,7 +186,7 @@ static int32_t tk_rcv_mbf(ID id, void *out, TMO timeout)
         {
             robot.search_stops++;
         }
-        else if (robot.sightings > 0)
+        else if ((robot.sightings > 0) && (S5_MOVE_FORWARD != robot.last_completed_move))
         {
             robot.alignment_stops++;
         }
@@ -149,12 +199,21 @@ static int32_t tk_rcv_mbf(ID id, void *out, TMO timeout)
             /* Tape is gone at heading zero after the first sighting. The
                two probe cases make it visible near that heading. */
             robot.black =
+                (((TAPE_ON_INITIAL_RETURN == robot.tape) ||
+                  (TAPE_ON_RETURN_RETRY == robot.tape)) && (0 == robot.heading)) ||
                 ((TAPE_ON_LEFT_PROBE == robot.tape) &&
                  (S5_REJOIN_PROBE_DEG == robot.heading)) ||
                 ((TAPE_ON_RIGHT_PROBE == robot.tape) &&
                  (-S5_REJOIN_PROBE_DEG == robot.heading)) ||
                 ((TAPE_LOST_DURING_REJOIN == robot.tape) &&
                  (0 == robot.heading) && (0 == robot.rejoin_drives));
+            if (double_black_scenario())
+            {
+                robot.black = robot.double_black_seen
+                    ? ((TAPE_DOUBLE_BLACK_ON_PROBE == robot.tape) && (0 == robot.heading))
+                    : ((S5_REJOIN_PROBE_DEG == robot.heading) ||
+                       (-S5_REJOIN_PROBE_DEG == robot.heading));
+            }
         }
     }
     if ((S5_MOVE_FORWARD == robot.move.kind) &&
@@ -164,6 +223,8 @@ static int32_t tk_rcv_mbf(ID id, void *out, TMO timeout)
         robot.black = false;
     }
     robot.now_ms++;
+    robot.last_move_completed_ms = robot.now_ms;
+    robot.last_completed_move = robot.move.kind;
     robot.waiting_for_motion = false;
     *(s5_cmd_t *)out = (s5_cmd_t){ S5_CMD_MOTION_DONE, 1, robot.move.seq };
     return sizeof(s5_cmd_t);
@@ -179,10 +240,32 @@ static ER tk_snd_mbf(ID id, const void *msg, int32_t size, TMO timeout)
 }
 
 static void tk_get_tim(SYSTIM *now) { now->lo = robot.now_ms; }
-static void tk_dly_tsk(TMO delay) { robot.now_ms += (uint32_t)delay; }
+static void tk_dly_tsk(TMO delay)
+{
+    const bool tape_at_endpoint =
+        ((TAPE_AT_SHORT_ENDPOINT == robot.tape) && (30 == robot.move.distance_mm)) ||
+        ((TAPE_AT_FINAL_ENDPOINT == robot.tape) && (35 == robot.move.distance_mm));
+
+    robot.now_ms += (uint32_t)delay;
+    if (tape_at_endpoint && (0 == robot.sightings) && (S5_MOVE_FORWARD == robot.move.kind) &&
+        !robot.waiting_for_motion && (delay >= S5_PERIOD_MS))
+    {
+        assert(robot.ir_search_enabled && !robot.black);
+        robot.sightings++;
+        robot.black = true;
+    }
+}
 static int32_t tk_get_tid(void) { return 1; }
 static ER tk_set_flg(ID id, UINT bits) { (void)id; (void)bits; return E_OK; }
-static void tm_printf(const uint8_t *fmt, ...) { (void)fmt; }
+static void tm_printf(const uint8_t *fmt, ...)
+{
+    const char *message = (const char *)fmt;
+
+    robot.initial_miss_logged |= (S5_ST_SEARCH_LINE == robot.state) &&
+        (strstr(message, "search ended without seeing the line") != NULL);
+    robot.braking_loss_logged |= strstr(message, "line lost during braking") != NULL;
+    robot.alignment_loss_logged |= strstr(message, "line lost during alignment") != NULL;
+}
 static void app_check(ER err, const char *name) { (void)name; assert(E_OK == err); }
 
 void s5_set_state(s5_state_t state) { robot.state = state; }
@@ -193,12 +276,32 @@ ER s5_get_status(s5_status_t *status) { *status = (s5_status_t){ 0 }; return E_O
 void s5_port_set_line_search(bool b_active)
 {
     robot.ir_search_enabled = b_active;
+    if (b_active)
+    {
+        robot.ir_started_ms = robot.now_ms;
+    }
 }
 
 bool s5_port_line_detected(void)
 {
     assert(robot.ir_search_enabled);
+    if (((TAPE_AT_SHORT_ENDPOINT == robot.tape) || (TAPE_AT_FINAL_ENDPOINT == robot.tape)) &&
+        robot.black && (S5_MOVE_STOP == robot.last_completed_move))
+    {
+        assert(robot.now_ms - robot.last_move_completed_ms >= S5_PERIOD_MS);
+    }
     return robot.black;
+}
+
+bool s5_port_line_both_black(void)
+{
+    assert(robot.ir_search_enabled);
+    if (double_black_scenario() && robot.black)
+    {
+        robot.double_black_seen = true;
+        return true;
+    }
+    return false;
 }
 
 ER s5_send_evt(s5_evt_t *event)
@@ -212,10 +315,20 @@ ER s5_send_evt(s5_evt_t *event)
         }
         /* A stop may replace a running search. A turn or drive must wait. */
         assert(!robot.waiting_for_motion || (S5_MOVE_STOP == move->kind));
+        if (S5_ST_LINE_RECOVERY == robot.state)
+        {
+            assert(S5_MOVE_REVERSE != move->kind);
+            if (S5_MOVE_TURN == move->kind)
+            {
+                robot.recovery_turns++;
+                robot.recovery_turn_deg = move->angle_deg;
+            }
+        }
         if ((S5_MOVE_FORWARD == move->kind) && (S5_REJOIN_CHECK_MM == move->distance_mm))
         {
             assert(robot.ir_search_enabled && robot.black);
             assert(S5_SEARCH_SPEED_MM_S == move->speed_mm_s);
+            assert(!double_black_scenario() || (0 == robot.heading));
             robot.rejoin_drives++;
         }
         else if ((S5_MOVE_FORWARD == move->kind) &&
@@ -225,13 +338,48 @@ ER s5_send_evt(s5_evt_t *event)
             assert(S5_SEARCH_SPEED_MM_S == move->speed_mm_s);
             robot.nearby_crawls++;
         }
+        else if ((S5_MOVE_FORWARD == move->kind) && (S5_ST_BYPASSING != robot.state) &&
+                 ((85 == move->distance_mm) || (30 == move->distance_mm) ||
+                  (35 == move->distance_mm)))
+        {
+            assert(S5_MOVE_STOP == robot.last_completed_move);
+            assert(robot.ir_search_enabled && !robot.black);
+            assert(robot.now_ms - robot.ir_started_ms >= S5_PERIOD_MS);
+            assert(S5_SEARCH_SPEED_MM_S == move->speed_mm_s);
+            if (85 == move->distance_mm)
+            {
+                assert(S5_ST_SEARCH_LINE == robot.state);
+                assert(robot.initial_search_heading == robot.heading);
+                assert(0 == robot.sightings && 0 == robot.recovery_passes);
+                robot.return_retries++;
+            }
+            else
+            {
+                assert(S5_ST_LINE_RECOVERY == robot.state);
+                assert(1 == robot.recovery_passes && 0 == robot.heading);
+                assert(0 == robot.extra_searches);
+                if (30 == move->distance_mm)
+                {
+                    assert(0 == robot.short_searches);
+                    robot.short_searches++;
+                }
+                else
+                {
+                    assert(1 == robot.short_searches);
+                    robot.extra_searches++;
+                }
+            }
+        }
         else if ((S5_ST_LINE_RECOVERY == robot.state) && (S5_MOVE_FORWARD == move->kind))
         {
-            assert(robot.recovery_passes < S5_MAX_RECOVERY);
-            assert(60 == move->speed_mm_s);
-            robot.recovery_headings[robot.recovery_passes] = robot.heading;
-            robot.recovery_distances[robot.recovery_passes] = move->distance_mm;
+            assert(0 == robot.recovery_passes && 0 == robot.heading);
+            assert(175 == move->distance_mm && 60 == move->speed_mm_s);
+            assert(robot.ir_search_enabled);
             robot.recovery_passes++;
+        }
+        else if ((S5_ST_SEARCH_LINE == robot.state) && (S5_MOVE_FORWARD == move->kind))
+        {
+            robot.initial_search_heading = robot.heading;
         }
         robot.move = *move;
         robot.waiting_for_motion = true;
@@ -272,28 +420,87 @@ static void test_line_recovery(void)
 {
     for (int32_t side = S5_SIDE_LEFT; side <= S5_SIDE_RIGHT; side++)
     {
-        int32_t sign = (S5_SIDE_LEFT == side) ? 1 : -1;
+        const int32_t sign = (S5_SIDE_LEFT == side) ? 1 : -1;
 
         simulate_bypass((s5_side_t)side, TAPE_ABSENT);
-        assert(3 == robot.recovery_passes && 0 == robot.successes);
-        assert(S5_RETURN_TURN_DEG * sign == robot.recovery_headings[0]);
-        assert(-S5_RETURN_TURN_DEG * sign == robot.recovery_headings[1]);
-        assert(0 == robot.recovery_headings[2]);
-        assert(140 == robot.recovery_distances[0]);
-        assert(280 == robot.recovery_distances[1]);
-        assert(150 == robot.recovery_distances[2]);
+        assert(1 == robot.recovery_passes && 0 == robot.successes);
+        assert(1 == robot.recovery_turns && 40 * sign == robot.recovery_turn_deg);
+        assert(1 == robot.return_retries && 1 == robot.short_searches);
+        assert(1 == robot.extra_searches);
         assert(S5_EVT_AVOID_FAILED == robot.outcome && robot.critical_outcome);
         assert(S5_FAULT_LINE_NOT_FOUND == robot.fault);
     }
-    puts("[TEST] S5-H09 PASS  missing line on either side exhausts three slow passes");
+    puts("[TEST] S5-H09 PASS  missing tape triggers one 40-degree pivot and straight recovery");
 
-    simulate_bypass(S5_SIDE_LEFT, TAPE_ON_LATER_PASS);
-    assert(2 == robot.recovery_passes && 2 == robot.sightings);
-    assert(2 == robot.search_stops); /* each sighting stopped the driving leg */
-    assert(S5_EVT_LINE_REACQUIRED == robot.outcome && 1 == robot.successes);
-    assert(0 == robot.heading && robot.black);
-    puts("[TEST] S5-H10 PASS  lost line during alignment retries and finds it again");
+    for (int32_t side = S5_SIDE_LEFT; side <= S5_SIDE_RIGHT; side++)
+    {
+        simulate_bypass((s5_side_t)side, TAPE_ON_STRAIGHT_RECOVERY);
+        assert(1 == robot.recovery_passes && 2 == robot.sightings);
+        assert(0 == robot.return_retries && 0 == robot.recovery_turns);
+        assert(2 == robot.search_stops); /* each sighting stopped the driving leg */
+        assert(S5_EVT_LINE_REACQUIRED == robot.outcome && 1 == robot.successes);
+        assert(0 == robot.heading && robot.black);
+    }
+    puts("[TEST] S5-H10 PASS  straight recovery verifies tape after the first alignment misses");
     puts("[TEST] S5-H12 PASS  IR is requested for line checks and released before pivots and handoff");
+}
+
+static void test_short_searches(void)
+{
+    for (int32_t side = S5_SIDE_LEFT; side <= S5_SIDE_RIGHT; side++)
+    {
+        const int32_t sign = (S5_SIDE_LEFT == side) ? 1 : -1;
+
+        simulate_bypass((s5_side_t)side, TAPE_ON_INITIAL_RETURN);
+        assert(0 == robot.return_retries && 0 == robot.short_searches && 0 == robot.extra_searches);
+        assert(0 == robot.recovery_passes && 1 == robot.rejoin_stops);
+        assert(!robot.initial_miss_logged);
+        assert(S5_EVT_LINE_REACQUIRED == robot.outcome && 1 == robot.successes);
+
+        simulate_bypass((s5_side_t)side, TAPE_ON_RETURN_RETRY);
+        assert(1 == robot.return_retries && 0 == robot.short_searches && 0 == robot.extra_searches);
+        assert(0 == robot.recovery_passes && 1 == robot.rejoin_stops);
+        assert(robot.initial_miss_logged);
+        assert(S5_EVT_LINE_REACQUIRED == robot.outcome && 1 == robot.successes);
+
+        simulate_bypass((s5_side_t)side, TAPE_LOST_DURING_BRAKING);
+        assert(0 == robot.return_retries && 1 == robot.recovery_passes);
+        assert(1 == robot.recovery_turns && 40 * sign == robot.recovery_turn_deg);
+        assert(robot.braking_loss_logged && !robot.alignment_loss_logged);
+        assert(!robot.initial_miss_logged);
+        assert(0 == robot.rejoin_stops && 1 == robot.short_searches && 1 == robot.extra_searches);
+        assert(S5_EVT_AVOID_FAILED == robot.outcome && S5_FAULT_LINE_NOT_FOUND == robot.fault);
+
+        simulate_bypass((s5_side_t)side, TAPE_LOST_AFTER_ALIGNMENT);
+        assert(0 == robot.return_retries && 1 == robot.recovery_passes);
+        assert(0 == robot.recovery_turns);
+        assert(robot.alignment_loss_logged && !robot.braking_loss_logged);
+        assert(!robot.initial_miss_logged);
+        assert(S5_EVT_AVOID_FAILED == robot.outcome && S5_FAULT_LINE_NOT_FOUND == robot.fault);
+
+        simulate_bypass((s5_side_t)side, TAPE_ON_SHORT_SEARCH);
+        assert(1 == robot.return_retries && 1 == robot.short_searches && 0 == robot.extra_searches);
+        assert(1 == robot.recovery_passes && 1 == robot.rejoin_stops);
+        assert(1 == robot.recovery_turns && 40 * sign == robot.recovery_turn_deg);
+        assert(S5_EVT_LINE_REACQUIRED == robot.outcome && 1 == robot.successes);
+
+        simulate_bypass((s5_side_t)side, TAPE_AT_SHORT_ENDPOINT);
+        assert(1 == robot.return_retries && 1 == robot.short_searches && 0 == robot.extra_searches);
+        assert(1 == robot.recovery_passes && 1 == robot.sightings);
+        assert(1 == robot.recovery_turns && 40 * sign == robot.recovery_turn_deg);
+        assert(1 == robot.search_stops && 1 == robot.rejoin_stops);
+        assert(S5_EVT_LINE_REACQUIRED == robot.outcome && 1 == robot.successes);
+
+        simulate_bypass((s5_side_t)side, TAPE_AT_FINAL_ENDPOINT);
+        assert(1 == robot.return_retries && 1 == robot.short_searches && 1 == robot.extra_searches);
+        assert(1 == robot.recovery_passes && 1 == robot.sightings);
+        assert(1 == robot.recovery_turns && 40 * sign == robot.recovery_turn_deg);
+        assert(1 == robot.search_stops && 1 == robot.rejoin_stops);
+        assert(S5_EVT_LINE_REACQUIRED == robot.outcome && 1 == robot.successes);
+    }
+    puts("[TEST] S5-H25 PASS  85 mm same-heading search runs only after an initial miss");
+    puts("[TEST] S5-H26 PASS  braking and alignment losses skip the return retry");
+    puts("[TEST] S5-H27 PASS  30 mm sighting skips the 35 mm search, and both can confirm endpoint tape");
 }
 
 static void test_nearby_rejoin(void)
@@ -315,14 +522,14 @@ static void test_nearby_rejoin(void)
     simulate_bypass(S5_SIDE_LEFT, TAPE_LOST_AFTER_ALIGNMENT);
     assert(4 == robot.alignment_stops); /* restore heading zero and check again */
     assert(0 == robot.heading && !robot.black);
-    assert(3 == robot.recovery_passes && 0 == robot.successes);
+    assert(1 == robot.recovery_passes && 0 == robot.successes);
     assert(S5_EVT_AVOID_FAILED == robot.outcome && robot.critical_outcome);
     assert(S5_FAULT_LINE_NOT_FOUND == robot.fault);
     puts("[TEST] S5-H15 PASS  a missed local check falls back to bounded recovery and stop");
 
     simulate_bypass(S5_SIDE_LEFT, TAPE_LOST_DURING_REJOIN);
     assert(1 == robot.rejoin_drives && 1 == robot.rejoin_stops);
-    assert(3 == robot.recovery_passes && 0 == robot.successes);
+    assert(1 == robot.recovery_passes && 0 == robot.successes);
     assert(S5_EVT_AVOID_FAILED == robot.outcome && robot.critical_outcome);
     assert(S5_FAULT_LINE_NOT_FOUND == robot.fault);
     puts("[TEST] S5-H17 PASS  tape lost during the rejoin crawl keeps recovery active");
@@ -343,6 +550,23 @@ static void test_nearby_crawl(void)
         assert(S5_EVT_LINE_REACQUIRED == robot.outcome && 1 == robot.successes);
     }
     puts("[TEST] S5-H18 PASS  a shallow crawl toward the last sighting finds nearby tape");
+}
+
+static void test_double_black_rejoin(void)
+{
+    for (int32_t side = S5_SIDE_LEFT; side <= S5_SIDE_RIGHT; side++)
+    {
+        simulate_bypass((s5_side_t)side, TAPE_DOUBLE_BLACK_ON_PROBE);
+        assert(robot.double_black_seen && 0 == robot.heading);
+        assert(1 == robot.rejoin_drives && 1 == robot.rejoin_stops);
+        assert(0 == robot.recovery_passes && S5_EVT_LINE_REACQUIRED == robot.outcome);
+
+        simulate_bypass((s5_side_t)side, TAPE_DOUBLE_BLACK_LOST_AFTER_TURN);
+        assert(robot.double_black_seen && 0 == robot.rejoin_drives);
+        assert(1 == robot.recovery_passes && 0 == robot.successes);
+        assert(S5_EVT_AVOID_FAILED == robot.outcome && robot.critical_outcome);
+    }
+    puts("[TEST] S5-H20 PASS  double black returns to approach heading and requires confirmation");
 }
 
 static void test_off_centre_obstacle(void)
@@ -368,7 +592,7 @@ static void test_off_centre_obstacle(void)
         assert(s5_build_profile(scan, SCAN_COUNT, &profile));
         assert(direction * S5_SIDE_BIAS_DEG == profile.centre_deg);
         assert((direction < 0 ? S5_SIDE_LEFT : S5_SIDE_RIGHT) == profile.bypass_side);
-        assert(7 == s5_plan_bypass(&profile, plan, S5_PLAN_MAX));
+        assert(9 == s5_plan_bypass(&profile, plan, S5_PLAN_MAX));
         assert(S5_MOVE_TURN == plan[1].m.kind);
         assert(-direction * S5_BYPASS_TURN_DEG == plan[1].m.angle_deg);
 
@@ -433,6 +657,7 @@ int main(void)
     s5_sample_t fine[40], merged[40]; int8_t angles[40]; s5_profile_t profile;
     assert(s5_build_profile(coarse, 5, &profile));
     int n = s5_fine_angles(&profile, angles, 40);
+    assert(n > 0 && angles[0] == -45 && angles[n - 1] == 45);
     for (int i = 0; i < n; i++) { fine[i] = (s5_sample_t){angles[i],200}; }
     n = s5_merge_samples(coarse, 5, fine, n, merged, 40);
     assert(s5_build_profile(merged, n, &profile));
@@ -445,24 +670,43 @@ int main(void)
         const int32_t sign = (S5_SIDE_LEFT == side) ? 1 : -1;
         const int32_t lateral = s5_lateral_needed_mm(&profile, (s5_side_t)side);
         int steps = s5_plan_bypass(&profile, plan, S5_PLAN_MAX);
-        assert(steps == 7 && plan[0].m.kind == S5_MOVE_STOP);
-        assert(plan[1].m.angle_deg == 45 * sign);
-        assert(plan[3].m.angle_deg == -45 * sign);
-        assert(plan[5].m.angle_deg == -30 * sign);
-        assert(plan[steps - 1].search_line);
-        assert(plan[steps - 1].m.distance_mm == 2 * (lateral + 90));
+        assert(steps == 9 && plan[0].m.kind == S5_MOVE_STOP);
+        assert(plan[1].m.angle_deg == 35 * sign);
+        assert(plan[2].m.kind == S5_MOVE_FORWARD && plan[2].m.distance_mm == 80);
+        assert(plan[3].m.angle_deg == 10 * sign);
+        assert(plan[4].m.kind == S5_MOVE_FORWARD);
+        assert(plan[5].m.angle_deg == -45 * sign);
+        assert(plan[7].m.angle_deg == -40 * sign);
+        const int32_t side_x1000 = plan[2].m.distance_mm * s5_sin1000(35) +
+                                   plan[4].m.distance_mm * s5_sin1000(45);
+        const int32_t forward_mm = (plan[2].m.distance_mm * s5_sin1000(55) +
+                                    plan[4].m.distance_mm * s5_sin1000(45)) / 1000;
+        assert(side_x1000 >= lateral * 1000 && side_x1000 < (lateral + 2) * 1000);
+        assert(plan[6].m.kind == S5_MOVE_FORWARD);
+        assert(forward_mm + plan[6].m.distance_mm ==
+               profile.distance_mm + S5_OBSTACLE_DEPTH_MM + S5_ROBOT_LENGTH_MM);
+        const s5_step_t * search = &plan[steps - 1];
+        const int32_t inward_x1000 = search->m.distance_mm * s5_sin1000(40);
+        const int32_t needed_x1000 = (lateral + 40) * 1000;
+
+        assert(search->search_line);
+        assert(inward_x1000 >= needed_x1000);
+        assert(inward_x1000 < needed_x1000 + s5_sin1000(40));
         for (int i = 0; i < steps; i++)
         {
             if (plan[i].m.kind == S5_MOVE_FORWARD) { assert(plan[i].m.speed_mm_s == 60); }
         }
     }
     puts("PASS both bypass directions stop first, drive slowly and search for black line");
-    puts("[TEST] S5-H13 PASS  the 30-degree return covers the offset plus 90 mm sideways");
+    puts("[TEST] S5-H19 PASS  35-degree first turn and short drive retain projected clearance");
+    puts("[TEST] S5-H13 PASS  the 40-degree return covers the offset plus 40 mm sideways");
     test_line_recovery();
+    test_short_searches();
     test_search_stop_confirmation();
     test_nearby_rejoin();
     test_nearby_crawl();
+    test_double_black_rejoin();
     test_off_centre_obstacle();
-    puts("SUMMARY 15 navigation regression groups passed");
+    puts("SUMMARY 20 navigation regression groups passed");
     return 0;
 }

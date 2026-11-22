@@ -92,6 +92,8 @@ canvas { width: 100%; height: 90px; display: block; }
   <button class="cmd" data-cmd="start" disabled>Start</button>
   <button class="cmd" data-cmd="stop" disabled>Stop</button>
   <button class="cmd" data-cmd="reset" disabled>Reset</button>
+  <button class="cmd" data-cmd="pause" disabled>Pause</button>
+  <button class="cmd" data-cmd="resume" disabled>Resume</button>
   <span id="status"><span class="dot" id="dot"></span><span id="statusText">Not connected</span></span>
 </header>
 
@@ -105,6 +107,7 @@ canvas { width: 100%; height: 90px; display: block; }
       <div class="tile"><div class="k">Line position (S3)</div><div class="v"><span id="t_line">–</span></div>
         <div class="linebar"><b></b><i id="t_linebar"></i></div></div>
       <div class="tile"><div class="k">Barcodes read / last nav</div><div class="v"><span id="t_bc">–</span> <span class="u" id="t_nav"></span></div></div>
+      <div class="tile"><div class="k">Last barcode received</div><div class="v" id="t_barcode">–</div></div>
       <div class="tile"><div class="k">Pitch (S4)</div><div class="v"><span id="t_pitch">–</span> <span class="u">°</span></div></div>
       <div class="tile"><div class="k">Hump now / max (S4)</div><div class="v"><span id="t_hump">–</span> / <span id="t_maxhump">–</span> <span class="u">mm</span></div></div>
       <div class="tile"><div class="k">Ultrasonic (S5)</div><div class="v"><span id="t_us">–</span> <span class="u">mm</span></div><div class="k" id="t_obs"></div></div>
@@ -156,11 +159,14 @@ canvas { width: 100%; height: 90px; display: block; }
   const series = { vl: [], vr: [], line: [], us: [], pitch: [] };
   const allLines = [];
   let lastTlm = 0, mqttClient = null, port = null, reader = null;
-  const STATES = ["IDLE", "MISSION_START", "FOLLOW_LINE", "LOST_LINE", "AVOID_OBSTACLE",
-                  "DECODE_BARCODE", "EXECUTE_ACTION", "TERRAIN_CHECK", "FAULT",
-                  "MISSION_COMPLETE"];
+  const STATES = ["IDLE", "MISSION_START", "FOLLOW_LINE", "JUNCTION_STOP",
+                "LOST_LINE", "AVOID_OBSTACLE", "DECODE_BARCODE",
+                "EXECUTE_ACTION", "TERRAIN_CHECK", "FAULT",
+                "MISSION_COMPLETE"];
   const CMD_CODES = { start: 0, stop: 1, reset: 2 };
+  const EXT_CODES = { pause: 0, resume: 1 };
   const ACK_RESULTS = ["queued", "busy", "rejected", "reserved"];
+  const BARCODE_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
   let mqttCommandSeq = 0, lastMqttTlmSeq = null;
   const pendingCommands = new Map();
 
@@ -240,12 +246,13 @@ canvas { width: 100%; height: 90px; display: block; }
     j.maxhump = read(6) * 0.5;
     j.fault = read(16);
     j.wifi = !!read(1);
+    j.paused = !!read(1);
     return j;
   }
   function onTelemetry(j) {
     const t = Date.now(); lastTlm = t;
     const st = String(j.st ?? "–");
-    txt("t_st", st);
+    txt("t_st", st + (j.paused ? " (paused)" : ""));
     $("t_st").className = "state" + (/FAULT/i.test(st) ? " fault" : /IDLE|COMPLETE/i.test(st) ? "" : " run");
     if (Array.isArray(j.v)) { txt("t_vl", j.v[0]); txt("t_vr", j.v[1]); push(series.vl, t, j.v[0]); push(series.vr, t, j.v[1]); }
     if (j.odo != null) txt("t_odo", j.odo);
@@ -260,6 +267,24 @@ canvas { width: 100%; height: 90px; display: block; }
     if (j.maxhump != null) txt("t_maxhump", j.maxhump);
     if (j.us != null) { txt("t_us", j.us === 0 ? "no echo" : j.us); if (j.us) push(series.us, t, j.us); }
     if (j.obs != null) txt("t_obs", OBS[j.obs] || "state " + j.obs);
+  }
+  function decodeBarcode(bytes) {
+    if (bytes.length < 1 || bytes.length > 8) return null;
+    let bit = 0, text = "";
+    while (bit + 6 <= bytes.length * 8) {
+      let value = 0;
+      for (let i = 0; i < 6; i++, bit++) {
+        value = (value << 1) | ((bytes[bit >> 3] >> (7 - (bit & 7))) & 1);
+      }
+      if (value === 0) break;
+      if (value > BARCODE_ALPHABET.length || text.length === 10) return null;
+      text += BARCODE_ALPHABET[value - 1];
+    }
+    for (; bit < bytes.length * 8; bit++) {
+      if ((bytes[bit >> 3] >> (7 - (bit & 7))) & 1) return null;
+    }
+    if (!text || bytes.length !== Math.ceil(text.length * 6 / 8)) return null;
+    return text;
   }
   setInterval(() => {
     txt("t_age", lastTlm ? Math.round((Date.now() - lastTlm) / 1000) + " s ago" : "–");
@@ -344,7 +369,11 @@ canvas { width: 100%; height: 90px; display: block; }
     if ((m = /^\[TEST\] (\S+) (PASS|FAIL)\s+(.*?)(\s+\(.*:\d+\))?$/.exec(line))) addTest(m[1], m[2] === "PASS", m[3]);
     else if ((m = /^\[TEST\] (\S+) SUMMARY (\d+) passed, (\d+) failed/.exec(line))) addSummary(m[1], +m[2], +m[3]);
     else if (line[0] === "{") { try { onTelemetry(JSON.parse(line)); } catch (e) { /* partial line */ } }
-    else if (EVENT_RE.test(line)) addEvent(line);
+    else {
+      if ((m = /^vc: barcode "([^"]+)" nav \d+$/.exec(line))) txt("t_barcode", m[1]);
+      else if ((m = /^\[mqtt robot\/g10\/barcode\] barcode: (.+)$/.exec(line))) txt("t_barcode", m[1]);
+      if (EVENT_RE.test(line)) addEvent(line);
+    }
     scheduleLog();
   }
 
@@ -419,7 +448,12 @@ canvas { width: 100%; height: 90px; display: block; }
     mqttClient = mqtt.connect(url, { reconnectPeriod: 3000, connectTimeout: 5000 });
     mqttClient.on("connect", () => { mqttClient.subscribe("robot/g10/#"); mqttUi(true); setStatus("MQTT connected: " + url, true); });
     mqttClient.on("error", e => setStatus("MQTT: " + e.message, false));
-    mqttClient.on("close", () => { if (mqttClient) setStatus("MQTT reconnecting…", false); });
+    mqttClient.on("close", () => {
+      if (mqttClient) {
+        document.querySelectorAll(".cmd").forEach(b => b.disabled = true);
+        setStatus("MQTT reconnecting…", false);
+      }
+    });
     mqttClient.on("message", (topic, payload) => {
       const bytes = payload instanceof Uint8Array ? payload :
         new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
@@ -435,6 +469,17 @@ canvas { width: 100%; height: 90px; display: block; }
         }
         lastMqttTlmSeq = j.seq;
         onTelemetry(j);
+      } else if (topic === "robot/g10/barcode") {
+        const barcode = decodeBarcode(bytes);
+        if (barcode === null) {
+          addEvent("invalid barcode payload");
+          return;
+        }
+        txt("t_barcode", barcode);
+        const message = "barcode: " + barcode;
+        addEvent(message);
+        allLines.push("[mqtt " + topic + "] " + message);
+        scheduleLog();
       } else if (topic.endsWith("/telemetry")) {
         handleLine(s);
       } else if (topic.endsWith("/ack")) {
@@ -465,11 +510,15 @@ canvas { width: 100%; height: 90px; display: block; }
   }
   document.querySelectorAll(".cmd").forEach(b => b.onclick = () => {
     if (b.dataset.cmd === "start" && !confirm("Start the mission? The wheels will turn.")) return;
+    if (b.dataset.cmd === "resume" && !confirm("Resume line following? The wheels will turn.")) return;
     const code = CMD_CODES[b.dataset.cmd];
-    if (code == null || !mqttClient) return;
+    const ext = EXT_CODES[b.dataset.cmd];
+    if ((code == null && ext == null) || !mqttClient) return;
     mqttCommandSeq = (mqttCommandSeq + 1) & 63;
     pendingCommands.set(mqttCommandSeq, b.dataset.cmd);
-    mqttClient.publish("robot/g10/cmd", new Uint8Array([(code << 6) | mqttCommandSeq]));
+    const payload = ext == null ? [(code << 6) | mqttCommandSeq] :
+      [0xC0 | mqttCommandSeq, ext];
+    mqttClient.publish("robot/g10/cmd", new Uint8Array(payload));
     addEvent("sent " + b.dataset.cmd + " (seq " + mqttCommandSeq + ")");
   });
 

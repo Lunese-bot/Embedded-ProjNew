@@ -7,7 +7,7 @@
  *
  *      One control period (10 ms), in the order of the Design Review's
  *      motion-control statechart:
- *          RECEIVE_COMMAND  read every queued motion_cmd_t
+ *          RECEIVE_COMMAND  read up to one queue's worth of motion_cmd_t
  *          UPDATE_SPEED     read the encoders, measure wheel speed/distance
  *          (mode logic)     turn the current command into wheel set-points
  *          CALCULATE_PWM    per-wheel PID: set-point vs. measured speed
@@ -72,6 +72,7 @@ extern void s4_set_speed_mm_s(int32_t speed_mm_s) __attribute__((weak));
 
 static motion_ctx_t    g_motion_ctx;
 static motion_status_t g_status_shared; /* IF-M2, under g_mtx_motion */
+static uint32_t        g_handled_stop_epoch;
 
 /* ---------------------------------------------------------------------
  *  Cyclic handler: interrupt context, short, never waits.
@@ -273,24 +274,51 @@ static void apply_command(const motion_cmd_t * p_cmd)
     }
 }
 
+static void check_emergency_stop(void)
+{
+    uint32_t epoch = s2_stop_epoch();
+
+    if ((epoch != g_handled_stop_epoch) || (epoch == UINT32_MAX))
+    {
+        enter_latched(MSTATE_SAFE_STOP, MFAULT_NONE);
+        if ((epoch == UINT32_MAX) && (g_handled_stop_epoch != UINT32_MAX))
+        {
+            tm_printf((uint8_t *)"motion: stop generation exhausted; restart required\n");
+        }
+        g_handled_stop_epoch = epoch;
+    }
+}
+
 static void receive_commands(void)
 {
     motion_cmd_t cmd;
     UINT         ptn;
+    int32_t      count;
+    ER           ercd;
 
-    /* Emergency stop first: it does not wait behind queued commands */
-    if (E_OK == tk_wai_flg(g_flg_motion, MFLG_ESTOP_REQ, TWF_ORW | TWF_BITCLR,
-                           &ptn, TMO_POL))
+    check_emergency_stop();
+    ercd = tk_wai_flg(g_flg_motion, MFLG_ESTOP_REQ, TWF_ORW | TWF_BITCLR,
+                      &ptn, TMO_POL);
+    if ((ercd < E_OK) && (ercd != E_TMOUT))
     {
-        enter_latched(MSTATE_SAFE_STOP, MFAULT_NONE);
+        app_check(ercd, "motion stop flag");
     }
 
-    /* Then every queued command, oldest first: the newest wins */
-    while ((int32_t)sizeof(motion_cmd_t) ==
-           tk_rcv_mbf(g_mbf_motion_cmd, &cmd, TMO_POL))
+    for (count = 0; count < S2_CMD_QUEUE_LEN; count++)
     {
-        apply_command(&cmd);
+        if ((int32_t)sizeof(motion_cmd_t) !=
+            tk_rcv_mbf(g_mbf_motion_cmd, &cmd, TMO_POL))
+        {
+            break;
+        }
+        check_emergency_stop();
+        if ((cmd.stop_epoch == g_handled_stop_epoch) &&
+            (g_handled_stop_epoch != UINT32_MAX))
+        {
+            apply_command(&cmd);
+        }
     }
+    check_emergency_stop();
     if ((0U != g_s2_imu_stop) &&
         (MSTATE_SAFE_STOP != g_motion_ctx.state))
     {
@@ -604,6 +632,13 @@ static bool stalled(uint32_t * p_stall_ms, int32_t duty, uint32_t ticks)
 
 static void drive_motor(void)
 {
+    check_emergency_stop();
+    if ((MSTATE_SAFE_STOP == g_motion_ctx.state) ||
+        (MSTATE_FAULT == g_motion_ctx.state))
+    {
+        drv_motor_all_off();
+        return;
+    }
     if (0U != g_s2_imu_stop)
     {
         enter_latched(MSTATE_SAFE_STOP, MFAULT_NONE);
@@ -656,6 +691,7 @@ static void publish_status(void)
     status.loop_count   = g_motion_ctx.loops;
     status.overruns     = g_motion_ctx.overruns;
     status.time_ms      = now_ms();
+    status.stop_epoch   = g_handled_stop_epoch;
 
     /* Never let a slow reader stall the control loop: give up after
        1 ms and publish next period instead. */

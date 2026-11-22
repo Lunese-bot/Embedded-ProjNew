@@ -10,6 +10,11 @@
  */
 
 #include "subsystem5.h"
+#include "../subsystem3/subsystem3.h"
+
+/* During avoidance S3 updates the live mask, while its normal tracking
+   status is paused. A standalone S5 build has no live mask. */
+extern volatile uint8_t g_s3_black_mask_live __attribute__((weak));
 
 __attribute__((weak)) void s5_port_set_line_search(bool b_active)
 {
@@ -27,6 +32,14 @@ __attribute__((weak)) void s5_port_set_line_search(bool b_active)
 __attribute__((weak)) bool s5_port_line_detected(void)
 {
     return false;
+}
+
+bool s5_port_line_both_black(void)
+{
+    const uint8_t sensors = S3_MASK_C | S3_MASK_R;
+
+    return (&g_s3_black_mask_live != NULL) &&
+           (sensors == (g_s3_black_mask_live & sensors));
 }
 
 /*** end of file ***/
