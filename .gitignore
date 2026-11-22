@@ -26,3 +26,5 @@ config/wifi_secrets.h
 .DS_Store
 testing/subsystem5/host_test/test_s5_pack
 testing/subsystem5/host_test/test_navigation
+testing/subsystem2/host_test/s2_estop_smp
+testing/subsystem2/host_test/s2_estop_single
