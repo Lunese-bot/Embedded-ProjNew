@@ -844,10 +844,12 @@ static void test_pause_resume(void)
 
     start_mission();
     feed(VC_SRC_COMMS, VC_EV_CMD_PAUSE, 0, 0);
-    feed(VC_SRC_IMU, VC_EV_IMPACT, 0, 0);
+    feed(VC_SRC_IMU, VC_EV_LIFTED, 0, 0);
     feed(VC_SRC_COMMS, VC_EV_CMD_RESUME, 0, 0);
-    CHECK("S6-PA08", (VC_ST_FAULT == g_sm.st.state) && (0 == g_actions.n),
-          "impact while paused faults; resume cannot reset the fault");
+    CHECK("S6-PA08",
+          (VC_ST_MISSION_COMPLETE == g_sm.st.state) && !g_sm.st.paused &&
+              (0 == g_actions.n),
+          "lift while paused ends the run; resume cannot restart it");
 
     start_mission();
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
