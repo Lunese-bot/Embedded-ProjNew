@@ -153,6 +153,27 @@ int s1_tlm_decode(const uint8_t *in, int len, S1_TLM *tlm)
 	return 0;
 }
 
+int s1_barcode_encode(const uint8_t *text, int len,
+		      uint8_t out[S1_BARCODE_MAX_BYTES])
+{
+	static const char alphabet[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
+	S1_BITS bits = { out, 0 };
+	int i;
+
+	if (text == 0 || out == 0 || len < 1 || len > S1_BARCODE_MAX_CHARS)
+		return -1;
+	for (i = 0; i < S1_BARCODE_MAX_BYTES; i++) out[i] = 0;
+	for (i = 0; i < len; i++) {
+		int code = 0;
+
+		while (alphabet[code] != '\0' &&
+		       (uint8_t)alphabet[code] != text[i]) code++;
+		if (alphabet[code] == '\0') return -1;
+		put_bits(&bits, (uint32_t)(code + 1), 6);
+	}
+	return (bits.position + 7) / 8;
+}
+
 uint8_t s1_cmd_encode(S1_CMD command, uint8_t seq)
 {
 	return (uint8_t)(((unsigned)command & 3u) << 6 | (seq & 0x3Fu));

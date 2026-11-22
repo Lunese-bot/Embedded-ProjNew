@@ -1,6 +1,7 @@
 /* Exercise queued junctions through the production S3 bridge. */
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 #define APP_H
 #define VEHICLE_CONTROLLER_H
 #define VC_HOST_TEST
@@ -12,6 +13,7 @@ typedef int TMO;
 typedef struct { uint32_t lo; } SYSTIM;
 #define E_OK 0
 #define E_TMOUT (-1)
+#define E_PAR (-2)
 #define TMO_POL 0
 
 #include "../../subsystem3/subsystem3.h"
@@ -25,6 +27,8 @@ static s3_event_t queued_event;
 static bool event_ready;
 static bool bypass_active;
 static uint32_t clock_ms;
+static uint8_t barcode_payload[8];
+static int barcode_len, barcode_error, post_result;
 
 static int32_t tk_rcv_mbf(ID id, void *out, TMO timeout)
 {
@@ -39,6 +43,18 @@ static int32_t tk_rcv_mbf(ID id, void *out, TMO timeout)
 }
 
 static void tm_printf(const uint8_t *fmt, ...) { (void)fmt; }
+static void app_check(ER result, const char *what)
+{
+    (void)what;
+    if (result != E_OK) barcode_error = result;
+}
+ER s1_post(const char *topic, const void *payload, int32_t len)
+{
+    assert(strcmp(topic, "barcode") == 0 && len > 0 && len <= 8);
+    memcpy(barcode_payload, payload, (size_t)len);
+    barcode_len = len;
+    return post_result;
+}
 static void tk_get_tim(SYSTIM *time) { time->lo = clock_ms; }
 void s3_set_obstacle_mode(bool active) { bypass_active = active; }
 ER s3_get_line_status(s3_line_status_t *out) { *out = line_status; return E_OK; }
@@ -99,5 +115,21 @@ int main(void)
     assert(VC_EV_MOVE_REQUEST == event.type && VC_MOVE_STEER == event.p1);
     assert(!vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE) && !event_ready);
     puts("[TEST] S6-OBS10 PASS  straight mode preserves steering through a junction");
+
+    g_lt_bc_en = 1;
+    queued_event = (s3_event_t){ .type = S3_EVT_BARCODE_DECODED,
+                                .nav = NAV_LEFT, .text = "AB" };
+    event_ready = true;
+    assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
+    assert(event.type == VC_EV_BARCODE_DECODED &&
+           strcmp(event.barcode_text, "AB") == 0);
+    assert(barcode_len == 2 && barcode_payload[0] == 0x2c &&
+           barcode_payload[1] == 0xc0 && barcode_error == 0);
+
+    post_result = E_TMOUT;
+    event_ready = true;
+    assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
+    assert(event.type == VC_EV_BARCODE_DECODED && barcode_error == E_TMOUT);
+    puts("[TEST] S6-BC01 PASS  barcode publish and failure reporting preserve controller event");
     return 0;
 }

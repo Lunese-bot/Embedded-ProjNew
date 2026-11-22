@@ -49,7 +49,7 @@ typedef enum
    turning back onto the line after an obstacle (task_obstacle_avoid.c).
    0 = old behaviour (turn at once). */
 #ifndef ROBOT_IR_TO_AXLE_MM
-#define ROBOT_IR_TO_AXLE_MM 0
+#define ROBOT_IR_TO_AXLE_MM 120
 #endif
 
 typedef struct

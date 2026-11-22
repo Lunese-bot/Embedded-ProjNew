@@ -214,6 +214,14 @@ Other extension opcodes and lengths are rejected. The one-byte ack contains
 two result bits (0 queued/accepted, 1 busy, 2 rejected) and the echoed
 six-bit sequence. An ack does not prove that the wheels have stopped.
 
+Decoded barcode text is also sent once on `robot/g10/barcode`, using six-bit
+MSB-first character codes: 1 through 43 index
+`0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%`; zero bits pad the last byte.
+The payload is 1-8 bytes for 1-10 characters. Delivery is best-effort, not a
+retained last value; queued events can be delayed or dropped, especially
+while disconnected. The dashboard displays the last reading it received.
+USB console barcode lines also update the dashboard's last-reading tile.
+
 Remote Pause and Resume are enabled by default; set `S1_ENABLE_REMOTE_PAUSE`
 to 0 at build time to reject them. The dashboard enables its command buttons
 only while MQTT is connected; it does not detect this firmware setting.

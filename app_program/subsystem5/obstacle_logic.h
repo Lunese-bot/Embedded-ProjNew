@@ -56,7 +56,7 @@ _Static_assert(S5_DETECT_MM >= S5_STOP_NEEDED_MM,
 #define S5_BYPASS_TURN_DEG   35
 #define S5_BYPASS_FIRST_MM   80 /* short first diagonal before moving farther sideways */
 #define S5_BYPASS_CLEARANCE_DEG 45 /* heading for the rest of the side clearance */
-#define S5_RETURN_TURN_DEG   40
+#define S5_RETURN_TURN_DEG   45
 #define S5_BYPASS_SPEED_MM_S 60
 #define S5_SEARCH_SPEED_MM_S 60
 #define S5_SEARCH_MARGIN_MM   40 /* extra sideways reach on the return search */

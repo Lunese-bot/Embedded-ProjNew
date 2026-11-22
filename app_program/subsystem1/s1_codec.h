@@ -24,6 +24,8 @@
 #define S1_PITCH_STEP_CDEG 50
 #define S1_HUMP_STEP_UM 500
 #define S1_OBS_MAX_CM 127
+#define S1_BARCODE_MAX_CHARS 10
+#define S1_BARCODE_MAX_BYTES ((S1_BARCODE_MAX_CHARS * 6 + 7) / 8)
 
 typedef struct {
 	uint8_t version;
@@ -76,6 +78,10 @@ typedef enum {
 
 void s1_tlm_encode(const S1_TLM *tlm, uint8_t out[S1_TLM_BYTES]);
 int s1_tlm_decode(const uint8_t *in, int len, S1_TLM *tlm);
+
+/* Code 39 data characters, six bits each, MSB first, zero-padded. */
+int s1_barcode_encode(const uint8_t *text, int len,
+		      uint8_t out[S1_BARCODE_MAX_BYTES]);
 
 uint8_t s1_cmd_encode(S1_CMD command, uint8_t seq);
 S1_CMD s1_cmd_code(uint8_t byte);

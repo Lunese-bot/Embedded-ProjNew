@@ -16,6 +16,7 @@
 #define S1_TOPIC_CMD        S1_TOPIC_ROOT "cmd"
 #define S1_TOPIC_TLM        "t"
 #define S1_TOPIC_ACK        "ack"
+#define S1_TOPIC_BARCODE    "barcode"
 #define S1_BRIDGE_LINE_MAX  192
 #define S1_BRIDGE_TOPIC_MAX 48
 #define S1_BRIDGE_FULL_TOPIC_MAX \

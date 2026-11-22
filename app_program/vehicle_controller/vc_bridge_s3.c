@@ -31,6 +31,8 @@
 #include "vc_bridge.h"
 #include "../debugging/live_tune.h"
 #include "vc_sm.h"
+#include "../subsystem1/subsystem1.h"
+#include "../subsystem1/s1_codec.h"
 #include "../subsystem3/subsystem3.h"
 #include "../subsystem2/subsystem2.h" /* g_s2_odo_ticks */
 
@@ -160,6 +162,27 @@ static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
             /* Cast: the console API takes uint8_t format strings. */
             tm_printf((uint8_t *)"vc: barcode \"%s\" nav %d\n", p_s3->text,
                       p_s3->nav);
+            {
+                uint8_t payload[S1_BARCODE_MAX_BYTES];
+                int32_t len = 0;
+                int32_t encoded;
+
+                while ((len < (int32_t)sizeof(p_s3->text)) &&
+                       (p_s3->text[len] != 0U))
+                {
+                    len++;
+                }
+                encoded = s1_barcode_encode(p_s3->text, len, payload);
+                if (encoded < 0)
+                {
+                    app_check(E_PAR, "vc barcode encoding");
+                }
+                else
+                {
+                    app_check(s1_post(S1_TOPIC_BARCODE, payload, encoded),
+                              "vc barcode publish");
+                }
+            }
             /* Cast: arg is 0 or 1 (read backwards). */
             make(p_event, VC_EV_BARCODE_DECODED, p_s3->nav, (int32_t)p_s3->arg,
                  p_s3->time_ms);

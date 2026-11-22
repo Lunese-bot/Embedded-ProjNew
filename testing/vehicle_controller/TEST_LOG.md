@@ -41,6 +41,7 @@ code, no Pico needed: VC-H01 … VC-H41, one `[TEST]` line each (see `test_vc_sm
 | S6-OBS06..OBS07 | Queued junctions and steering at the bypass handoff | auto (PC) | Feed timed events and sensor snapshots into `test_vc_s3.c` | Drop old events and steering. A new junction honors the configured action. |
 | S6-H24, S6-OBS08..OBS09 | Slow handoff to line following after a bypass | auto (PC) | Confirm avoidance, then send fresh steering requests | Wait for steering before moving. Restore cruise after the slow steering interval. |
 | S6-OBS10 | Straight mode preserves steering through a junction | auto (PC) | Select Straight with a junction queued | Ignore the junction and keep issuing steering commands. |
+| S6-BC01 | Barcode event publication | auto (PC) | Feed a decoded barcode to `test_vc_s3.c`, including a simulated publish error | Publish the encoded text, report errors, and preserve the controller event. |
 | S6-SAFE01 | Reset while VC is IDLE | auto (PC) | Send Reset to the state machine in IDLE | Forward Reset to S2 without starting a mission. |
 | S6-SAFE02 | Safe Stop after motion READY | auto (PC) | Report a critical S2 stop during self-check | Enter FAULT and request Safe Stop. |
 | S6-SAFE03 | S2 readiness and reset | auto (PC) | Simulate status errors, latched stops, pending resets, interlock, and stop-generation changes in the S2 bridge | No READY until a current, unlatched IDLE snapshot; report Safe Stop once per generation. |
@@ -72,3 +73,4 @@ Add a new row for every run. Never edit or delete old rows.
 | 2026-11-18 | controller and S3 bridge suite including S6-OBS10 | dffa830 + working tree | Codex | PASS 73 controller and 3 bridge checks | [controller log](logs/2026-11-18_straight_junction_vc.txt), [bridge log](logs/2026-11-18_straight_junction.txt) | Straight mode keeps forwarding steering through a queued junction. |
 | 2026-11-22 | merged controller suite including S6-PA09 | Pending merge | Copilot | PASS | Host run: 82 controller checks and 3 bridge checks passed | Host-only; no hardware tested |
 | 2026-11-22 | S6-SAFE01..SAFE03 | Uncommitted changes | Copilot | PASS | Host run: 84 controller checks, 3 S3 bridge checks and S2 readiness regression passed | Simulated status and interlock; target verification and physical stop timing remain outstanding |
+| 2026-11-22 | S6-BC01 | Uncommitted changes | Copilot | PASS | Host S3 bridge regression | Simulated S1 queue; no robot barcode test |
