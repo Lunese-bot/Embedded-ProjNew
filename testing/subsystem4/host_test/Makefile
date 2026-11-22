@@ -10,13 +10,16 @@ SRC := ../app_program/subsystem4
 endif
 
 CFLAGS := -std=c11 -Wall -Wextra -Werror -O2 -I$(SRC)
-OBJS   := $(SRC)/imu_math.c $(SRC)/imu_terrain.c $(SRC)/imu_selftest.c -lm
+OBJS   := $(SRC)/imu_math.c $(SRC)/imu_terrain.c $(SRC)/imu_selftest.c
+# -lm is a link option, not a file: kept out of OBJS so make does not look
+# for a file called "-lm" (macOS make stops there).
+LDLIBS := -lm
 
 run: s4_host_test
 	./s4_host_test
 
 s4_host_test: test_main.c $(OBJS) $(SRC)/*.h
-	$(CC) $(CFLAGS) -o $@ test_main.c $(OBJS)
+	$(CC) $(CFLAGS) -o $@ test_main.c $(OBJS) $(LDLIBS)
 
 clean:
 	rm -f s4_host_test
