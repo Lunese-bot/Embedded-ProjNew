@@ -1431,6 +1431,96 @@ const DashCore = (() => {
       " bc=" + r.barcodes + " nav=" + (NAV[r.nav] || r.nav) + " fault=" + (r.fault == null ? "-" : hex4(r.fault));
   }
 
+  /* ---------- obstacle size report (S5) on robot/g10/obstacle/profile ----------
+     20-byte frame, big-endian, layout and ranges in
+     app_program/subsystem5/s5_obst_report.h (s5_or_decode rejects the same
+     frames).  One record per obstacle encounter; (t0Ms, profileId) names the
+     encounter, rev orders its updates.  Self-contained: the page calls only
+     decodeObstacleProfile, parseObstacleUsbLine, ObstacleTracker,
+     obstacleView and obstacleLogText. */
+  const OBST_TOPIC = "robot/g10/obstacle/profile", OBST_BYTES = 20, OBST_VERSION = 1;
+  const OBST_STAGE = ["scanning", "front", "length", "final"];
+  const OBST_WIDTH = ["pending", "measured", "lower bound", "one beam", "none"];
+  const OBST_LENGTH = ["pending", "measuring", "measured", "partial", "unavailable"];
+  const OBST_REASON = ["", "side look off in this build", "no bypass", "no side echo during the pass",
+    "rear edge not seen before turn-in", "side sensor fault", "side look gave no reading", "aborted",
+    "bypass failed", "look angle unsuitable"];
+  const OBST_SIDE = ["none", "left", "right"];
+  const OBST_MAX = { front: 2000, width: 4000, length: 2000 };
+  const OBST_KEEP = 20; /* encounters kept in memory */
+
+  function decodeObstacleProfile(b) {
+    if (!b || b.length !== OBST_BYTES || b[0] !== OBST_VERSION) return null;
+    const u16 = i => (b[i] << 8) | b[i + 1];
+    const r = { profileId: u16(1), rev: b[3], stage: b[4], widthStatus: b[5], lengthStatus: b[6], lengthReason: b[7],
+      frontMm: u16(8), widthMm: u16(10), lengthMm: u16(12),
+      t0Ms: ((b[14] << 24) >>> 0) + (b[15] << 16) + (b[16] << 8) + b[17], bypassSide: b[18] };
+    if (r.profileId === 0 || r.stage >= OBST_STAGE.length || r.widthStatus >= OBST_WIDTH.length ||
+        r.lengthStatus >= OBST_LENGTH.length || r.lengthReason >= OBST_REASON.length || r.bypassSide >= OBST_SIDE.length ||
+        r.frontMm > OBST_MAX.front || r.widthMm > OBST_MAX.width || r.lengthMm > OBST_MAX.length || b[19] !== 0) return null;
+    return r;
+  }
+  /* USB console: "s5: obstacle #N rev R ...: ... | frame <40 hex>" carries the same bytes */
+  function parseObstacleUsbLine(line) {
+    const m = /^s5: obstacle #\d+ .*\| frame ([0-9a-f]{40})$/.exec(line);
+    if (!m) return null;
+    const b = new Uint8Array(OBST_BYTES);
+    for (let i = 0; i < OBST_BYTES; i++) b[i] = parseInt(m[1].substr(2 * i, 2), 16);
+    return decodeObstacleProfile(b);
+  }
+  /* One entry per encounter.  accept() says what a record is:
+       "new"     a new encounter (nothing of the previous one is carried over)
+       "update"  a newer rev of the current encounter
+       "dup"     the same rev again (QoS 0 repeat, or USB and MQTT both)
+       "stale"   an older rev, or a late copy of an earlier encounter */
+  class ObstacleTracker {
+    constructor() { this.list = []; this.dups = 0; this.stale = 0; }
+    current() { return this.list.length ? this.list[this.list.length - 1] : null; }
+    accept(rec, t, source) {
+      if (!rec) return "invalid";
+      const key = rec.t0Ms + ":" + rec.profileId, cur = this.current();
+      if (cur && cur.key === key) {
+        const d = (rec.rev - cur.rec.rev) & 255;
+        if (d === 0) { this.dups++; return "dup"; }
+        if (d > 127) { this.stale++; return "stale"; }
+        cur.rec = rec; cur.lastAt = t; cur.history.push({ t, rec, source });
+        return "update";
+      }
+      if (this.list.some(e => e.key === key)) { this.stale++; return "stale"; }
+      this.list.push({ key, rec, firstAt: t, lastAt: t, history: [{ t, rec, source }] });
+      if (this.list.length > OBST_KEEP) this.list.shift();
+      return "new";
+    }
+  }
+  function obstLengthResolved(r) { return r.lengthStatus >= 2; }
+  /* display strings; numbers only from the record, never invented */
+  function obstacleView(r) {
+    if (!r) return { title: "Obstacle", front: "–", width: "–", length: "–", summary: "Profile not reported",
+      detail: "Profile not reported (firmware without the obstacle size report, or no obstacle yet)", status: "Profile not reported", resolved: false };
+    const mm = v => v + " mm";
+    const width = r.widthStatus === 1 ? mm(r.widthMm) : r.widthStatus === 2 ? "≥ " + mm(r.widthMm) + " (lower bound)" :
+      r.widthStatus === 3 ? "Not measured (one beam)" : r.widthStatus === 4 ? "Not measured (no profile)" : "Measuring";
+    const reason = OBST_REASON[r.lengthReason] || "";
+    const length = r.lengthStatus === 2 ? mm(r.lengthMm) : r.lengthStatus === 3 ? "≥ " + mm(r.lengthMm) + " (partial)" :
+      r.lengthStatus === 4 ? "Unavailable" + (reason ? " (" + reason + ")" : "") : "Measuring";
+    const short = s => s.replace(/^Measuring$/, "measuring").replace(/^Unavailable/, "unavailable");
+    return { title: "Obstacle #" + r.profileId, front: r.frontMm ? mm(r.frontMm) : "Not known", width, length,
+      summary: "Width: " + short(width) + " · Length: " + short(length),
+      detail: "Obstacle #" + r.profileId + " · " + OBST_STAGE[r.stage] + " · width " + OBST_WIDTH[r.widthStatus] +
+        " · length " + OBST_LENGTH[r.lengthStatus] + (reason ? " (" + reason + ")" : "") + " · bypass " + OBST_SIDE[r.bypassSide] +
+        " · rev " + r.rev + " · started at robot time " + r.t0Ms + " ms",
+      status: r.stage === 0 ? "scanning" : r.lengthStatus === 1 ? "measuring length" : r.stage === 3 ? "bypass ended" : "length resolved",
+      resolved: obstLengthResolved(r) };
+  }
+  function obstacleLogText(r) {
+    return "id=" + r.profileId + " t0=" + r.t0Ms + "ms rev=" + r.rev + " stage=" + OBST_STAGE[r.stage] +
+      " front=" + (r.frontMm || "-") + "mm width=" + r.widthMm + "mm(" + OBST_WIDTH[r.widthStatus] + ") length=" + r.lengthMm +
+      "mm(" + OBST_LENGTH[r.lengthStatus] + (r.lengthReason ? ", " + OBST_REASON[r.lengthReason] : "") + ") bypass=" + OBST_SIDE[r.bypassSide];
+  }
+  /* names agreed with the dashboard layout */
+  const OBST_PROFILE_TOPIC = OBST_TOPIC;
+  function createObstacleTracker() { return new ObstacleTracker(); }
+
   return { STATES, ACTIVE, STATE_LABEL, NAV, OBS, ACK, CMD_LABEL, FAULTS, SUBSYS, SEV, SAFE_STOP,
     TLM_PERIOD_MS, HB_PERIOD_MS, ACK_TIMEOUT_MS, CONFIRM_MS, STORE_KEY, STORE_CAPS, CSV_COLUMNS,
     staleAfterMs, decodeTelemetry, fromUsbJson, decodeBarcode, encodeCommand, decodeCommand, decodeAck,
@@ -1441,7 +1531,9 @@ const DashCore = (() => {
     packMap, unpackMap, sameMap, encodeCfgRead, encodeCfgFactory, encodeCfgWrite, decodeCfgReply, decodeJunction, parseJunctionLine,
     MapEditor, describeMap, mapSource, configuredAction,
     newRead, applyJunction, applyTelemetry, applyRunEnd, describeRead,
-    packStore, unpackStore, writeStore, telemetryCsv, parseCsv, csvCell, logLine, tlmLogText };
+    packStore, unpackStore, writeStore, telemetryCsv, parseCsv, csvCell, logLine, tlmLogText,
+    OBST_TOPIC, OBST_PROFILE_TOPIC, OBST_BYTES, OBST_STAGE, OBST_WIDTH, OBST_LENGTH, OBST_REASON, decodeObstacleProfile, parseObstacleUsbLine,
+    ObstacleTracker, createObstacleTracker, obstacleView, obstacleLogText };
 })();
 /* CORE-END */
 </script>
@@ -1470,6 +1562,7 @@ const DashCore = (() => {
   const loss = new C.LossWindow();
   const cmds = new C.CommandTracker(1 + Math.floor(Math.random() * 63));
   const mapEd = new C.MapEditor(1 + Math.floor(Math.random() * 65535));
+  const obst = C.createObstacleTracker();
   let run = new C.RunTracker(null);
   let mqttClient = null, port = null, reader = null, gapEvent = null;
 
@@ -1724,8 +1817,41 @@ const DashCore = (() => {
     }
     box.replaceChildren(frag);
   }
-  /* S5 obstacle profile: filled in by the S5 obstacle-size change */
-  function renderObstacleProfile() {}
+  /* S5 obstacle profile (robot/g10/obstacle/profile, or the USB "s5: obstacle" line) */
+  function onObstacle(rec, source) {
+    if (!rec) { addLine("[obstacle] frame rejected (wrong length, version or a field out of range)"); return; }
+    const prev = obst.current(), prevRec = prev && prev.rec; /* accept() replaces prev.rec */
+    const wasResolved = !!(prevRec && C.obstacleView(prevRec).resolved);
+    const kind = obst.accept(rec, now(), source);
+    if (kind === "new") addEvent("Obstacle #" + rec.profileId + " started", "");
+    if (kind === "new" || kind === "update") {
+      const v = C.obstacleView(rec);
+      if (rec.stage >= 1 && (kind === "new" || prevRec.stage < 1)) addEvent(v.title + " scanned: " + v.summary, "");
+      if (v.resolved && (kind === "new" || !wasResolved)) addEvent(v.title + ": " + v.summary, "");
+      renderObstacleProfile();
+    }
+  }
+  function renderObstacleProfile() {
+    const cur = obst.current(), v = C.obstacleView(cur && cur.rec);
+    txt("ob_front", v.front); txt("ob_width", v.width); txt("ob_length", v.length);
+    txt("ob_id", cur ? v.title + ":" : ""); txt("ob_detail", v.status);
+    const box = $("ob_history"); const frag = document.createDocumentFragment();
+    if (!obst.list.length) {
+      const p = document.createElement("p"); p.className = "note"; p.textContent = "Profile not reported."; frag.appendChild(p);
+    }
+    for (const e of obst.list.slice().reverse()) {
+      const ev = C.obstacleView(e.rec), last = e.history[e.history.length - 1];
+      const item = document.createElement("div"); item.className = "item";
+      const h = document.createElement("div"); h.className = "h";
+      const t = document.createElement("strong"); t.textContent = ev.title;
+      const sm = document.createElement("span"); sm.textContent = "Front " + ev.front + " · " + ev.summary;
+      h.append(t, sm);
+      const d = document.createElement("div"); d.className = "muted";
+      d.textContent = ev.detail + " · " + e.history.length + " updates, last via " + last.source;
+      item.append(h, d); frag.appendChild(item);
+    }
+    box.replaceChildren(frag);
+  }
 
   /* ---------- heartbeat counters (robot side) ---------- */
   function onHeartbeat(text, source) {
@@ -1759,6 +1885,7 @@ const DashCore = (() => {
       return;
     }
     if ((m = /^mqtt: TX \[[^\]]*heartbeat\] "(.*)"$/.exec(line))) { onHeartbeat(m[1], "usb"); return; }
+    if (/^s5: obstacle #/.test(line)) { onObstacle(C.parseObstacleUsbLine(line), "usb"); return; }
     if (/^s1 tq=/.test(line)) { const c = C.parseCountersLine(line); if (c) { S.hb = { ...c, at: now(), source: "usb" }; renderDiag(); renderStatus(); } }
   }
 
@@ -1828,6 +1955,8 @@ const DashCore = (() => {
       if (who === "foreign" && d.cmd) addEvent("Another client sent " + C.CMD_LABEL[d.cmd] + " #" + d.seq, "");
     } else if (/heartbeat$/.test(topic)) {
       const s = text(); addLine("[mqtt " + topic + "] " + s); onHeartbeat(s, "mqtt");
+    } else if (topic === C.OBST_PROFILE_TOPIC) {
+      onObstacle(C.decodeObstacleProfile(bytes), "mqtt");
     } else if (topic.endsWith("/telemetry")) {
       handleLine(text());
     } else {
@@ -2327,6 +2456,7 @@ const DashCore = (() => {
       C.describeRead(b).map(x => fmtTime(x.t) + " " + x.text).join(" -> ") + (b.mapCode != null && !b.junction ? " | map at read time " + C.MAP_ACTIONS[b.mapCode] : "")]);
     for (const f of S.faults) { const d = C.describeFault(f); all.push([f.t, "fault", d.hex + " " + d.name + " | " + d.subsystem + " | " + d.severity + " | " + d.raw + " | via " + f.source]); }
     for (const o of S.lines) all.push([o.t, "console", o.line]);
+    for (const e of obst.list) for (const u of e.history) all.push([u.t, "obstacle", C.obstacleLogText(u.rec) + " | via " + u.source]);
     all.sort((a, b) => a[0] - b[0]);
     for (const [t, k, x] of all) out.push(C.logLine(t, k, x));
     return out.join("\n") + "\n";

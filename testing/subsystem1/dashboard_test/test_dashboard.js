@@ -16,6 +16,7 @@ const HTML_PATH = path.join(ROOT, "tools/dashboard.html");
 const HTML = fs.readFileSync(HTML_PATH, "utf8");
 const ENCODER = process.argv[2] || path.join(__dirname, "tlm_encode");
 const CFG_ENCODER = process.argv[3] || path.join(__dirname, "cfg_encode");
+const OBST_ENCODER = path.join(__dirname, "obst_encode"); /* built by the Makefile */
 
 let passed = 0, failed = 0;
 function check(id, ok, desc, detail) {
@@ -676,6 +677,110 @@ function ratio(a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.
       "Run / Barcode mapping / Diagnostics tabs with Stop in the top bar and the phone bar; connection details inside Run; charts say \"No samples\" when empty; S5 obstacle ids exist; " +
       "no letter table in the page; only commands and cfg requests are published (cfg QoS 0, retain false); connecting only reads; a dropdown only edits the draft; edited rows say Edited with a dashed border");
   }
+}
+
+/* ---------- D60-D66: obstacle size report (robot/g10/obstacle/profile) ---------- */
+{
+  const out = execFileSync(OBST_ENCODER).toString().trim().split("\n");
+  const frames = out.filter(l => l[0] === "F"), names = out.filter(l => l[0] === "N");
+  const keys = ["profileId", "rev", "stage", "widthStatus", "lengthStatus", "lengthReason", "frontMm", "widthMm", "lengthMm", "t0Ms", "bypassSide"];
+  const bad = [];
+  for (const l of frames) {
+    const [, hex, ...f] = l.split(" "); const d = C.decodeObstacleProfile(hexBytes(hex));
+    if (!d) { bad.push(hex + " rejected"); continue; }
+    keys.forEach((k, i) => { if (d[k] !== Number(f[i])) bad.push(hex + " " + k + ": js " + d[k] + " c " + f[i]); });
+  }
+  check("S1-D60", frames.length >= 200 && bad.length === 0,
+    "every frame the firmware's s5_obst_report.c makes (begin, front, length, final; id wrap 65535 -> 1; t0 above 2^31; clamped sizes) decodes in JS to the same fields", bad.slice(0, 3).join("; "));
+  const tbl = { stage: C.OBST_STAGE, width: C.OBST_WIDTH, length: C.OBST_LENGTH, reason: C.OBST_REASON };
+  const nameBad = names.map(l => /^N (\w+) (\d+) (.*)$/.exec(l)).filter(m => !m || tbl[m[1]][+m[2]] !== m[3]).map(m => m && m[0]);
+  const hdr = src("app_program/subsystem5/s5_obst_report.h"), def = n => +(new RegExp("#define " + n + "\\s+(\\d+)").exec(hdr) || [])[1];
+  check("S1-D60", names.length === 4 + 5 + 5 + 9 && nameBad.length === 0 && tbl.reason.length === 10 &&
+    C.OBST_BYTES === def("S5_OR_BYTES") && C.decodeObstacleProfile(hexBytes("01" + "0001" + "00".repeat(17))) !== null &&
+    /#define S5_OR_TOPIC\s+"obstacle\/profile"/.test(hdr) && C.OBST_TOPIC === /S1_TOPIC_ROOT\s+"([^"]+)"/.exec(src("app_program/subsystem1/s1_bridge.h"))[1] + "obstacle/profile",
+    "the stage, width, length and reason names, the frame size and the topic are the firmware's", nameBad.slice(0, 3).join("; "));
+
+  /* the golden frame of testing/subsystem5 S5-R01 */
+  const golden = "01012c020201020000d200b400f00001e2400100";
+  const g = C.decodeObstacleProfile(hexBytes(golden));
+  const rej = [];
+  const mut = (i, v) => { const b = hexBytes(golden); b[i] = v; return C.decodeObstacleProfile(b); };
+  [[0, 2], [4, 4], [5, 5], [6, 5], [7, 10], [18, 3], [19, 1], [8, 0x07], [10, 0x0F], [12, 0x07]].forEach(([i, v]) => { if (mut(i, v) !== null) rej.push("byte " + i + "=" + v); });
+  { const b = hexBytes(golden); b[1] = 0; b[2] = 0; if (C.decodeObstacleProfile(b) !== null) rej.push("id 0"); }
+  if (C.decodeObstacleProfile(hexBytes(golden).slice(0, 19)) !== null) rej.push("19 bytes");
+  if (C.decodeObstacleProfile(hexBytes(golden + "00")) !== null) rej.push("21 bytes");
+  check("S1-D61", g && g.profileId === 300 && g.rev === 2 && g.stage === 2 && g.frontMm === 210 && g.widthMm === 180 && g.lengthMm === 240 &&
+    g.t0Ms === 123456 && g.bypassSide === 1 && rej.length === 0,
+    "the S5 golden frame decodes as documented; wrong length, version, out-of-range stage/status/reason/side/sizes, id 0 and a non-zero reserved byte are rejected", rej.join(", "));
+
+  /* records as the robot sends them, built from bytes */
+  const mk = o => {
+    const r = Object.assign({ id: 1, rev: 0, stage: 0, ws: 0, ls: 0, lr: 0, front: 0, width: 0, len: 0, t0: 1000, side: 1 }, o);
+    const b = new Uint8Array(20);
+    b[0] = 1; b[1] = r.id >> 8; b[2] = r.id & 255; b[3] = r.rev; b[4] = r.stage; b[5] = r.ws; b[6] = r.ls; b[7] = r.lr;
+    b[8] = r.front >> 8; b[9] = r.front & 255; b[10] = r.width >> 8; b[11] = r.width & 255; b[12] = r.len >> 8; b[13] = r.len & 255;
+    b[14] = (r.t0 >>> 24) & 255; b[15] = (r.t0 >>> 16) & 255; b[16] = (r.t0 >>> 8) & 255; b[17] = r.t0 & 255; b[18] = r.side;
+    return C.decodeObstacleProfile(b);
+  };
+  const W = 173, L = 238; /* arbitrary: the page must show what the frame says */
+  const front = mk({ rev: 1, stage: 1, ws: 1, ls: 1, front: 205, width: W });
+  const meas = mk({ rev: 2, stage: 2, ws: 1, ls: 2, front: 205, width: W, len: L });
+  const vf = C.obstacleView(front), vm = C.obstacleView(meas);
+  const vu = C.obstacleView(mk({ rev: 3, stage: 3, ws: 1, ls: 4, lr: 3, front: 205, width: W }));
+  const vp = C.obstacleView(mk({ rev: 2, stage: 2, ws: 1, ls: 3, front: 205, width: W, len: 84 }));
+  const vl = C.obstacleView(mk({ rev: 1, stage: 1, ws: 2, ls: 1, front: 205, width: 250 }));
+  const vo = C.obstacleView(mk({ rev: 1, stage: 1, ws: 3, ls: 1, front: 205 }));
+  const v0 = C.obstacleView(null);
+  check("S1-D62", vf.summary === "Width: " + W + " mm · Length: measuring" && vf.front === "205 mm" && vf.width === W + " mm" &&
+    vf.length === "Measuring" && !vf.resolved && vf.title === "Obstacle #1",
+    "front profile ready: width shown at once, front distance separate, length Measuring");
+  check("S1-D63", vm.summary === "Width: " + W + " mm · Length: " + L + " mm" && vm.resolved &&
+    vu.length === "Unavailable (no side echo during the pass)" && vu.summary === "Width: " + W + " mm · Length: unavailable (no side echo during the pass)" &&
+    vp.length === "≥ 84 mm (partial)" && vl.width === "≥ 250 mm (lower bound)" && vo.width === "Not measured (one beam)" &&
+    v0.summary === "Profile not reported" && v0.front === "–",
+    "measured length in mm; unavailable with its reason; partial and lower bound marked as bounds; one beam claims no width; nothing received says Profile not reported");
+
+  const tr = new C.ObstacleTracker();
+  const seq = [];
+  seq.push(tr.accept(mk({ id: 7, t0: 5000 }), 1, "mqtt"));
+  seq.push(tr.accept(mk({ id: 7, t0: 5000, rev: 1, stage: 1, ws: 1, ls: 1, front: 200, width: 150 }), 2, "mqtt"));
+  seq.push(tr.accept(mk({ id: 7, t0: 5000, rev: 1, stage: 1, ws: 1, ls: 1, front: 200, width: 150 }), 3, "usb"));
+  seq.push(tr.accept(mk({ id: 7, t0: 5000, rev: 3, stage: 3, ws: 1, ls: 2, front: 200, width: 150, len: 190 }), 4, "mqtt"));
+  seq.push(tr.accept(mk({ id: 7, t0: 5000, rev: 2, stage: 2, ws: 1, ls: 2, front: 200, width: 150, len: 190 }), 5, "mqtt"));
+  const first = tr.current().rec;
+  seq.push(tr.accept(mk({ id: 8, t0: 9000 }), 6, "mqtt"));
+  const second0 = C.obstacleView(tr.current().rec);
+  seq.push(tr.accept(mk({ id: 8, t0: 9000, rev: 1, stage: 1, ws: 1, ls: 1, front: 210, width: 120 }), 7, "mqtt"));
+  const second1 = C.obstacleView(tr.current().rec);
+  seq.push(tr.accept(mk({ id: 7, t0: 5000, rev: 3, stage: 3, ws: 1, ls: 2, front: 200, width: 150, len: 190 }), 8, "mqtt"));
+  seq.push(tr.accept(mk({ id: 8, t0: 70, rev: 0 }), 9, "mqtt")); /* restart: id 8 again, new t0 */
+  seq.push(tr.accept(mk({ id: 1, t0: 70, rev: 255 }), 10, "mqtt"));
+  seq.push(tr.accept(mk({ id: 1, t0: 70, rev: 0 }), 11, "mqtt")); /* rev wraps 255 -> 0 */
+  check("S1-D64", seq.join() === "new,update,dup,update,stale,new,update,stale,new,new,update" && first.lengthMm === 190 &&
+    second0.length === "Measuring" && second0.width === "Measuring" && second1.summary === "Width: 120 mm · Length: measuring" &&
+    tr.list.length === 4 && tr.dups === 1 && tr.stale === 2,
+    "two consecutive obstacles: #2 opens a new entry with no length, #1's length is never shown for #2; repeats, older revs and a late copy of #1 are ignored; a robot restart (same id, new t0) and the rev wrap are handled");
+
+  /* USB: the firmware's own format string, filled in as tm_printf would */
+  const av = src("app_program/subsystem5/task_obstacle_avoid.c");
+  const fmt = /"s5: obstacle #%d rev %d %s: front %d mm, width %d mm \(%s\), "\s*"length %d mm \(%s, %s\) \| frame %s\\n"/.test(av);
+  const line = "s5: obstacle #300 rev 2 length: front 210 mm, width 180 mm (measured), length 240 mm (measured, -) | frame " + golden;
+  const u = C.parseObstacleUsbLine(line);
+  check("S1-D65", fmt && u && JSON.stringify(u) === JSON.stringify(g) && C.parseObstacleUsbLine(line.slice(0, -2)) === null &&
+    C.parseObstacleUsbLine("s5: obstacle ahead") === null,
+    "the USB line (format as in task_obstacle_avoid.c) carries the same frame and decodes like MQTT; a cut line is rejected");
+
+  const ui = HTML.slice(HTML.indexOf("/* CORE-END */"));
+  const rend = (/function renderObstacleProfile\(\) \{[\s\S]*?\n  \}/.exec(ui) || [""])[0];
+  const v0n = C.obstacleView(null), vfs = C.obstacleView(front);
+  check("S1-D66", ["ob_front", "ob_width", "ob_length", "ob_id", "ob_detail", "ob_history"].every(id => HTML.includes('id="' + id + '"')) &&
+    /<dt>Front<\/dt><dd id="ob_front">[\s\S]*<dt>Width<\/dt><dd id="ob_width">[\s\S]*<dt>Length<\/dt><dd id="ob_length">/.test(HTML) &&
+    /topic === C\.OBST_PROFILE_TOPIC\) \{\s*onObstacle\(C\.decodeObstacleProfile\(bytes\), "mqtt"\)/.test(ui) &&
+    /onObstacle\(C\.parseObstacleUsbLine\(line\), "usb"\)/.test(ui) && /"obstacle", C\.obstacleLogText\(u\.rec\)/.test(ui) &&
+    rend && !/innerHTML/.test(rend) && /txt\("ob_width", v\.width\)/.test(rend) && /txt\("ob_length", v\.length\)/.test(rend) &&
+    /const obst = C\.createObstacleTracker\(\)/.test(ui) && C.OBST_PROFILE_TOPIC === C.OBST_TOPIC &&
+    v0n.status === "Profile not reported" && vfs.status === "measuring length",
+    "the Run obstacle tile shows front distance, width and length as labelled values (text only) and says Profile not reported until a frame arrives; MQTT and USB both feed it; every update goes to the saved run log");
 }
 
 /* ---------- D34: page rules ---------- */
