@@ -64,15 +64,25 @@ _Static_assert(S5_DETECT_MM >= S5_STOP_NEEDED_MM,
  *  OFF by default.  It needs robot dimensions that only the owner can
  *  measure, so there are NO default values: to enable it define
  *  S5_SIDE_PASS 1 together with S5_US_TO_AXLE_MM, S5_REAR_OVERHANG_MM,
- *  S5_FRONT_OVERHANG_MM and S5_PIVOT_MARGIN_MM (mm, each with its
+ *  S5_FRONT_OVERHANG_MM (mm, each with its
  *  measurement date) and S5_SIDE_LOOK_DEG (<= the validated servo limit;
  *  checked at compile time in task_obstacle_scan.c). */
 #ifndef S5_SIDE_PASS
 #define S5_SIDE_PASS 0 /* 0 = fixed-depth pass as before */
 #endif
+
+/* Extra gap (mm) kept between the robot and the obstacle's rear corner at
+   turn-in.  Approved by the owner 2026-11-24 at 30 mm.  This is the ONE
+   place to change it if the robot clips the corner (larger = turns in
+   later) or drives on too far (smaller).  The build fails outside 0..100. */
+#ifndef S5_PIVOT_MARGIN_MM
+#define S5_PIVOT_MARGIN_MM 30
+#endif
+_Static_assert((S5_PIVOT_MARGIN_MM >= 0) && (S5_PIVOT_MARGIN_MM <= 100),
+               "S5_PIVOT_MARGIN_MM must be 0..100 mm");
 #if S5_SIDE_PASS
 #if !defined(S5_US_TO_AXLE_MM) || !defined(S5_REAR_OVERHANG_MM) || \
-    !defined(S5_FRONT_OVERHANG_MM) || !defined(S5_PIVOT_MARGIN_MM) || \
+    !defined(S5_FRONT_OVERHANG_MM) || \
     !defined(S5_SIDE_LOOK_DEG)
 #error "S5_SIDE_PASS needs the owner's measured robot dimensions (see obstacle_logic.h)"
 #endif
