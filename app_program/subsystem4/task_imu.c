@@ -21,6 +21,12 @@
 #include "drv_lsm303.h"
 #include "../subsystem2/subsystem2.h"
 
+/* S2 records the IMU stop cause with S4's own values (s2_latch_imu_stop). */
+_Static_assert((S2_IMU_CAUSE_LIFT == IMU_SAFETY_LIFT) &&
+                   (S2_IMU_CAUSE_OVERTURN == IMU_SAFETY_OVERTURN) &&
+                   (S2_IMU_CAUSE_NONE == IMU_SAFETY_NONE),
+               "S2_IMU_CAUSE_* must equal IMU_SAFETY_*");
+
 #define S4_VERBOSE     1  /* 1 = print a status line ... */
 #define S4_PRINT_EVERY 50 /* ... every 50 periods (1 s) */
 
@@ -321,7 +327,10 @@ static void sample_step(uint32_t ticks)
            dashboard mode, controller polling or available queue space. */
         if (g_terrain.st.safety_stop != IMU_SAFETY_NONE)
         {
-            s2_latch_imu_stop();
+            /* S2 keeps which stop it was (lift or overturn), so the
+               controller can classify S2's safe stop even if the
+               SAFETY_STOP event below is late or dropped. */
+            s2_latch_imu_stop(g_terrain.st.safety_stop);
         }
         else if (0U != g_s2_imu_stop)
         {

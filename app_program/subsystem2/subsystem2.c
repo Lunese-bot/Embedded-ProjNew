@@ -18,7 +18,11 @@ ID g_mtx_motion;     /* IF-M2 */
 ID g_flg_motion;     /* IF-M3 */
 ID g_tid_motion;
 ID g_cyc_motion;
-volatile uint32_t g_s2_imu_stop; /* set by IMU lift/overturn, cleared when set down */
+volatile uint32_t g_s2_imu_stop; /* S2_IMU_CAUSE_* while the IMU interlock is
+                                    set, 0 once the robot is set down */
+/* The last IMU interlock and the stop generation it raised.  Kept after
+   set-down, so the stop can still be explained when it is read later. */
+static volatile uint32_t g_imu_stop_cause, g_imu_stop_epoch;
 #if TK_SUPPORT_SMP
 static UW g_stop_epoch, g_s2_seq;
 #else
@@ -34,15 +38,34 @@ uint32_t s2_stop_epoch(void)
 #endif
 }
 
-void s2_latch_imu_stop(void)
+void s2_latch_imu_stop(uint32_t cause)
 {
     if (0U != g_s2_imu_stop)
     {
         return;
     }
-    g_s2_imu_stop = 1U;
+    if ((S2_IMU_CAUSE_LIFT != cause) && (S2_IMU_CAUSE_OVERTURN != cause))
+    {
+        cause = S2_IMU_CAUSE_UNKNOWN; /* still stops; never read as a lift */
+    }
+    /* Cause first: whoever sees this stop can already explain it. */
+    g_imu_stop_cause = cause;
+    g_s2_imu_stop    = cause;
     app_check(s2_emergency_stop(), "s2 IMU emergency stop");
+    g_imu_stop_epoch = s2_stop_epoch();
     (void)tk_wup_tsk(g_tid_motion);
+}
+
+uint32_t s2_imu_stop_cause(uint32_t stop_epoch)
+{
+    uint32_t cause = g_s2_imu_stop;
+
+    if ((0U == cause) && (UINT32_MAX != stop_epoch) &&
+        (stop_epoch == g_imu_stop_epoch))
+    {
+        cause = g_imu_stop_cause; /* set down before the stop was read */
+    }
+    return cause;
 }
 
 /* The IMU says the robot is back down, level and still.  Motion stays in

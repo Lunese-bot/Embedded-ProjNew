@@ -99,10 +99,20 @@ extern ER s2_emergency_stop(void);
 extern uint32_t s2_stop_epoch(void);
 
 /* IMU lift/overturn interlock: blocks every command, RESET included, while
-   set.  The IMU clears it once the robot is set down; then RESET / Start. */
-extern void s2_latch_imu_stop(void);
+   set.  The IMU clears it once the robot is set down; then RESET / Start.
+   cause says which IMU stop it is; the values equal S4's IMU_SAFETY_* and
+   the controller's VC_CAUSE_IMU_* (checked at compile time). */
+#define S2_IMU_CAUSE_NONE     0U
+#define S2_IMU_CAUSE_LIFT     1U
+#define S2_IMU_CAUSE_OVERTURN 2U
+#define S2_IMU_CAUSE_UNKNOWN  3U /* any other value given to the latch */
+extern void s2_latch_imu_stop(uint32_t cause);
 extern void s2_clear_imu_stop(void);
-extern volatile uint32_t g_s2_imu_stop;
+/* Which IMU interlock explains the safe stop of generation stop_epoch
+   (motion_status_t.stop_epoch): the interlock still set, or else the one
+   that raised exactly that stop.  S2_IMU_CAUSE_NONE = not the IMU. */
+extern uint32_t s2_imu_stop_cause(uint32_t stop_epoch);
+extern volatile uint32_t g_s2_imu_stop; /* S2_IMU_CAUSE_*, 0 = not set */
 
 /* ---------------------------------------------------------------------
  *  IF-M2: motion status, subsystem 2 -> anyone (VC, telemetry, IMU...)

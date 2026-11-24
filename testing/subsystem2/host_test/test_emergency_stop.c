@@ -93,6 +93,7 @@ static void clear_fixture(void)
     g_motion_ctx.state = MSTATE_IDLE;
     g_stop_epoch = g_handled_stop_epoch = g_s2_seq = 0;
     g_s2_imu_stop = 0;
+    g_imu_stop_cause = g_imu_stop_epoch = 0;
     queued = receive_count = stop_on_receive = stop_on_send = 0;
     concurrent_stop = 0;
     flags = 0;
@@ -219,14 +220,39 @@ int main(void)
     assert(g_motion_ctx.state == MSTATE_SAFE_STOP);
 
     clear_fixture();
-    s2_latch_imu_stop();
+    s2_latch_imu_stop(S2_IMU_CAUSE_LIFT);
     assert(s2_cmd_reset() == E_OK);
     receive_commands();
     assert(g_motion_ctx.state == MSTATE_SAFE_STOP);
+    /* the stop S2 now reports is explained as the lift */
+    assert(s2_imu_stop_cause(g_handled_stop_epoch) == S2_IMU_CAUSE_LIFT);
     s2_clear_imu_stop();
+    /* set down: the record still explains that one stop, no other */
+    assert(s2_imu_stop_cause(g_handled_stop_epoch) == S2_IMU_CAUSE_LIFT);
+    assert(s2_imu_stop_cause(g_handled_stop_epoch + 1U) == S2_IMU_CAUSE_NONE);
     assert(s2_cmd_reset() == E_OK);
     receive_commands();
     assert(g_motion_ctx.state == MSTATE_IDLE);
+    /* a later stop that is not the IMU's has no IMU cause */
+    assert(s2_emergency_stop() == E_OK);
+    receive_commands();
+    assert(g_motion_ctx.state == MSTATE_SAFE_STOP);
+    assert(s2_imu_stop_cause(g_handled_stop_epoch) == S2_IMU_CAUSE_NONE);
+
+    clear_fixture();
+    s2_latch_imu_stop(S2_IMU_CAUSE_OVERTURN);
+    s2_latch_imu_stop(S2_IMU_CAUSE_LIFT); /* already latched: kept */
+    receive_commands();
+    assert(g_motion_ctx.state == MSTATE_SAFE_STOP);
+    assert(s2_imu_stop_cause(g_handled_stop_epoch) == S2_IMU_CAUSE_OVERTURN);
+    s2_clear_imu_stop();
+
+    clear_fixture();
+    s2_latch_imu_stop(7U); /* not a known IMU cause: stops, never a lift */
+    receive_commands();
+    assert(g_motion_ctx.state == MSTATE_SAFE_STOP);
+    assert(s2_imu_stop_cause(g_handled_stop_epoch) == S2_IMU_CAUSE_UNKNOWN);
+    s2_clear_imu_stop();
 
     clear_fixture();
     g_motion_ctx.state = MSTATE_DRIVING;
@@ -244,5 +270,6 @@ int main(void)
     assert(g_stop_epoch == UINT32_MAX && g_motion_ctx.state == MSTATE_SAFE_STOP);
 
     puts("S2-U11 emergency-stop ordering: PASS");
+    puts("S2-U12 IMU stop cause (lift / overturn / unknown) kept per stop: PASS");
     return 0;
 }
