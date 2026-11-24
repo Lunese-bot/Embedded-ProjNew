@@ -1,5 +1,6 @@
 SRC = ../../../app_program/subsystem5
 test: test_s5_pack test_navigation test_side_pass test_side_task test_side_pass_cfg test_side_task_cfg
+	sh ./check_no_new_binaries.sh
 	./test_s5_pack
 	./test_navigation
 	./test_side_pass

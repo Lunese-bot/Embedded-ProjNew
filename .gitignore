@@ -32,3 +32,7 @@ testing/subsystem5/host_test/test_side_pass_cfg
 testing/subsystem5/host_test/test_side_task_cfg
 testing/subsystem2/host_test/s2_estop_smp
 testing/subsystem2/host_test/s2_estop_single
+
+# Fails if another host-test binary gets tracked (check_no_new_binaries.sh)
+app_program/vehicle_controller/host_test/test_vc_s2
+app_program/vehicle_controller/host_test/test_vc_s3
