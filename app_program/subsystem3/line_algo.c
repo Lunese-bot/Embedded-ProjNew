@@ -551,6 +551,9 @@ void bc_edge_reset_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
     p_e->w_x16     = 0;
     p_e->w_sd_x16  = 0;
     p_e->w_high    = 0U;
+    p_e->w_dsum    = 0;
+    p_e->h_prev    = raw;
+    p_e->h_prev_white = 0U;
 }
 
 void bc_edge_reset(bc_edge_t * p_e, int32_t raw, uint32_t t_us)
@@ -682,7 +685,12 @@ int32_t bc_edge_margin(bc_edge_t const * p_e)
     {
         return 0;
     }
-    return ((S3_BC_NOISE_K * p_e->w_sd_x16) / 16) + S3_BC_NOISE_ADD;
+    {
+        int32_t sd = (p_e->w_sd_x16 < (S3_BC_NOISE_SD_MIN * 16))
+                         ? (S3_BC_NOISE_SD_MIN * 16)
+                         : p_e->w_sd_x16;
+        return ((S3_BC_NOISE_K * sd) / 16) + S3_BC_NOISE_ADD;
+    }
 }
 
 /* start (or restart) the learning window at this sample */
@@ -692,6 +700,7 @@ static void bc_white_window(bc_edge_t * p_e, int32_t raw)
     p_e->w_min = raw;
     p_e->w_max = raw;
     p_e->w_sum = raw;
+    p_e->w_dsum = 0;
 }
 
 uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
@@ -754,6 +763,8 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
                 p_e->w_min = lo;
                 p_e->w_max = hi;
                 p_e->w_sum += raw;
+                p_e->w_dsum += (raw > p_e->last_raw) ? (raw - p_e->last_raw)
+                                                     : (p_e->last_raw - raw);
                 p_e->w_n++;
             }
         }
@@ -761,8 +772,12 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
         {
             /* Casts: w_n is at most S3_BC_WHITE_INIT_N */
             p_e->w_x16    = (p_e->w_sum * 16) / (int32_t)p_e->w_n;
-            /* the range of ~32 noisy samples is about 4 sd */
-            p_e->w_sd_x16 = ((p_e->w_max - p_e->w_min) * 16) / 4;
+            /* noise from the steps between samples, not from the spread,
+               so a level that drifts or a window over faint ink cannot
+               pass as noise: sd = 0.886 x mean |step| for a normal noise
+               (casts: w_n - 1 >= 1 here) */
+            p_e->w_sd_x16 = (p_e->w_dsum * 16 * 886) /
+                            (1000 * ((int32_t)p_e->w_n - 1));
             p_e->w_valid  = 1U;
             p_e->w_high   = 0U;
             p_e->ext      = raw;
@@ -776,10 +791,6 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
         return 0U;
     }
 
-    if (p_e->w_sd_x16 < (S3_BC_NOISE_SD_MIN * 16))
-    {
-        p_e->w_sd_x16 = S3_BC_NOISE_SD_MIN * 16;
-    }
     m       = bc_edge_margin(p_e);
     white   = p_e->w_x16 / 16;
     changed = bc_edge_core(p_e, raw, t_us, pos, m, white + m, white + (m / 2),
@@ -787,23 +798,26 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
 
     if ((0U == p_e->level) && !b_freeze)
     {
+        int32_t step = raw - p_e->h_prev;       /* from the sample before */
         int32_t d16  = (raw * 16) - p_e->w_x16; /* x 16 */
         int32_t ad16 = (d16 < 0) ? -d16 : d16;
         if (ad16 <= (m * 16))
         {
             /* white travel: follow the level slowly */
             p_e->w_x16 += d16 / (1 << S3_BC_WHITE_EMA_SHIFT);
-            if (d16 < 0)
+            if ((d16 < 0) && (0U != p_e->h_prev_white))
             {
-                /* and the noise, from the samples below white only: ink
-                   only reads higher, so the rising and falling sides of
-                   faint marks cannot grow it (sd of a normal noise =
-                   1.25 x its mean deviation, on either side) */
-                p_e->w_sd_x16 += (((ad16 * 5) / 4) - p_e->w_sd_x16) /
+                /* and the noise, from the step between two white samples
+                   below white only: ink only reads higher, so the sides
+                   of faint marks cannot grow it, and an error in the
+                   level (learned on ink) is not taken for noise.
+                   sd of a normal noise = 0.886 x mean |step|. */
+                int32_t as = (step < 0) ? -step : step;
+                p_e->w_sd_x16 += (((as * 16 * 886) / 1000) - p_e->w_sd_x16) /
                                  (1 << S3_BC_WHITE_EMA_SHIFT);
             }
         }
-        else if (d16 < -(2 * m * 16))
+        else if (d16 < 0)
         {
             /* far below the learned white (it was learned on ink, or
                the paper reads lower now): follow down fast */
@@ -829,6 +843,8 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
     {
         p_e->w_high = 0U;
     }
+    p_e->h_prev       = raw;
+    p_e->h_prev_white = (0U == p_e->level) ? 1U : 0U;
     return changed;
 }
 

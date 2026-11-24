@@ -153,6 +153,9 @@ typedef struct
     int32_t  w_x16;     /* white level x 16                              */
     int32_t  w_sd_x16;  /* white noise (standard deviation) x 16         */
     uint16_t w_high;    /* samples black in a row outside a read         */
+    int32_t  w_dsum;    /* learning window: sum of |step| between samples */
+    int32_t  h_prev;    /* adaptive path: the previous sample, raw       */
+    uint8_t  h_prev_white; /* 1 = it was white (level 0)                 */
 } bc_edge_t;
 
 void bc_edge_reset(bc_edge_t * p_e, int32_t raw, uint32_t t_us);
@@ -180,8 +183,9 @@ uint8_t bc_edge_step_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
  * White is learned from S3_BC_WHITE_INIT_N samples in a row that stay
  * within S3_BC_WHITE_INIT_SPREAD; no bar is found before that.  It is
  * then updated on white samples within m of W while b_freeze is false
- * (no read open), follows L down quickly when L sits below W - m outside
- * a read, and is learned again (a bar still open is ended first) after
+ * (no read open; noise from the steps between white samples below W),
+ * follows L down quickly when L sits below W - m outside a read, and is
+ * learned again (a bar still open is ended first) after
  * bc_edge_relearn(), bc_edge_reset_pos(), a gap of more than
  * S3_BC_WHITE_STALE_US between samples, or S3_BC_WHITE_RELEARN_SAMPLES
  * of black outside a read.  Returns 1 when the level changed, like

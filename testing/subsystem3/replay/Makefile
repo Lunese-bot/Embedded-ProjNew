@@ -9,7 +9,9 @@
 # count, decoder path and the letter or the rejection.
 #   make check    fail unless every trace gives exactly the letters in
 #                 expected_letters.txt (as recorded, and with -prime) and
-#                 no other trace gives any letter
+#                 no other trace gives any letter.  Replays relearn white
+#                 after each failed read (the robot's retry rearm); the
+#                 plain letters must also hold with -norearm.
 
 SRC_DIR := ../../../app_program/subsystem3
 CFLAGS  := -std=c11 -Wall -Wextra -Werror -O1 -I$(SRC_DIR)
@@ -23,9 +25,11 @@ bc_replay: bc_replay.c $(SRC_DIR)/line_algo.c $(SRC_DIR)/code39.c $(SRC_DIR)/cod
 check: bc_replay
 	@./bc_replay traces/*.txt | awk '/ SUMMARY /{print $$1, substr($$5, 2, length($$5) - 2)}' | awk '$$2 != ""' > got_plain.txt
 	@./bc_replay -prime traces/*.txt | awk '/ SUMMARY /{print $$1, substr($$5, 2, length($$5) - 2)}' | awk '$$2 != ""' > got_prime.txt
+	@./bc_replay -norearm traces/*.txt | awk '/ SUMMARY /{print $$1, substr($$5, 2, length($$5) - 2)}' | awk '$$2 != ""' > got_norearm.txt
 	@awk '$$1 == "plain" {print $$2, $$3}' expected_letters.txt | diff - got_plain.txt
+	@awk '$$1 == "plain" {print $$2, $$3}' expected_letters.txt | diff - got_norearm.txt
 	@awk '$$1 == "prime" {print $$2, $$3}' expected_letters.txt | diff - got_prime.txt
-	@rm -f got_plain.txt got_prime.txt
+	@rm -f got_plain.txt got_prime.txt got_norearm.txt
 	@echo "[TEST] S3-REPLAY PASS  letters match expected_letters.txt"
 
 clean:

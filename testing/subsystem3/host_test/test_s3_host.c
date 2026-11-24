@@ -2123,6 +2123,45 @@ static void test_bc_adapt(void)
         CHECK("H-W13", 0u == bad, "adaptive: learned white noise sd within 30 % of the real sd (2, 5, 10)");
     }
 
+    /* H-W14: rearm while the sensor stands on a thick bar (vc_sm.c
+       barcode_retry() rearms right after a failed read): white is first
+       learned on ink; after 1 s of real white it is back near paper and
+       the next faint *A* / *Z* (60 mm/s) is still read, nothing wrong */
+    {
+        uint32_t li, near = 0u, good = 0u, wrong = 0u;
+        bool     b_shape = g_sim_shape;
+        g_sim_shape = true;
+        for (li = 0u; li < 2u; li++)
+        {
+            char const * t = (0u == li) ? "A" : "Z";
+            bc_edge_t    e;
+            uint32_t     i, eu = 0u, ep = 0u, n_ink;
+            sim_new();
+            g_rng = 141u + li;
+            sim_tape(-10.0, 25.0);              /* robot stands on ink at 0 mm */
+            (void)sim_lay(t, 75.0, 3.0, 9.0, false);
+            sim_drive(&o, 0.0, 0.0, 0.0, 0.5); /* 0.5 s on ink: white learned there */
+            n_ink = g_sn;
+            sim_drive(&o, 0.0, 75.0, 60.0, 0.0);
+            sim_drive(&o, 75.0, 350.0, 60.0, 0.0);
+            /* white after 1 s of paper (ink ends at 15 mm, 0.25 s) */
+            bc_edge_reset_pos(&e, g_sv[0], 0u, g_sp[0]);
+            for (i = 0u; (i < (n_ink + 25u + 100u)) && (i < g_sn); i++)
+            {
+                (void)bc_edge_step_adapt(&e, g_sv[i], i * 10000u, g_sp[i], false, &eu, &ep);
+            }
+            printf("        rearm on ink (%s): white %d after 1 s of paper, margin %d\n", t,
+                   (int)(e.w_x16 / 16), (int)bc_edge_margin(&e));
+            if ((0u != e.w_valid) && ((e.w_x16 / 16) <= 155) && (bc_edge_margin(&e) <= 20)) { near++; }
+            sim_read(true, 0, 0, &r);
+            if ((1u == r.letters) && (t[0] == r.text[0])) { good++; }
+            else if (r.letters > 0u) { wrong++; }
+        }
+        g_sim_shape = b_shape;
+        CHECK("H-W14", (2u == near) && (2u == good) && (0u == wrong),
+              "adaptive: rearm on a bar: white back to paper within 1 s, next faint A / Z read");
+    }
+
     /* H-W11: a 3 mm first bar at cruise speed (120 mm/s, 25 ms) is found
        with one 10 ms record per level (S3_BC_ADAPT_HOLD 1) */
     {
@@ -2287,8 +2326,21 @@ static void test_geom_noise(void)
         if (k >= end)
         {
             r250 = c39g_decode(&l[off], &f[off], &y[off], end - off, true, NULL, &info);
-            /* the margin the edge finder learned on this pass (replay: 12) */
-            rm = c39g_decode_hump(&l[off], &f[off], &y[off], end - off, true, c39g_min_hump(12), NULL, &info);
+            /* the margin the edge finder learned on this pass before the
+               read (frozen from the read start, as task_line.c does) */
+            bc_edge_t e;
+            uint32_t  i, eu = 0u, ep = 0u, pos = 0u;
+            int32_t   m;
+            bc_edge_reset_pos(&e, (int32_t)l[0], 0u, 0u);
+            for (i = 0u; i < 760u; i++)
+            {
+                pos += (uint32_t)((int32_t)f[i] - (int32_t)y[i]);
+                e.hold = (uint8_t)S3_BC_ADAPT_HOLD;
+                (void)bc_edge_step_adapt(&e, (int32_t)l[i], i * 10000u, pos, false, &eu, &ep);
+            }
+            m = bc_edge_margin(&e);
+            printf("        21:41:13 pass: margin learned before the read %d\n", (int)m);
+            rm = c39g_decode_hump(&l[off], &f[off], &y[off], end - off, true, c39g_min_hump(m), NULL, &info);
         }
         CHECK("H-G17", (C39G_FEW == r250) && (C39G_OK == rm) && ('A' == info.letter) && info.b_reversed,
               "shape: real faint 21:41:13 pass: 250 too few humps, noise margin reads A reversed");
@@ -2329,7 +2381,8 @@ static void test_bc_guards(void)
     }
     printf("        faint A-Z: %u of %u read (%u by shape), %u wrong\n", (unsigned)ok,
            (unsigned)total, (unsigned)by_shape, (unsigned)wrong);
-    CHECK("H-X01", 0u == wrong, "guards: faint A-Z, both ways: never a wrong letter");
+    CHECK("H-X01", (0u == wrong) && (ok == total),
+          "guards: faint A-Z, both ways: every pass reads its own letter, never a wrong one");
 
     /* H-X02: incomplete faint barcodes: the sensor leaves the print after
        30 %, 50 %, 70 % or 90 % of *A* / *Z* (the robot turns away): no letter */
@@ -2358,7 +2411,7 @@ static void test_bc_guards(void)
     }
 
     /* H-X03: the robot stops on the barcode for 1 s halfway (seen in the
-       21:41:13 log) and goes on: the letter is still read, or nothing */
+       21:41:13 log) and goes on: the letter is still read */
     {
         uint32_t got_ok = 0u, got_wrong = 0u;
         for (li = 0u; li < 2u; li++)
@@ -2376,7 +2429,8 @@ static void test_bc_guards(void)
             if ((1u == r.letters) && (t[0] == r.text[0])) { got_ok++; }
             else if (r.letters > 0u) { got_wrong++; }
         }
-        CHECK("H-X03", 0u == got_wrong, "guards: a 1 s stop on the barcode never gives a wrong letter");
+        CHECK("H-X03", (0u == got_wrong) && (2u == got_ok),
+              "guards: a 1 s stop on the barcode: A and Z still read, never a wrong letter");
     }
 
     /* H-X04: strong print (the 2026-11-11 kind, ink +2500 over white 200)

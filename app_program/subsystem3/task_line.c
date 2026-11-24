@@ -180,6 +180,12 @@ static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT],
         g_bc_run_start_pos = pos;
         bc_edge_reset_pos(&g_bc_edge, (int32_t)p_raw[S3_BC_SENSOR], t_us, pos);
     }
+#if S3_BC_EDGE_ADAPT
+    if (0 == BC_EDGE_ON)
+    {
+        g_s3_bc_margin = 0; /* fixed cut-off: the shape read uses 250 */
+    }
+#endif
     if (0 != BC_EDGE_ON)
     {
         uint32_t edge_us  = t_us;

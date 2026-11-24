@@ -18,7 +18,9 @@
  * (the dashboard CSV columns).  Position = 2 x left wheel = sum(fwd - yaw),
  * the same as s3_bc_pos() with S3_BC_DIST_WHEEL 1.
  *
- * usage: bc_replay [-v] [-prime] trace.txt [trace.txt ...]
+ * usage: bc_replay [-v] [-prime] [-norearm] trace.txt [trace.txt ...]
+ * After every failed read the white level is relearned, as the robot's
+ * retry rearm does; -norearm turns that off.
  * Sample numbers count from the first record of the file; with -prime they
  * include the PRIME_N records put in front (see prime()).
  * One line per read:
@@ -46,6 +48,8 @@ static int      g_verbose;
 static int      g_prime; /* -prime: see prime() */
 static int      g_primed_n; /* records added in front */
 static int32_t  g_margin;   /* bc_edge_margin() now (adaptive path) */
+static int      g_norearm;  /* -norearm: no white relearn after a failed read */
+static int      g_rearm;    /* a failed read asked for a rearm */
 static const char * g_name;
 
 typedef struct
@@ -178,6 +182,7 @@ static void decode(int idx, const char * why)
     else
     {
         n_fail++;
+        g_rearm = 1;
     }
     printf("%s start=%d end=%d why=%s elems=%u path=%s out=%s\n", g_name,
            read_start, idx, why, nw, path, out);
@@ -210,6 +215,7 @@ static void on_run(const run_t * r, int idx)
         printf("%s start=%d end=%d why=black-too-long elems=%u path=none out=abort\n",
                g_name, read_start, idx, nw);
         n_fail++;
+        g_rearm = 1;
         go_idle();
         return;
     }
@@ -247,7 +253,7 @@ static void replay(void)
     uint8_t   level = 0u;
     int       i;
 
-    n_starts = n_letters = n_fail = 0; letters[0] = 0;
+    n_starts = n_letters = n_fail = 0; letters[0] = 0; g_rearm = 0;
     go_idle();
     bc_edge_reset_pos(&e, (int32_t)g_l[0], 0u, 0u);
     for (i = 0; i < g_n; i++)
@@ -258,6 +264,12 @@ static void replay(void)
         ep = pos;
         /* task_line.c barcode_runs_step() */
 #if S3_BC_EDGE_ADAPT
+        /* vc_sm.c barcode_retry() asks for BARCODE_READ again after a failed
+           read; task_barcode.c then bumps g_s3_bc_relearn_seq and
+           task_line.c relearns white on its next step (inferred timing:
+           the next record). */
+        if ((0 != g_rearm) && (0 == g_norearm)) { bc_edge_relearn(&e); }
+        g_rearm = 0;
         e.hold = (uint8_t)S3_BC_ADAPT_HOLD;
         uint8_t b_edge = bc_edge_step_adapt(&e, (int32_t)g_l[i], t, pos, (1 == st_read),
                                             &eu, &ep);
@@ -309,6 +321,7 @@ static void replay(void)
                 printf("%s start=%d end=%d why=black-too-long elems=%u path=none out=abort\n",
                        g_name, read_start, i, nw);
                 n_fail++;
+                g_rearm = 1;
                 go_idle();
                 last_run_t = t;
             }
@@ -378,6 +391,7 @@ int main(int argc, char ** argv)
         int x, y, z;
         if (0 == strcmp(argv[a], "-v")) { g_verbose++; continue; }
         if (0 == strcmp(argv[a], "-prime")) { g_prime = 1; continue; }
+        if (0 == strcmp(argv[a], "-norearm")) { g_norearm = 1; continue; }
         f = fopen(argv[a], "r");
         if (NULL == f) { perror(argv[a]); return 1; }
         g_n = 0;
