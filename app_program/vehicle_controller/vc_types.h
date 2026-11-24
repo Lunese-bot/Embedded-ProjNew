@@ -176,12 +176,14 @@ typedef struct
  * --------------------------------------------------------------------- */
 /* Angle the U-turn asks S2 for, in degrees.  TUNE on the robot: the owner
    measured ~215 deg of body turn for a 180 deg request (2026-11-24), so
-   180 x 180 / 215 = 151.  Raise it if the robot under-turns, lower it if
+   180 x 180 / 215 = 151; at 151 the owner saw 10-15 deg over (~192),
+   so 151 x 180 / 192.5 = 141; at 141 it was ~5 deg over (185), so
+   141 x 180 / 185 = 137.  Raise it if the robot under-turns, lower it if
    it over-turns (1 deg here = about 1.2 deg of body turn).  Only the
    U-turn uses it: LEFT / RIGHT end on the line and are accurate.
    Build override: -DVC_UTURN_CMD_DEG=<deg>. */
 #ifndef VC_UTURN_CMD_DEG
-#define VC_UTURN_CMD_DEG 151
+#define VC_UTURN_CMD_DEG 137
 #endif
 _Static_assert((VC_UTURN_CMD_DEG >= 120) && (VC_UTURN_CMD_DEG <= 240),
                "VC_UTURN_CMD_DEG must stay a U-turn (120..240 deg)");

@@ -116,10 +116,10 @@ int main(void)
     /* encoder-based turn requests: the bridge passes the angle to S2 */
     assert(vc_bridge_s2_move(VC_MOVE_U_TURN, 0) == E_OK &&
            last_turn_angle == VC_UTURN_CMD_DEG);
-    assert(VC_UTURN_CMD_DEG == 151); /* owner's 215 deg run: 180 x 180 / 215 */
+    assert(VC_UTURN_CMD_DEG == 137); /* owner: 141 gave ~185 deg; 141 x 180 / 185 */
     assert(vc_bridge_s2_move(VC_MOVE_TURN_LEFT, 90) == E_OK && last_turn_angle == 90);
     assert(vc_bridge_s2_move(VC_MOVE_TURN_RIGHT, 90) == E_OK && last_turn_angle == -90);
-    puts("[TEST] S6-U01 PASS  U-turn asks S2 for VC_UTURN_CMD_DEG (151, tuned from 215 deg measured); left +90, right -90 unchanged");
+    puts("[TEST] S6-U01 PASS  U-turn asks S2 for VC_UTURN_CMD_DEG (137, tuned on the robot); left +90, right -90 unchanged");
 
     puts("[TEST] S6-SAFE03 PASS  motion readiness follows applied stop and reset");
 
