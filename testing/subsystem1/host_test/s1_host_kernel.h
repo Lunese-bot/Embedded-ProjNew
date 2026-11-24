@@ -68,6 +68,11 @@ extern int32_t host_vc_calls;
 extern int32_t host_vc_result;              /* returned by vc_post_event */
 extern int32_t host_app_check_failures;     /* app_check() with ercd < 0 */
 extern char    host_last_printf[512];
+/* s1_latch_read(): what the target would read from S2 and S4 */
+extern uint32_t host_latch_stop_before; /* g_s2_imu_stop, 1st read */
+extern uint32_t host_latch_stop_after;  /* g_s2_imu_stop, 2nd read */
+extern int32_t  host_latch_status_ok;   /* s4_get_status() == E_OK */
+extern uint32_t host_latch_safety;      /* imu_status_t.safety_stop */
 
 #endif /* S1_HOST_KERNEL_H */
 

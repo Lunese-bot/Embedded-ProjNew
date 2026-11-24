@@ -296,8 +296,21 @@ static void test_heartbeat_bounds(void)
     {
         b_digits = b_digits && (text[idx] != 'X');
     }
-    CHECK("S1-M04", b_digits && (len == MQTT_UTK_HB_PREFIX_MAX + 255),
-          "max-width heartbeat has every counter in full (269 bytes)");
+    CHECK("S1-M04", b_digits && (len == MQTT_UTK_HB_PREFIX_MAX + 255 + 5) &&
+          (strcmp(text + len - 5, " il=0") == 0),
+          "max-width heartbeat has every counter in full, then il=0 (274 bytes)");
+    host_latch_stop_before = 1U;
+    host_latch_stop_after  = 1U;
+    host_latch_safety      = 2U; /* IMU_SAFETY_OVERTURN */
+    memset(text, 'X', sizeof(text));
+    len = heartbeat_text(text, (int)sizeof(text), 4294967295U);
+    CHECK("S1-M18", (len == MQTT_UTK_HB_PREFIX_MAX + 255 + S1_LATCH_TEXT_MAX) &&
+          (len < (int)sizeof(text)) &&
+          (strcmp(text + len - S1_LATCH_TEXT_MAX, " il=1 ic=overturn") == 0),
+          "longest heartbeat (max counters + overturn latch) fits MQTT_UTK_HB_MAX");
+    host_latch_stop_before = 0U;
+    host_latch_stop_after  = 0U;
+    host_latch_safety      = 0U;
 
     memset(text, 'Y', sizeof(text));
     len = heartbeat_text(text, 40, 7U);

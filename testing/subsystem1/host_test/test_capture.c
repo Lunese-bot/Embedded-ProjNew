@@ -44,6 +44,12 @@ static int tm_printf(const uint8_t *format, ...);
 #include "../../../app_program/subsystem1/s1_bridge.c"
 #include "../../../app_program/subsystem1/subsystem1_test.c"
 
+/* Target reads S2/S4 (s1_latch_port.c); the capture tests need no latch. */
+void s1_latch_read(S1_LATCH * p_out)
+{
+    s1_latch_resolve(p_out, 0U, 1, 0U, 0U);
+}
+
 #define FAKE_MAX_MESSAGES (S1_QUEUE_LINES * (S1_LINE_MAX + 4) / 8)
 
 typedef struct

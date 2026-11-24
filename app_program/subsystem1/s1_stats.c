@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include "s1_stats.h"
 #include "s1_bridge.h"
+#include "../subsystem4/imu_terrain.h" /* IMU_SAFETY_* only */
 
 #define S1_STATS_FAULT_TOPIC "fault" /* vc_ports.c posts faults here */
 
@@ -214,6 +215,79 @@ int32_t s1_stats_format(const S1_STATS * p_stats, char * p_buf, int32_t size)
     }
     p_buf[text.len] = '\0';
     return text.len;
+}
+
+void s1_latch_resolve(S1_LATCH * p_out, uint32_t stop_before,
+                      int32_t status_ok, uint32_t safety_stop,
+                      uint32_t stop_after)
+{
+    if (p_out == NULL)
+    {
+        return;
+    }
+    p_out->active = (stop_after != 0U) ? 1 : 0;
+    p_out->cause  = S1_LATCH_CAUSE_NONE;
+    if (p_out->active == 0)
+    {
+        return; /* clear now: an old cause is never reported */
+    }
+    if ((stop_before == 0U) || (status_ok == 0))
+    {
+        p_out->cause = S1_LATCH_CAUSE_UNKNOWN; /* changed while read */
+    }
+    else if (safety_stop == IMU_SAFETY_LIFT)
+    {
+        p_out->cause = S1_LATCH_CAUSE_LIFT;
+    }
+    else if (safety_stop == IMU_SAFETY_OVERTURN)
+    {
+        p_out->cause = S1_LATCH_CAUSE_OVERTURN;
+    }
+    else
+    {
+        p_out->cause = S1_LATCH_CAUSE_UNKNOWN; /* not yet published */
+    }
+}
+
+int32_t s1_latch_format(const S1_LATCH * p_latch, char * p_buf, int32_t size)
+{
+    const char * p_text;
+    int32_t      len = 0;
+
+    if ((p_latch == NULL) || (p_buf == NULL) || (size <= 0))
+    {
+        return 0;
+    }
+    if (p_latch->active == 0)
+    {
+        p_text = " il=0";
+    }
+    else if (p_latch->cause == S1_LATCH_CAUSE_LIFT)
+    {
+        p_text = " il=1 ic=lift";
+    }
+    else if (p_latch->cause == S1_LATCH_CAUSE_OVERTURN)
+    {
+        p_text = " il=1 ic=overturn";
+    }
+    else
+    {
+        p_text = " il=1 ic=unknown";
+    }
+    while (p_text[len] != '\0')
+    {
+        len++;
+    }
+    if (len >= size)
+    {
+        p_buf[0] = '\0';
+        return 0;
+    }
+    for (int32_t idx = 0; idx <= len; idx++)
+    {
+        p_buf[idx] = p_text[idx];
+    }
+    return len;
 }
 
 /*** end of file ***/

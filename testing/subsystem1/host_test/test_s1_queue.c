@@ -11,6 +11,7 @@
 #include "s1_host_kernel.h"
 #include "../../../app_program/subsystem1/subsystem1.h"
 #include "../../../app_program/subsystem1/s1_codec.h"
+#include "../../../app_program/subsystem4/imu_terrain.h"
 
 extern int32_t  s1_lock_host_refuse;
 extern uint32_t s1_lock_host_fail;
@@ -90,6 +91,66 @@ static void test_format(void)
     CHECK("S1-Q03", (len == 8) && (line[8] == '\0') && (line[9] == 'X') &&
           (s1_stats_format(&st, line, 0) == 0),
           "a short buffer is cut and NUL-terminated, never overrun");
+}
+
+static int32_t latch_text(uint32_t before, int32_t ok, uint32_t safety,
+                          uint32_t after, char * p_line, int32_t size)
+{
+    S1_LATCH latch;
+
+    s1_latch_resolve(&latch, before, ok, safety, after);
+    return s1_latch_format(&latch, p_line, size);
+}
+
+static void test_latch(void)
+{
+    char     line[S1_STATS_TEXT_MAX + 8];
+    char     big[S1_STATS_TEXT_MAX];
+    S1_LATCH latch;
+    int32_t  len;
+
+    (void)latch_text(0U, 1, IMU_SAFETY_LIFT, 0U, line, (int32_t)sizeof(line));
+    CHECK("S1-Q07", strcmp(line, " il=0") == 0,
+          "interlock clear reads il=0 with no cause, even if S4 still shows one");
+    (void)latch_text(1U, 1, IMU_SAFETY_LIFT, 1U, line, (int32_t)sizeof(line));
+    CHECK("S1-Q08", strcmp(line, " il=1 ic=lift") == 0,
+          "interlock set by a lift reads il=1 ic=lift");
+    (void)latch_text(1U, 1, IMU_SAFETY_OVERTURN, 1U, line, (int32_t)sizeof(line));
+    CHECK("S1-Q09", strcmp(line, " il=1 ic=overturn") == 0,
+          "interlock set by an overturn reads il=1 ic=overturn");
+    len = 1;
+    (void)latch_text(1U, 1, IMU_SAFETY_NONE, 1U, line, (int32_t)sizeof(line));
+    len = len && (strcmp(line, " il=1 ic=unknown") == 0);
+    (void)latch_text(1U, 0, IMU_SAFETY_LIFT, 1U, line, (int32_t)sizeof(line));
+    len = len && (strcmp(line, " il=1 ic=unknown") == 0);
+    (void)latch_text(0U, 1, IMU_SAFETY_LIFT, 1U, line, (int32_t)sizeof(line));
+    len = len && (strcmp(line, " il=1 ic=unknown") == 0);
+    (void)latch_text(1U, 1, 7U, 1U, line, (int32_t)sizeof(line));
+    len = len && (strcmp(line, " il=1 ic=unknown") == 0);
+    (void)latch_text(1U, 1, IMU_SAFETY_LIFT, 0U, line, (int32_t)sizeof(line));
+    len = len && (strcmp(line, " il=0") == 0);
+    CHECK("S1-Q10", len,
+          "cause unknown when S4 has not published it, its lock failed, the "
+          "interlock changed while read, or the code is unrecognised");
+    memset(line, 'X', sizeof(line));
+    s1_latch_resolve(&latch, 1U, 1, IMU_SAFETY_OVERTURN, 1U);
+    CHECK("S1-Q11", (s1_latch_format(&latch, line, S1_LATCH_TEXT_MAX) == 0) &&
+          (line[0] == '\0') && (line[1] == 'X') &&
+          (s1_latch_format(&latch, line, S1_LATCH_TEXT_MAX + 1) ==
+           S1_LATCH_TEXT_MAX) && (line[S1_LATCH_TEXT_MAX] == '\0'),
+          "a latch field that does not fit is left out whole, never cut");
+    host_kernel_reset();
+    memset(&g_s1_stats, 0xFF, sizeof(g_s1_stats));
+    host_latch_stop_before = 1U;
+    host_latch_stop_after  = 1U;
+    host_latch_safety      = IMU_SAFETY_LIFT;
+    len = s1_bridge_format_counters(big, (int32_t)sizeof(big));
+    CHECK("S1-Q12", (len == (int32_t)strlen(big)) && (strncmp(big, "s1 tq=4294967295 ", 17) == 0) &&
+          (strstr(big, " hr=4294967295 lf=") != NULL) &&
+          (strcmp(big + len - 13, " il=1 ic=lift") == 0),
+          "the counters line (MQTT heartbeat and USB) keeps every counter and "
+          "ends with the latch field");
+    host_kernel_reset();
 }
 
 /* ---- controllable publish stub ---------------------------------------- */
@@ -527,6 +588,7 @@ int main(void)
 {
     test_kinds();
     test_format();
+    test_latch();
     test_eviction_counts();
     test_refused_event();
     test_event_priority();

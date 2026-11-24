@@ -115,6 +115,54 @@ void s1_stats_publish(S1_STATS * p_stats, int32_t kind, int32_t err);
    the NUL); a line that did not fit is cut short. */
 int32_t s1_stats_format(const S1_STATS * p_stats, char * p_buf, int32_t size);
 
+/* ---------------------------------------------------------------------
+ *  IMU stop interlock, appended to the counters line for the operator
+ *  dashboard (owner, 2026-11-24).  Display only: S4 and S2 stop the motors
+ *  and refuse Reset/Start on their own, whatever this text says or whether
+ *  any heartbeat is sent.  The 14-byte telemetry frame is unchanged (v1).
+ *
+ *    " il=0"                 interlock clear (g_s2_imu_stop == 0)
+ *    " il=1 ic=lift"         interlock set, S4 reports IMU_SAFETY_LIFT
+ *    " il=1 ic=overturn"     interlock set, S4 reports IMU_SAFETY_OVERTURN
+ *    " il=1 ic=unknown"      interlock set, cause not readable coherently
+ *                            (S4 status lock timed out, the interlock
+ *                            changed while it was read, or S4 had not yet
+ *                            published the cause that set it)
+ *
+ *  Only S4's safety_stop is read.  The tilt-limit warning (IMU_EV_TILT_LIMIT,
+ *  S4_FC_TILT) never sets the interlock and never shows as a cause.  Builds
+ *  without this code send no il= field; the dashboard then shows "Latch
+ *  status unavailable".
+ * --------------------------------------------------------------------- */
+#define S1_LATCH_CAUSE_NONE     0
+#define S1_LATCH_CAUSE_LIFT     1
+#define S1_LATCH_CAUSE_OVERTURN 2
+#define S1_LATCH_CAUSE_UNKNOWN  3
+
+/* Longest text, without the NUL: " il=1 ic=overturn" */
+#define S1_LATCH_TEXT_MAX 17
+
+typedef struct
+{
+    int32_t active; /* 0 or 1: the S2 motor interlock as read the 2nd time */
+    int32_t cause;  /* S1_LATCH_CAUSE_*; NONE whenever active == 0 */
+} S1_LATCH;
+
+/* Combine two reads of the S2 interlock taken before and after one read of
+   S4's status (status_ok == 0 if that read failed) into one coherent
+   value.  safety_stop is imu_status_t.safety_stop (IMU_SAFETY_*). */
+void s1_latch_resolve(S1_LATCH * p_out, uint32_t stop_before,
+                      int32_t status_ok, uint32_t safety_stop,
+                      uint32_t stop_after);
+
+/* Write the text above into p_buf; same bounds rules as s1_stats_format.
+   Returns the length written (0 if it did not fit: never a cut field). */
+int32_t s1_latch_format(const S1_LATCH * p_latch, char * p_buf, int32_t size);
+
+/* Read the live interlock and cause (s1_latch_port.c on the target; the
+   host tests supply their own). */
+void s1_latch_read(S1_LATCH * p_out);
+
 #endif /* S1_STATS_H */
 
 /*** end of file ***/

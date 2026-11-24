@@ -33,6 +33,16 @@ int32_t host_vc_calls;
 int32_t host_vc_result;
 int32_t host_app_check_failures;
 char    host_last_printf[512];
+uint32_t host_latch_stop_before;
+uint32_t host_latch_stop_after;
+int32_t  host_latch_status_ok = 1;
+uint32_t host_latch_safety;
+
+void s1_latch_read(S1_LATCH * p_out)
+{
+    s1_latch_resolve(p_out, host_latch_stop_before, host_latch_status_ok,
+                     host_latch_safety, host_latch_stop_after);
+}
 
 static int32_t msg_cost(int32_t len)
 {
@@ -190,6 +200,10 @@ void host_kernel_reset(void)
     g_mbf_telemetry = 0;
     s1_txq_reset(&g_s1_txq);
     s_b_unfinished  = false;
+    host_latch_stop_before = 0U;
+    host_latch_stop_after  = 0U;
+    host_latch_status_ok   = 1;
+    host_latch_safety      = 0U;
 }
 
 /*** end of file ***/

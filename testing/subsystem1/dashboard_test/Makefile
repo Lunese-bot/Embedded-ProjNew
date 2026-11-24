@@ -11,8 +11,8 @@ run: tlm_encode
 	    echo "[TEST] dashboard SKIPPED (node not found; not a pass)"; exit 1; \
 	fi
 
-tlm_encode: tlm_encode.c $(SRC)/s1_codec.c $(SRC)/s1_codec.h
-	$(CC) $(CFLAGS) -o $@ tlm_encode.c $(SRC)/s1_codec.c
+tlm_encode: tlm_encode.c $(SRC)/s1_codec.c $(SRC)/s1_codec.h $(SRC)/s1_stats.c $(SRC)/s1_stats.h
+	$(CC) $(CFLAGS) -o $@ tlm_encode.c $(SRC)/s1_codec.c $(SRC)/s1_stats.c
 
 clean:
 	rm -f tlm_encode tlm_encode.exe

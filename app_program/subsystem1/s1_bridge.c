@@ -362,12 +362,17 @@ void s1_bridge_heartbeat_result(int32_t err)
 int32_t s1_bridge_format_counters(char * p_buf, int32_t size)
 {
     S1_STATS stats;
+    S1_LATCH latch;
+    int32_t  len;
 
     if (E_OK != s1_get_stats(&stats))
     {
         return s1_stats_format(NULL, p_buf, size);
     }
-    return s1_stats_format(&stats, p_buf, size);
+    len = s1_stats_format(&stats, p_buf, size);
+    s1_latch_read(&latch);
+    len += s1_latch_format(&latch, &p_buf[len], size - len);
+    return len;
 }
 
 /*** end of file ***/

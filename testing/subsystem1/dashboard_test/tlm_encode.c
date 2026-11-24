@@ -10,10 +10,13 @@
  *   B text                                     -> barcode bytes in hex
  *   C cmd seq        (cmd 0 start, 1 stop, 2 reset) -> command byte
  *   A result seq                               -> ack byte
+ *   L before ok safety after                    -> "[<latch text>]" as
+ *     s1_bridge_format_counters() appends it (s1_latch_resolve/format)
  */
 #include <stdio.h>
 #include <string.h>
 #include "s1_codec.h"
+#include "s1_stats.h"
 
 int main(void)
 {
@@ -65,6 +68,13 @@ int main(void)
 			printf("%02x\n", s1_cmd_encode((S1_CMD)v[0], (uint8_t)v[1]));
 		} else if (line[0] == 'A' && sscanf(line + 1, "%ld %ld", &v[0], &v[1]) == 2) {
 			printf("%02x\n", s1_ack_encode((S1_ACK)v[0], (uint8_t)v[1]));
+		} else if (line[0] == 'L' && sscanf(line + 1, "%ld %ld %ld %ld", &v[0], &v[1], &v[2], &v[3]) == 4) {
+			S1_LATCH latch;
+			char text[S1_LATCH_TEXT_MAX + 1];
+
+			s1_latch_resolve(&latch, (uint32_t)v[0], (int32_t)v[1], (uint32_t)v[2], (uint32_t)v[3]);
+			(void)s1_latch_format(&latch, text, (int32_t)sizeof(text));
+			printf("[%s]\n", text);
 		} else {
 			printf("ERR\n");
 		}

@@ -293,17 +293,20 @@ function ratio(a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.
   const av = x => C.commandAvailability(Object.assign({ mqtt: true, fresh: true, state: "IDLE", paused: false, latch: "unavailable" }, x));
   const offline = av({ mqtt: false });
   const stale = av({ fresh: false, state: "FOLLOW_LINE" });
-  const latched = av({ latch: "set" });
+  const liftAction = C.latchAction({ imuLatch: { active: true, cause: "lift" }, at: 0 }, 0);
+  const latched = av({ latch: "set", latchAction: liftAction });
   check("S1-D28", Object.values(offline).every(a => !a.ok) && stale.stop.ok && !stale.start.ok && !stale.pause.ok &&
     !av({ state: "FAULT" }).start.ok && av({ state: "FAULT" }).reset.ok && !av({ state: "FOLLOW_LINE" }).reset.ok &&
     av({ state: "FOLLOW_LINE" }).pause.ok && !av({ state: "LOST_LINE" }).pause.ok && av({ state: "FOLLOW_LINE", paused: true }).resume.ok &&
     av({ state: "MISSION_COMPLETE" }).start.ok && !latched.start.ok &&
-    latched.start.why === "Robot was lifted or tilted: place it flat, hands off 2 s, press Reset, then Start.",
+    latched.start.why === "Robot was lifted: set it down flat, hands off 2 s, press Reset, then Start." && latched.reset.ok &&
+    /cause unavailable/.test(av({ latch: "set" }).start.why),
   "buttons follow transport and firmware guards: Stop stays usable with stale data, Start needs fresh Idle/Complete, Reset is refused mid-run, a confirmed latch blocks Start");
   check("S1-D29", C.staleAfterMs("mqtt") === 1000 && C.staleAfterMs("usb") === 2000 &&
     C.latchStatus(null, 0) === "unavailable" && C.latchStatus({ imuLatch: null, at: 0 }, 1) === "unavailable" &&
-    C.latchStatus({ imuLatch: 1, at: 0 }, 6000) === "set" && C.latchStatus({ imuLatch: 1, at: 0 }, 7000) === "unavailable" &&
-    C.latchStatus({ imuLatch: 0, at: 0 }, 100) === "clear",
+    C.latchStatus({ imuLatch: { active: true, cause: null }, at: 0 }, 6500) === "set" &&
+    C.latchStatus({ imuLatch: { active: true, cause: null }, at: 0 }, 6501) === "unavailable" &&
+    C.latchStatus({ imuLatch: { active: false, cause: null }, at: 0 }, 100) === "clear",
   "MQTT data is stale after 1 s, USB after 2 s; latch is unavailable unless a fresh source reports it (never inferred)");
 }
 
@@ -313,8 +316,9 @@ function ratio(a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.
   const old = C.parseHeartbeat("hb 7");
   const il = C.parseHeartbeat("hb 8 s1 tq=1 tl=0 il=1");
   check("S1-D30", hb.count === 12 && hb.counters.tl === 2 && hb.counters.ed.join() === "0,1,0,0" && hb.counters.rf.join() === "4,0,0" &&
-    hb.imuLatch === null && old.count === 7 && old.counters === null && il.imuLatch === 1 && C.parseHeartbeat("garbage") === null,
-  "heartbeat counters parse; the older \"hb N\" format still parses with counters unavailable; the proposed il= field is optional");
+    hb.imuLatch === null && old.count === 7 && old.counters === null && old.imuLatch === null &&
+    il.imuLatch.active === true && il.imuLatch.cause === null && il.counters.tq === 1 && C.parseHeartbeat("garbage") === null,
+  "heartbeat counters parse; the older \"hb N\" format still parses with counters unavailable; the il= field is optional");
   const u = C.fromUsbJson({ t: 1, st: "FOLLOW_LINE", v: [120, 116], odo: 300, line: -40, bc: 1, nav: 2, pitch: -150, hump: 0, maxhump: 1, us: 0, obs: 1 });
   check("S1-D31", u.seq === null && u.fault === null && u.paused === null && u.obstacleMm === null && u.obstacleNoEcho && u.pitchDeg === -1.5,
     "USB JSON has no sequence (cannot count toward MQTT loss); unreported fields stay empty, not zero");
@@ -335,6 +339,48 @@ function ratio(a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.
   check("S1-D32", ok, "CSV has stable headers with units; reopened rows equal the decoded frames across the 255 -> 0 wrap; unreported cells are empty; quotes and commas escape");
   check("S1-D33", C.logLine(Date.UTC(2026, 10, 24), "telemetry", "a\tb\nc") === "2026-11-24T00:00:00.000Z\ttelemetry\ta b c" &&
     /seq=255 st=FOLLOW_LINE/.test(C.tlmLogText(rows[1])), "saved-log lines are timestamped, one per line, with the telemetry sequence");
+}
+
+/* ---------- D35-D37: IMU stop latch in the counters line (s1_stats.h) ---------- */
+{
+  const terr = src("app_program/subsystem4/imu_terrain.h");
+  const code = n => +new RegExp("#define\\s+IMU_SAFETY_" + n + "\\s+(\\d+)").exec(terr)[1];
+  const [LIFT, OVER, NONE] = [code("LIFT"), code("OVERTURN"), code("NONE")];
+  /* firmware text from s1_latch_resolve() + s1_latch_format() */
+  const fw = enc(["L 0 1 " + NONE + " 0", "L 1 1 " + LIFT + " 1", "L 1 1 " + OVER + " 1", "L 1 1 " + NONE + " 1",
+    "L 1 0 " + LIFT + " 1", "L 0 1 " + LIFT + " 1", "L 1 1 " + LIFT + " 0", "L 1 1 9 1"].join("\n") + "\n")
+    .map(l => l.replace(/^\[|\]$/g, ""));
+  const base = "hb 40 s1 tq=10 tl=0 eq=2 ed=0/0/0/0 pa=10/2 rf=0/0/0 cb=12/0/0 uc=0 if=0/0 hr=0 lf=0";
+  const show = (t, at, now) => { const h = C.parseHeartbeat(base + t); h.at = at; return C.latchText(h, now); };
+  const D = "\u2014";
+  check("S1-D35", fw[0] === " il=0" && show(fw[0], 0, 0) === "IMU stop clear" &&
+    fw[1] === " il=1 ic=lift" && show(fw[1], 0, 0) === "IMU stop latched " + D + " lift" &&
+    fw[2] === " il=1 ic=overturn" && show(fw[2], 0, 0) === "IMU stop latched " + D + " overturn" &&
+    [3, 4, 5, 7].every(i => fw[i] === " il=1 ic=unknown" && show(fw[i], 0, 0) === "IMU stop latched " + D + " cause unavailable") &&
+    fw[6] === " il=0",
+  "clear, lift, overturn and unknown cause: the firmware's own text (s1_latch_format) shows as the owner's wording; a cause read while the interlock changed is unknown",
+    JSON.stringify(fw));
+  /* one robot over time: lift, stale, set down + Reset, then an older build */
+  const t0 = 1000;
+  const liftHb = Object.assign(C.parseHeartbeat(base + fw[1]), { at: t0 });
+  const clearHb = Object.assign(C.parseHeartbeat(base + fw[0]), { at: t0 + 10000 });
+  const oldHb = Object.assign(C.parseHeartbeat(base), { at: t0 + 20000 });
+  const bad = Object.assign(C.parseHeartbeat(base + " il=2"), { at: t0 });
+  const tilt = Object.assign(C.parseHeartbeat(base + " il=1 ic=tilt"), { at: t0 });
+  check("S1-D36", C.latchText(liftHb, t0 + 6500) === "IMU stop latched " + D + " lift" &&
+    C.latchText(liftHb, t0 + 6501) === "Latch status unavailable" && C.latchCause(liftHb, t0 + 6501) === null &&
+    C.latchText(clearHb, t0 + 10000) === "IMU stop clear" && C.latchCause(clearHb, t0 + 10000) === null &&
+    oldHb.imuLatch === null && C.latchText(oldHb, t0 + 20000) === "Latch status unavailable" &&
+    C.latchText(bad, t0) === "Latch status unavailable" &&
+    C.latchText(tilt, t0) === "IMU stop latched " + D + " cause unavailable" && !/overturn/i.test(C.FAULTS[0x4003].name),
+  "stale heartbeat, older firmware after a reconnect, and a malformed il= show \"Latch status unavailable\"; a fresh il=0 after Reset clears the old cause; a tilt is never shown as an overturn");
+  const usb = C.parseCountersLine("s1 tq=7 tl=1 eq=3 ed=0/0/1/0 pa=6/3 rf=1/0/0 cb=9/0/0 uc=0 if=1/0 hr=0 lf=0" + fw[2]);
+  const usbOld = C.parseCountersLine("s1 tq=7 tl=1 eq=3 ed=0/0/1/0 pa=6/3 rf=1/0/0 cb=9/0/0 uc=0 if=1/0 hr=0 lf=0");
+  const ui = HTML.slice(HTML.indexOf("/* CORE-END */"));
+  check("S1-D37", usb.counters.tq === 7 && usb.counters.ed.join() === "0,0,1,0" && usb.counters.lf === 0 && usb.counters.il === undefined &&
+    usb.imuLatch.active && usb.imuLatch.cause === "overturn" && usbOld.counters.tl === 1 && usbOld.imuLatch === null &&
+    C.parseHeartbeat(base + fw[1]).counters.cb.join() === "12,0,0" && /C\.parseCountersLine\(line\)/.test(ui) && /C\.latchText\(/.test(ui),
+  "existing counters keep working with the latch field, on MQTT and on the USB console line; the page renders the latch from both");
 }
 
 /* ---------- D34: page rules ---------- */

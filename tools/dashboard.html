@@ -230,7 +230,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       <div class="group"><h3>IMU (S4)</h3><div class="tiles">
         <div class="tile"><div class="k">Pitch</div><div class="v"><span id="t_pitch">–</span> <span class="u">°</span></div></div>
         <div class="tile"><div class="k">Hump now / max</div><div class="v"><span id="t_hump">–</span> / <span id="t_maxhump">–</span> <span class="u">mm</span></div></div>
-        <div class="tile"><div class="k">Lift / tilt latch</div><div class="v small" id="t_latch">Latch status unavailable</div></div>
+        <div class="tile"><div class="k">IMU stop latch</div><div class="v small" id="t_latch">Latch status unavailable</div></div>
       </div></div>
       <div class="group"><h3>Obstacle (S5)</h3><div class="tiles">
         <div class="tile"><div class="k">Ultrasonic</div><div class="v"><span id="t_us">–</span> <span class="u" id="t_us_u">mm</span></div></div>
@@ -438,7 +438,7 @@ const DashCore = (() => {
     0x0001: { def: "VC_FC_OPERATOR_STOP", owner: 6, name: "Operator stop",
       action: "Stop was pressed. Press Reset, then Start for a new run." },
     0x0002: { def: "VC_FC_SELF_CHECK", owner: 6, name: "Controller self-check",
-      action: "S2 motion or S3 line did not report ready within 2 s. Check which subsystem is not ready in the console; if the robot was lifted or tilted: " + FLAT,
+      action: "S2 motion or S3 line did not report ready within 2 s. Check which subsystem is not ready in the console; if the robot was lifted or overturned: " + FLAT,
       bySev: { 0: { name: "Self-check: optional subsystem missing",
         action: "S4 IMU or S5 obstacle did not report ready; the run continues without it. Check the console for which one." } } },
     0x0003: { def: "VC_FC_LINE_RECOVERY", owner: 6, name: "Line not found",
@@ -466,7 +466,7 @@ const DashCore = (() => {
     0x2010: { def: "S2_FC_TIMEOUT", owner: 2, name: "Steering commands stopped",
       action: "S2 got no drive update for 500 ms and stopped. Press Reset, then Start; if it repeats, save the log for the S3/VC owner." },
     0x2011: { def: "S2_FC_SAFE_STOP", owner: 2, name: "Motors safe-stopped",
-      action: "S2 latched the motors off. It usually follows another fault, or an IMU lift or tilt. " + FLAT },
+      action: "S2 latched the motors off. It usually follows another fault, or an IMU lift or overturn. " + FLAT },
     0x3002: { def: "S3_FC_CAL_FAILED", owner: 3, name: "Line sensor calibration failed",
       action: "The old calibration is kept and the run continues. Recalibrate on the track before the next run." },
     0x4001: { def: "S4_FC_FAULT", owner: 4, name: "IMU read errors",
@@ -478,7 +478,7 @@ const DashCore = (() => {
     0x4004: { def: "S4_FC_CAL_FAILED", owner: 4, name: "IMU calibration failed",
       action: "S4 retries on its own. Keep the robot still on a flat surface during Start." },
     0x4005: { def: "S4_FC_SAFETY", owner: 4, name: "Lifted or overturned",
-      action: "Robot was lifted or tilted: " + FLAT },
+      action: "Robot was lifted or overturned: " + FLAT },
     0x5001: { def: "S5_FAULT_ECHO_TIMEOUT", owner: 5, name: "Ultrasonic silent",
       action: "No echo several times in a row. Check the ultrasonic sensor cable, press Reset, then Start." },
     0x5002: { def: "S5_FAULT_MOTION_TIMEOUT", owner: 5, name: "Bypass move timed out",
@@ -524,9 +524,10 @@ const DashCore = (() => {
   function parseCounters(text) {
     const out = {};
     let any = false;
-    for (const m of String(text).matchAll(/\b([a-z]{2})=([0-9/]+)/g)) {
+    for (const m of String(text).matchAll(/\b([a-z]{2})=([0-9a-z/]+)/g)) {
+      if (m[1] === "il") { out.il = m[2]; continue; }
+      if (m[1] === "ic") { out.ic = m[2]; continue; }
       const width = HB_FIELDS[m[1]];
-      if (m[1] === "il") { out.il = +m[2]; continue; }
       if (!width) continue;
       const v = m[2].split("/").map(Number);
       if (v.length !== width || v.some(x => !Number.isFinite(x))) continue;
@@ -534,19 +535,59 @@ const DashCore = (() => {
     }
     return any || out.il != null ? out : null;
   }
+  /* IMU stop interlock, optional " il=0" / " il=1 ic=lift|overturn|unknown"
+     (s1_stats.h).  Missing or malformed il= (older firmware) -> null, which
+     shows as "Latch status unavailable"; never inferred from other data.
+     Only S4's lift/overturn safety stop is a cause: tilt warnings are not. */
+  const LATCH_CAUSES = { lift: "lift", overturn: "overturn" };
+  function latchFromCounters(c) {
+    if (!c || (c.il !== "0" && c.il !== "1")) return null;
+    if (c.il === "0") return { active: false, cause: null };
+    return { active: true, cause: LATCH_CAUSES[c.ic] || null };
+  }
+  function stripLatch(c) {
+    if (!c) return null;
+    delete c.il; delete c.ic;
+    return Object.keys(c).length ? c : null;
+  }
   function parseHeartbeat(text) {
     const m = /^hb (\d+)(?: (.*))?$/.exec(String(text).trim());
     if (!m) return null;
     const c = m[2] ? parseCounters(m[2]) : null;
-    /* "il=0|1": PROPOSED optional IMU-latch field (not in any build yet) */
-    const imuLatch = c && (c.il === 0 || c.il === 1) ? c.il : null;
-    if (c) delete c.il;
-    return { count: +m[1], counters: c && Object.keys(c).length ? c : null, imuLatch };
+    const imuLatch = latchFromCounters(c);
+    return { count: +m[1], counters: stripLatch(c), imuLatch };
   }
+  /* USB console "s1 tq=.. ... il=.." (task_telemetry.c, every 5 s) */
+  function parseCountersLine(text) {
+    const c = parseCounters(text);
+    if (!c) return null;
+    const imuLatch = latchFromCounters(c);
+    return { count: null, counters: stripLatch(c), imuLatch };
+  }
+  const LATCH_FRESH_MS = HB_PERIOD_MS + 1500;
+  function latchFresh(hb, now) { return !!(hb && hb.imuLatch && now - hb.at <= LATCH_FRESH_MS); }
   function latchStatus(hb, now) {
-    if (!hb || hb.imuLatch == null) return "unavailable";
-    if (now - hb.at > HB_PERIOD_MS + 1500) return "unavailable";
-    return hb.imuLatch ? "set" : "clear";
+    if (!latchFresh(hb, now)) return "unavailable";
+    return hb.imuLatch.active ? "set" : "clear";
+  }
+  /* "lift" | "overturn" | null (clear, unknown cause, or unavailable) */
+  function latchCause(hb, now) {
+    return latchStatus(hb, now) === "set" ? hb.imuLatch.cause : null;
+  }
+  function latchText(hb, now) {
+    const st = latchStatus(hb, now);
+    if (st === "unavailable") return "Latch status unavailable";
+    if (st === "clear") return "IMU stop clear";
+    const cause = latchCause(hb, now);
+    return cause ? "IMU stop latched \u2014 " + cause : "IMU stop latched \u2014 cause unavailable";
+  }
+  /* What the operator does while the interlock is set (S2 refuses Reset). */
+  function latchAction(hb, now) {
+    const cause = latchCause(hb, now);
+    const first = cause === "lift" ? "Robot was lifted: set it down flat"
+      : cause === "overturn" ? "Robot overturned: put it upright and flat"
+      : "IMU stop latched \u2014 cause unavailable: put the robot flat and upright";
+    return first + ", hands off 2 s, press Reset, then Start.";
   }
 
   /* ---------- browser-observed MQTT loss, 60 s window ----------
@@ -704,7 +745,7 @@ const DashCore = (() => {
     set("stop", noCmd);
     if (noCmd) { for (const k of ["start", "reset", "pause", "resume"]) set(k, noCmd); return out; }
     const unknown = "No fresh robot state" + (c.restored ? " (showing restored data)" : "") + ".";
-    if (c.latch === "set") set("start", "Robot was lifted or tilted: place it flat, hands off 2 s, press Reset, then Start.");
+    if (c.latch === "set") set("start", c.latchAction || "IMU stop latched \u2014 cause unavailable: put the robot flat and upright, hands off 2 s, press Reset, then Start.");
     else if (!st) set("start", unknown);
     else if (c.paused) set("start", "Robot is paused: use Resume or Stop.");
     else if (st === "FAULT") set("start", "Start is ignored in Fault: press Reset first.");
@@ -792,7 +833,7 @@ const DashCore = (() => {
       title = "Fault: " + d.name; action = d.action;
       detail = d.subsystem + ", " + d.severity.toLowerCase() + ", " + d.hex;
       if (prim.code === SAFE_STOP && o.causes.length === 1)
-        detail += ". No earlier cause was reported; an IMU lift or tilt also ends this way (inferred from vc_bridge_s2.c reporting before vc_bridge_s4.c)";
+        detail += ". No earlier cause was reported; an IMU lift or overturn also ends this way (inferred from vc_bridge_s2.c reporting before vc_bridge_s4.c)";
       const others = o.causes.filter(f => f !== prim && f.code !== SAFE_STOP);
       if (others.length) detail += ". Cause uncertain: also reported " + others.map(f => describeFault(f).name + " " + hex4(f.code)).join(", ");
     } else if (o.tlmFault) {
@@ -904,7 +945,7 @@ const DashCore = (() => {
   return { STATES, ACTIVE, STATE_LABEL, NAV, OBS, ACK, CMD_LABEL, BARCODE_RULES, FAULTS, SUBSYS, SEV, SAFE_STOP,
     TLM_PERIOD_MS, HB_PERIOD_MS, ACK_TIMEOUT_MS, CONFIRM_MS, STORE_KEY, STORE_CAPS, CSV_COLUMNS,
     staleAfterMs, decodeTelemetry, fromUsbJson, decodeBarcode, encodeCommand, decodeCommand, decodeAck,
-    parseFaultJson, parseFaultConsole, describeFault, hex4, parseHeartbeat, parseCounters, latchStatus,
+    parseFaultJson, parseFaultConsole, describeFault, hex4, parseHeartbeat, parseCounters, parseCountersLine, latchStatus, latchCause, latchText, latchAction, LATCH_FRESH_MS,
     LossWindow, CommandTracker, describeCommand, commandAvailability, expectedState,
     RunTracker, describeOutcome, configuredAction, packStore, unpackStore, writeStore,
     telemetryCsv, parseCsv, csvCell, logLine, tlmLogText };
@@ -1196,7 +1237,7 @@ const DashCore = (() => {
       return;
     }
     if ((m = /^mqtt: TX \[[^\]]*heartbeat\] "(.*)"$/.exec(line))) { onHeartbeat(m[1], "usb"); return; }
-    if (/^s1 tq=/.test(line)) { const c = C.parseCounters(line); if (c) { S.hb = { count: null, counters: c, imuLatch: null, at: now(), source: "usb" }; renderDiag(); } }
+    if (/^s1 tq=/.test(line)) { const c = C.parseCountersLine(line); if (c) { S.hb = { ...c, at: now(), source: "usb" }; renderDiag(); renderStatus(); } }
   }
 
   /* ---------- MQTT messages ---------- */
@@ -1300,7 +1341,7 @@ const DashCore = (() => {
     const fresh = S.tlmLive && S.tlm && now() - S.tlmAt <= C.staleAfterMs(S.tlm.source);
     return C.commandAvailability({
       mqtt: S.mqtt === "on", fresh, state: S.tlm && S.tlm.state, paused: S.tlm && S.tlm.paused,
-      restored: !!S.restored, latch: C.latchStatus(S.hb, now()),
+      restored: !!S.restored, latch: C.latchStatus(S.hb, now()), latchAction: C.latchAction(S.hb, now()),
       pendingStart: cmds.pending("start"), pendingResume: cmds.pending("resume")
     });
   }
@@ -1386,8 +1427,8 @@ const DashCore = (() => {
     const latch = C.latchStatus(S.hb, t);
     const endState = st === "IDLE" || st === "FAULT" || st === "MISSION_COMPLETE";
     $("why_latch").textContent = latch === "unavailable" && S.tlm && endState && av.start.ok !== undefined
-      ? "Latch status unavailable on this build: if the robot was lifted or tilted, place it flat, hands off 2 s, press Reset, then Start." : "";
-    $("t_latch").textContent = latch === "set" ? "Latched: lifted or tilted" : latch === "clear" ? "Clear" : "Latch status unavailable";
+      ? "Latch status unavailable: if the robot was lifted or overturned, place it flat, hands off 2 s, press Reset, then Start." : "";
+    $("t_latch").textContent = C.latchText(S.hb, t);
   }
 
   /* ---------- live tiles ---------- */
@@ -1453,7 +1494,9 @@ const DashCore = (() => {
       add("In flight telemetry / events", c.if ? c.if.join(" / ") : "n/a");
       add("Heartbeat refused, lock failures", g("hr") + ", " + g("lf"));
     }
-    add("IMU lift / tilt latch", C.latchStatus(S.hb, now()) === "unavailable" ? "Latch status unavailable: the telemetry frame has no free bit (all 112 used); see TEAM.md" : C.latchStatus(S.hb, now()));
+    add("IMU stop latch", C.latchStatus(S.hb, now()) === "unavailable"
+      ? "Latch status unavailable: no il= field in a counters line from the last " + C.LATCH_FRESH_MS / 1000 + " s (older firmware, no heartbeat yet, or stale)"
+      : C.latchText(S.hb, now()) + " (" + S.hb.source + ", " + fmtTime(S.hb.at) + ")");
     add("Freshness rule", "Stale after " + C.staleAfterMs("mqtt") / 1000 + " s for MQTT (5 frames/s) and " + C.staleAfterMs("usb") / 1000 + " s for USB (1 line/s).");
     kv.replaceChildren(frag);
   }
