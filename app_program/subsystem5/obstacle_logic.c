@@ -130,12 +130,22 @@ bool s5_build_profile(const s5_sample_t * p_samples, int32_t count,
     p_profile->centre_deg =
         (int8_t)(((int32_t)p_samples[low].deg + (int32_t)p_samples[high].deg) /
                  2);
-    p_profile->right_mm = (int16_t)(((int32_t)p_samples[low].mm *
-                                     s5_sin1000(p_samples[low].deg)) /
-                                    1000);
-    p_profile->left_mm  = (int16_t)(((int32_t)p_samples[high].mm *
-                                    s5_sin1000(p_samples[high].deg)) /
-                                   1000);
+    {
+        /* S5_EDGE_TRIM_DEG: each edge moved toward the other one; edges
+           that would cross meet in the middle */
+        int32_t r_deg = (int32_t)p_samples[low].deg + S5_EDGE_TRIM_DEG;
+        int32_t l_deg = (int32_t)p_samples[high].deg - S5_EDGE_TRIM_DEG;
+
+        if (r_deg > l_deg)
+        {
+            r_deg = ((int32_t)p_samples[low].deg + (int32_t)p_samples[high].deg) / 2;
+            l_deg = r_deg;
+        }
+        p_profile->right_mm = (int16_t)(((int32_t)p_samples[low].mm *
+                                         s5_sin1000(r_deg)) / 1000);
+        p_profile->left_mm  = (int16_t)(((int32_t)p_samples[high].mm *
+                                         s5_sin1000(l_deg)) / 1000);
+    }
     p_profile->width_mm = (uint16_t)abs_i((int32_t)p_profile->left_mm -
                                           (int32_t)p_profile->right_mm);
 
@@ -700,6 +710,53 @@ int32_t s5_fine_angles(const s5_profile_t * p_profile, int8_t * p_deg,
         p_deg[count++] = (int8_t)angle;
     }
     return count;
+}
+
+int32_t s5_format_samples(char * p_buf, int32_t size,
+                          const s5_sample_t * p_samples, int32_t first,
+                          int32_t n)
+{
+    int32_t len = 0;
+    int32_t idx;
+
+    if ((NULL == p_buf) || (size <= 0))
+    {
+        return 0;
+    }
+    p_buf[0] = '\0';
+    for (idx = first; (idx < (first + n)) && (NULL != p_samples); idx++)
+    {
+        char    item[16];
+        int32_t k = 0;
+        int32_t v;
+        int32_t i;
+        char    digits[8];
+        int32_t nd;
+
+        /* " deg:mm", written by hand: no printf in this file */
+        item[k++] = ' ';
+        v = p_samples[idx].deg;
+        if (v < 0)
+        {
+            item[k++] = '-';
+            v = -v;
+        }
+        nd = 0;
+        do { digits[nd++] = (char)('0' + (v % 10)); v /= 10; } while (v > 0);
+        for (i = nd - 1; i >= 0; i--) { item[k++] = digits[i]; }
+        item[k++] = ':';
+        v = p_samples[idx].mm;
+        nd = 0;
+        do { digits[nd++] = (char)('0' + (v % 10)); v /= 10; } while (v > 0);
+        for (i = nd - 1; i >= 0; i--) { item[k++] = digits[i]; }
+        if ((len + k) >= size)
+        {
+            break; /* whole pairs only */
+        }
+        for (i = 0; i < k; i++) { p_buf[len++] = item[i]; }
+        p_buf[len] = '\0';
+    }
+    return len;
 }
 
 /*** end of file ***/

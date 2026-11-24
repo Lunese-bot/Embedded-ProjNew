@@ -33,6 +33,9 @@ testing/subsystem5/host_test/test_side_task_cfg
 testing/subsystem5/host_test/test_obstacle_report
 testing/subsystem5/host_test/test_obstacle_report_off
 testing/subsystem5/host_test/obstacle_trace_*.txt
+testing/subsystem5/host_test/test_scan_edges
+testing/subsystem5/host_test/test_scan_edges_off
+testing/subsystem5/host_test/test_scan_edges_trim
 testing/subsystem2/host_test/s2_estop_smp
 testing/subsystem2/host_test/s2_estop_single
 

@@ -19,6 +19,21 @@
 #define S5_HIT_RANGE_MM   500 /* during a scan: "part of it"      */
 #define S5_SCAN_MAX_DEG   45  /* scan no wider than this (= SERVO_MAX_DEG) */
 #define S5_CLUSTER_GAP_MM 150 /* jump that separates two objects  */
+/* Edge trim, a calibration value.  The ultrasonic beam still hears a
+   corner when the servo already points past it, so the last angle that
+   hits sits beyond the real edge and the face reads too wide (a 150 mm
+   face read 164 and 216 mm on the robot, 24 Nov).  Each edge angle is
+   moved this many degrees toward the other edge before its sideways
+   offset (range x sin) is worked out.  0 = off (the old estimate).
+   2 deg (owner, 24 Nov: the 150 mm face read 10..25 mm wide) takes about
+   7 mm off each edge at a 200 mm scan, about 15 mm off the width.  The
+   bypass turn-out uses the same edge, so it is about 7 mm narrower per
+   side (side margin S5_SIDE_MARGIN_MM 20 -> about 13 mm if the edge was
+   not over-read at all).  Recalibrate from the USB "s5: ... samples"
+   lines. */
+#ifndef S5_EDGE_TRIM_DEG
+#define S5_EDGE_TRIM_DEG 2
+#endif
 
 /* ---- Stopping distance (Tribunal 1, Version C) -------------------
  *  Required detect range >= reaction distance + braking + safety margin
@@ -208,6 +223,13 @@ extern int32_t s5_sin1000(int32_t deg);
    Returns TRUE and fills *p when an obstacle is found. */
 extern bool s5_build_profile(const s5_sample_t * p_samples, int32_t count,
                              s5_profile_t * p_profile);
+
+/* "deg:mm" pairs of samples [first, first + n) into p_buf (always NUL
+   terminated, never more than size bytes); returns the characters
+   written.  Used for the USB "s5: ... samples" lines. */
+extern int32_t s5_format_samples(char * p_buf, int32_t size,
+                                 const s5_sample_t * p_samples,
+                                 int32_t first, int32_t n);
 
 /* Ordered coarse + fine samples; the fine value wins at equal angles. */
 extern int32_t s5_merge_samples(const s5_sample_t *a, int32_t na,
