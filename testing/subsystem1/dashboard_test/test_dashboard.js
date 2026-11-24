@@ -15,6 +15,7 @@ const ROOT = path.resolve(__dirname, "../../..");
 const HTML_PATH = path.join(ROOT, "tools/dashboard.html");
 const HTML = fs.readFileSync(HTML_PATH, "utf8");
 const ENCODER = process.argv[2] || path.join(__dirname, "tlm_encode");
+const CFG_ENCODER = process.argv[3] || path.join(__dirname, "cfg_encode");
 
 let passed = 0, failed = 0;
 function check(id, ok, desc, detail) {
@@ -30,6 +31,8 @@ const C = loadCore(HTML);
 const src = rel => fs.readFileSync(path.join(ROOT, rel), "utf8");
 const enc = input => execFileSync(ENCODER, { input }).toString().trim().split("\n");
 const hexBytes = h => Uint8Array.from(Buffer.from(h, "hex"));
+const cfgEnc = input => execFileSync(CFG_ENCODER, { input }).toString().trim().split("\n");
+const toHex = b => Buffer.from(b).toString("hex");
 
 /* ---------- D01-D04: wire parity with the C codec ---------- */
 {
@@ -150,8 +153,11 @@ function coverage(found) {
   const table = {};
   for (const m of src("app_program/vehicle_controller/vc_barcode_config.h").replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/X\(([A-Z]),\s*NAV_(\w+)\)/g))
     if (m[2] !== "NONE") table[m[1]] = { LEFT: "Left", RIGHT: "Right", STRAIGHT: "Straight", U_TURN: "U-turn" }[m[2]];
-  check("S1-D11", JSON.stringify(table) === JSON.stringify(C.BARCODE_RULES) && C.configuredAction("S").startsWith("None"),
-    "the dashboard's letter actions equal vc_barcode_config.h; letters without a rule (e.g. S) say None", JSON.stringify(table));
+  check("S1-D11", JSON.stringify(table) === JSON.stringify(C.BARCODE_RULES) && C.configuredAction("S").startsWith("Go straight (factory") &&
+    C.configuredAction("H").startsWith("Turn left (factory") && C.configuredAction("HELLO").startsWith("None") &&
+    C.configuredAction("S", C.factoryMap().map((v, i) => i === 18 ? 3 : v)) === "U-turn (180°)",
+    "the dashboard's factory letter actions equal vc_barcode_config.h; a letter without a rule (S) is straight as on the robot; " +
+    "multi-letter text has no action; the robot's read map wins once known", JSON.stringify(table));
 }
 
 /* ---------- D12: theme contrast in both themes ---------- */
@@ -381,6 +387,172 @@ function ratio(a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.
     usb.imuLatch.active && usb.imuLatch.cause === "overturn" && usbOld.counters.tl === 1 && usbOld.imuLatch === null &&
     C.parseHeartbeat(base + fw[1]).counters.cb.join() === "12,0,0" && /C\.parseCountersLine\(line\)/.test(ui) && /C\.latchText\(/.test(ui),
   "existing counters keep working with the latch field, on MQTT and on the USB console line; the page renders the latch from both");
+}
+
+/* ---------- D38-D47: barcode junction actions (s1_cfg.h, vc_barcode_map.h) ---------- */
+{
+  /* D38: factory map and fixed goldens, the same bytes as the firmware */
+  const [fac] = cfgEnc("F\n");
+  const only = (pairs) => { const c = new Array(26).fill(0); for (const [l, v] of pairs) c[C.MAP_LETTERS.indexOf(l)] = v; return c; };
+  const goldens = [
+    [only([["A", 1]]), "40000000000000"],            /* A = left: byte 0 bits 7-6 */
+    [only([["Z", 3]]), "00000000000030"],            /* Z = U-turn: byte 6 bits 5-4 */
+    [only([["B", 1], ["Z", 3]]), "10000000000030"],  /* the end-to-end map */
+    [only([["D", 2], ["E", 1], ["H", 3], ["I", 2], ["L", 1], ["M", 3], ["P", 2], ["Q", 1], ["T", 3], ["U", 1], ["X", 1], ["Y", 2]]),
+      "024381c2434180"]
+  ];
+  const boundary = goldens[3][0];
+  const bHex = toHex(C.packMap(boundary));
+  const [bC] = cfgEnc("P " + boundary.join(" ") + "\n");
+  check("S1-D38", fac === "00010000000020" && toHex(C.packMap(C.factoryMap())) === fac &&
+    goldens.every(([c, h]) => toHex(C.packMap(c)) === h && cfgEnc("P " + c.join(" ") + "\n")[0] === h) &&
+    bHex === bC && C.sameMap(C.unpackMap(hexBytes(bC)), boundary),
+    "factory map packs to 00 01 00 00 00 00 20 in JS and C (H left, Z right, rest straight); A, Z, B+Z goldens and letters across byte boundaries match the firmware",
+    fac + " " + bHex + " " + bC);
+
+  /* D39: every letter x every action, and mixed maps, JS <-> C both ways */
+  const lines = [], maps = [];
+  for (let i = 0; i < 26; i++) for (let v = 0; v < 4; v++) { const c = new Array(26).fill((v + 1) & 3); c[i] = v; maps.push(c); }
+  for (let k = 0; k < 40; k++) maps.push(Array.from({ length: 26 }, (_, i) => (i * 7 + k * 13 + (i * k >> 2)) & 3));
+  for (const c of maps) lines.push("P " + c.join(" "));
+  const packed = cfgEnc(lines.join("\n") + "\n");
+  const unpacked = cfgEnc(packed.map(h => "U " + h).join("\n") + "\n");
+  const bad39 = maps.findIndex((c, k) => toHex(C.packMap(c)) !== packed[k] || !C.sameMap(C.unpackMap(hexBytes(packed[k])), c) ||
+    unpacked[k] !== c.join(" "));
+  check("S1-D39", bad39 < 0 && maps.length === 144,
+    "all 26 letters x 4 actions (104 maps) and 40 mixed maps pack and unpack the same in JS and in the firmware (through its NAV enum)",
+    bad39 < 0 ? "" : "map " + bad39 + " " + packed[bad39]);
+
+  /* D40: padding bits and wrong lengths are malformed on both sides */
+  const pad = ["00000000000001", "00000000000008", "0000000000000f"];
+  check("S1-D40", pad.every(h => C.unpackMap(hexBytes(h)) === null && cfgEnc("U " + h + "\n")[0] === "ERR") &&
+    C.packMap(new Array(25).fill(0)) === null && C.packMap(new Array(26).fill(4)) === null && C.encodeCfgWrite(5, 0, [1, 2]) === null &&
+    C.decodeCfgReply(hexBytes("c18201020000030100010000000021")).codes === null &&
+    C.decodeCfgReply(hexBytes("c182010200000301000100000000")) === null && C.decodeCfgReply(hexBytes("c10201020000030100010000000020")) === null,
+    "set padding bits (byte 6 bits 3-0) are refused in JS and C; short maps, codes above 3, short replies and non-reply opcodes are refused");
+
+  /* D41: requests and replies are byte-identical with s1_cfg.c */
+  const m = C.factoryMap().map((v, i) => i === 1 ? 1 : i === 25 ? 3 : v);
+  const mHex = toHex(C.packMap(m));
+  const [rC, wC, dW, yC, dBad] = cfgEnc("R 65535\nW 4660 65534 " + mHex + "\nD " + toHex(C.encodeCfgWrite(4660, 65534, m)) +
+    "\nY 2 4660 3 513 5 " + mHex + "\nD c102000000010000000000000000\n");
+  const rep = C.decodeCfgReply(hexBytes(yC));
+  check("S1-D41", toHex(C.encodeCfgRead(65535)) === rC && rC === "c101ffff" && toHex(C.encodeCfgWrite(4660, 65534, m)) === wC &&
+    wC.length === 26 && dW === "2 4660 65534 " + mHex && dBad === "ERR" &&
+    rep.op === "write" && rep.id === 4660 && rep.result === "stale" && rep.gen === 513 && rep.saved && !rep.missionActive &&
+    rep.factoryEqual && !rep.noStorage && C.sameMap(rep.codes, m),
+    "READ and WRITE bytes equal s1_cfg_encode_*; the firmware decodes the page's WRITE to the same id, gen and map; a reply from s1_cfg_encode_reply decodes field by field; id 0 is refused",
+    [rC, wC, dW, yC].join(" "));
+
+  /* D42: result codes, flags and topics are the firmware's */
+  const hdr = src("app_program/vehicle_controller/vc_barcode_map.h");
+  const enumNames = [...hdr.matchAll(/VC_BCMAP_(OK|UNCHANGED|REJ_ACTIVE|REJ_STALE|REJ_MALFORMED|REJ_STORAGE|BUSY)\s*=\s*(\d)/g)].map(x => +x[2]);
+  const flagOk = Object.entries({ SAVED: "SAVED", MISSION_ACTIVE: "MISSION_ACTIVE", FACTORY_EQUAL: "FACTORY_EQUAL", NO_STORAGE: "NO_STORAGE" })
+    .every(([k, n]) => new RegExp("VC_BCMAP_FLAG_" + n + "\\s+0x0*" + C.MAP_FLAGS[k].toString(16) + "u").test(hdr));
+  const wire = [...hdr.matchAll(/#define VC_BCW_(\w+)\s+(\d)u/g)].map(x => x[1] + "=" + x[2]).join();
+  const br = src("app_program/subsystem1/s1_bridge.h");
+  check("S1-D42", enumNames.join() === "0,1,2,3,4,5,6" && C.MAP_RESULTS.length === 7 && flagOk && wire === "STRAIGHT=0,LEFT=1,RIGHT=2,UTURN=3" &&
+    C.MAP_ACTIONS.join("|") === "Go straight|Turn left|Turn right|U-turn (180°)" &&
+    /S1_TOPIC_CFG\s+S1_TOPIC_ROOT "cfg"/.test(br) && /S1_TOPIC_CFG_REPLY\s+"cfgr"/.test(br) &&
+    C.CFG_TOPIC === "robot/g10/cfg" && C.CFG_REPLY_TOPIC === "robot/g10/cfgr",
+    "result codes, flags, wire action codes and the cfg / cfgr topics match the firmware; exactly the four actions, in wire order");
+
+  /* helpers for the editor checks */
+  const reply = (op, id, result, gen, flags, codes) => C.decodeCfgReply(hexBytes(cfgEnc("Y " + op + " " + id + " " + result + " " + gen + " " + flags + " " + toHex(C.packMap(codes)) + "\n")[0]));
+  const idle = { mqtt: true, missionActive: false };
+  const F = C.factoryMap();
+  const withL = (base, l, v) => base.map((x, i) => i === C.MAP_LETTERS.indexOf(l) ? v : x);
+
+  /* D43: loading never writes; edits need a read first; Restore only drafts */
+  {
+    const ed = new C.MapEditor(100);
+    const beforeRead = ed.edit(0, 1) === false && ed.restoreDefaults() === false && ed.save(0, idle) === null;
+    const r = ed.read(0);
+    const readOk = toHex(r.payload) === "c1010064" && ed.save(1, idle) === null;
+    ed.onReply(reply(1, r.id, 0, 7, 1, withL(F, "A", 2)), 10);
+    const loaded = ed.robot.gen === 7 && !ed.dirty() && C.describeMap(ed, idle).text.startsWith("Robot map: saved map, save 7");
+    ed.restoreDefaults();
+    const drafted = ed.pending === null && ed.dirty() && ed.dirtyLetters().join() === "A" && C.sameMap(ed.robot.codes, withL(F, "A", 2)) &&
+      C.describeMap(ed, idle).text.startsWith("Unsaved changes: 1 letter (A)");
+    check("S1-D43", beforeRead && readOk && loaded && drafted,
+      "nothing can be edited or saved before the robot's map is read; a read sends only a 4-byte READ; Restore defaults changes the draft only (no request) and shows Unsaved changes");
+  }
+
+  /* D44: a save is verified only by its own reply with all 26 letters */
+  {
+    const ed = new C.MapEditor(500);
+    const r = ed.read(0); ed.onReply(reply(1, r.id, 0, 0, 4, F), 1);
+    ed.edit(1, 1); ed.edit(25, 3);                  /* B = left, Z = U-turn */
+    const w = ed.save(2, idle);
+    const sent = w && toHex(w.payload) === "c10201f50000" + "10010000000030" && C.describeMap(ed, idle).text === "Saving…";
+    const old = ed.onReply(reply(1, r.id, 0, 1, 1, ed.pending.codes), 3);           /* the earlier READ's id */
+    const other = ed.onReply(reply(2, 9999, 0, 1, 1, ed.pending.codes), 3);         /* another client's id */
+    const stillSaving = old.kind === "other" && other.kind === "other" && ed.busy() && ed.last.kind === "read";
+    const bad = ed.onReply(reply(2, w.id, 0, 1, 1, withL(ed.pending.codes, "Q", 2)), 4); /* OK but a different map */
+    const mismatch = bad.kind === "matched" && ed.last.kind === "mismatch" && /Not verified/.test(C.describeMap(ed, idle).text) &&
+      ed.draft && ed.dirty() && !/Saved and verified/.test(C.describeMap(ed, idle).text);
+    /* the draft (Q straight) is still unsaved against the robot's Q = right */
+    const w2 = ed.save(5, idle);
+    const ok = w2 && ed.onReply(reply(2, w2.id, 0, 2, 1, ed.pending.codes), 6).kind === "matched" && ed.last.kind === "verified" &&
+      !ed.dirty() && C.describeMap(ed, idle).text.startsWith("Saved and verified") && ed.robot.gen === 2;
+    check("S1-D44", sent && stillSaving && mismatch && ok,
+      "a WRITE carries the read generation and all letters; a reply with an older or foreign id never verifies; OK with a different map is Not verified and keeps the draft; only the matching id with all 26 letters equal is Saved and verified");
+  }
+
+  /* D45: no reply, late reply and a dropped connection */
+  {
+    const ed = new C.MapEditor(900);
+    const r = ed.read(0); ed.onReply(reply(1, r.id, 0, 4, 1, F), 1);
+    ed.edit(0, 1); const w = ed.save(10, idle);
+    const early = ed.tick(10 + C.CFG_REPLY_MS - 1) === false;
+    const late = ed.tick(10 + C.CFG_REPLY_MS) === true && /^Robot unavailable: no reply to the save/.test(C.describeMap(ed, idle).text.split(". ").slice(1).join(". ") || ed.last.text) &&
+      ed.dirty() && !ed.busy();
+    const lateOk = ed.onReply(reply(2, w.id, 0, 5, 1, withL(F, "A", 1)), 9000).kind === "late" && ed.last.kind === "verified";
+    ed.edit(2, 3); ed.save(9100, idle); ed.connectionLost(9200);
+    const off = C.describeMap(ed, { mqtt: false, usb: true });
+    check("S1-D45", early && late && lateOk && off.text.startsWith("Robot unavailable") && /USB is monitor-only/.test(off.text) &&
+      /unsaved changes are kept/.test(off.text) && ed.saveBlock({ mqtt: false }) === "Saving needs MQTT.",
+      "no reply within " + C.CFG_REPLY_MS / 1000 + " s says Robot unavailable and keeps the draft; a late reply to the same id still verifies; MQTT down says Robot unavailable, USB is monitor-only, draft kept");
+  }
+
+  /* D46: reconnect with a changed robot map keeps the draft and flags it */
+  {
+    const ed = new C.MapEditor(1200);
+    let r = ed.read(0); ed.onReply(reply(1, r.id, 0, 3, 1, F), 1);
+    ed.edit(0, 1);                                   /* draft: A = left */
+    ed.connectionLost(2);
+    r = ed.read(3);                                  /* what connect() sends */
+    ed.onReply(reply(1, r.id, 0, 4, 1, withL(F, "Z", 0)), 4);  /* someone set Z straight meanwhile */
+    const kept = ed.draft && ed.draft[0] === 1 && ed.draft[25] === 2 && ed.conflict && ed.conflict.letters.join() === "Z" &&
+      /robot's map changed meanwhile \(save 3 → 4, letters Z\)/.test(C.describeMap(ed, idle).text);
+    const refused = ed.save(5, idle) === null;
+    const forced = ed.save(6, idle, true);
+    check("S1-D46", kept && refused && forced && forced.payload[4] === 0 && forced.payload[5] === 4 && ed.dirtyLetters().join() === "A,Z",
+      "a read after reconnect never replaces the draft; letters the robot changed meanwhile are flagged; Save needs an explicit confirm and then uses the robot's new generation");
+  }
+
+  /* D47: mission active, rejections, and the page's wiring */
+  {
+    const ed = new C.MapEditor(1500);
+    const r = ed.read(0); ed.onReply(reply(1, r.id, 0, 1, 3, F), 1);  /* robot says mission active */
+    ed.edit(7, 2);
+    const blockUnknown = /mission is running/.test(ed.saveBlock({ mqtt: true, missionActive: null }) || "");
+    const blockRun = /mission is running/.test(ed.saveBlock({ mqtt: true, missionActive: true }) || "");
+    const w = ed.save(2, idle);                      /* telemetry says idle now */
+    ed.onReply(reply(2, w.id, 2, 1, 3, F), 3);       /* the robot refuses anyway */
+    const rej = ed.last.kind === "rejected" && /a mission is running/.test(C.describeMap(ed, idle).text) && ed.dirty();
+    const ui = HTML.slice(HTML.indexOf("/* CORE-END */"));
+    const pubs = [...ui.matchAll(/\.publish\(([^,]+),/g)].map(x => x[1].trim());
+    const onConnect = (ui.match(/mqttClient\.on\("connect", \(\) => \{[\s\S]*?\n    \}\);/) || [""])[0];
+    check("S1-D47", blockUnknown && blockRun && rej &&
+      pubs.join() === '"robot/g10/cmd",C.CFG_TOPIC' && /publish\(C\.CFG_TOPIC, req\.payload, \{ qos: 0, retain: false \}\)/.test(ui) &&
+      /mapEd\.read\(now\(\)\)/.test(onConnect) && !/save\(/.test(onConnect) &&
+      /lab\.htmlFor = "map_" \+ l/.test(ui) && /C\.MAP_ACTIONS\.forEach/.test(ui) && /id="h_map">Barcode junction actions</.test(HTML) &&
+      /"● Edited · robot has: "/.test(ui) && /\.maprow\.edited \{ border: 2px dashed/.test(HTML) &&
+      ["Read from robot", "Save to robot", "Restore defaults"].every(t => HTML.includes(">" + t + "</button>")),
+      "Save is refused while a mission is running (telemetry, or the robot's flag when telemetry is stale) and the robot's own refusal keeps the draft; " +
+      "the page publishes only commands and cfg requests, cfg with QoS 0 and retain false; connecting only reads; 26 labelled selects with the four actions; edited rows say Edited and have a dashed border (not colour alone)");
+  }
 }
 
 /* ---------- D34: page rules ---------- */

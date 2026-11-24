@@ -140,6 +140,17 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size: 13px; }
 .kv dt { color: var(--muted); } .kv dd { margin: 0; }
 .fabstop { display: none; }
+/* barcode junction actions: an edited row has a dashed border AND the text "Edited" */
+.mapstatus { padding: 6px 10px; border-radius: 6px; margin: 0 0 8px; font-weight: 600; border: 1px solid currentColor; }
+.mapgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 10px; }
+.maprow { display: grid; grid-template-columns: 1.8em 1fr; align-items: center; gap: 2px 8px; padding: 5px 8px;
+  border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+.maprow label { font: 700 18px/1 var(--mono); text-align: center; }
+.maprow select { width: 100%; min-width: 0; border: 1px solid var(--edge); background: var(--panel); color: var(--text);
+  padding: 5px 6px; border-radius: 6px; }
+.maprow .mk { grid-column: 2; font-size: 12px; color: var(--attn); }
+.maprow .mk:empty { display: none; }
+.maprow.edited { border: 2px dashed var(--attn); padding: 4px 7px; }
 @media (max-width: 600px) {
   /* phone: the top block scrolls away; a fixed Stop bar takes over */
   .top { padding: 8px 12px; position: static; }
@@ -158,6 +169,8 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
   #bcTable tr { border-bottom: 1px solid var(--line); padding: 4px 0; }
   #bcTable td { border: 0; padding: 1px 0; }
   #bcTable td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); font-size: 12px; }
+  .mapgrid { grid-template-columns: 1fr; }
+  .maprow select { padding: 8px 6px; }
 }
 </style>
 </head>
@@ -257,11 +270,27 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     <section class="panel" aria-labelledby="h_bc">
       <h2 id="h_bc">Barcodes</h2>
       <div class="tablewrap"><table id="bcTable">
-        <thead><tr><th>Received</th><th>Text</th><th>Scan direction</th><th>Configured action</th><th>Pending (robot)</th><th>Junction action seen</th></tr></thead>
+        <thead><tr><th>Received</th><th>Text</th><th>Scan direction</th><th>Assigned action</th><th>Pending (robot)</th><th>Junction action seen</th></tr></thead>
         <tbody id="barcodes"><tr><td colspan="6" class="note">No barcode reads yet.</td></tr></tbody>
       </table></div>
     </section>
   </div>
+
+  <section class="panel" aria-labelledby="h_map">
+    <h2 id="h_map">Barcode junction actions</h2>
+    <p class="note">What the robot does at the next junction after it reads each letter. The robot keeps this map in its own flash and uses it
+      without the dashboard. Changes reach the robot only with Save to robot, only while no mission is running, and count as saved only
+      when the robot reads all 26 letters back. Reading and saving need MQTT; USB is monitor-only.</p>
+    <div class="row" role="group" aria-label="Barcode map actions">
+      <button id="mapRead">Read from robot</button>
+      <button id="mapSave" class="primary" aria-describedby="mapWhy">Save to robot</button>
+      <button id="mapRestore">Restore defaults</button>
+      <button id="mapDiscard" hidden>Discard changes</button>
+    </div>
+    <p class="mapstatus tone-idle" id="mapStatus" role="status">Not read yet. Press Read from robot.</p>
+    <p class="note" id="mapWhy"></p>
+    <div class="mapgrid" id="mapGrid" role="group" aria-label="Action for each letter, A to Z"></div>
+  </section>
 
   <div class="cols">
     <section class="panel" aria-labelledby="h_ev">
@@ -848,9 +877,215 @@ const DashCore = (() => {
   }
 
   /* ---------- barcode records ---------- */
-  function configuredAction(text) {
-    if (Object.prototype.hasOwnProperty.call(BARCODE_RULES, text)) return BARCODE_RULES[text];
-    return "None (no rule for \"" + text + "\")";
+  /* the action the robot assigns to a decoded text: its active map when this
+     page has read it, else the factory map; any other text has no action */
+  function configuredAction(text, robotCodes) {
+    const i = typeof text === "string" && text.length === 1 ? MAP_LETTERS.indexOf(text) : -1;
+    if (i < 0) return "None (no rule for \"" + text + "\")";
+    if (validCodes(robotCodes)) return MAP_ACTIONS[robotCodes[i]];
+    return MAP_ACTIONS[factoryMap()[i]] + " (factory default; robot map not read)";
+  }
+
+  /* ---------- barcode letter map, read and replaced on the robot ----------
+     Protocol v1, app_program/subsystem1/s1_cfg.h; packing and wire codes,
+     app_program/vehicle_controller/vc_barcode_map.h.  The robot owns the
+     map: this page only shows a draft, and a save counts only when the
+     robot's reply to THIS request carries all 26 letters as sent. */
+  const CFG_TOPIC = "robot/g10/cfg", CFG_REPLY_TOPIC = "robot/g10/cfgr";
+  const CFG_MARKER = 0xC1, CFG_OP_READ = 1, CFG_OP_WRITE = 2, CFG_OP_REPLY = 0x80;
+  const CFG_REPLY_MS = 5000; /* flash erase is at most 0.4 s; the rest is margin */
+  const MAP_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  /* wire code -> label; the codes are fixed forever (VC_BCW_*) */
+  const MAP_ACTIONS = ["Go straight", "Turn left", "Turn right", "U-turn (180°)"];
+  const MAP_RESULTS = ["ok", "unchanged", "mission-active", "stale", "malformed", "storage", "busy"];
+  const MAP_FLAGS = { SAVED: 1, MISSION_ACTIVE: 2, FACTORY_EQUAL: 4, NO_STORAGE: 8 };
+  /* factory map = BARCODE_RULES, every other letter straight (as the robot) */
+  const RULE_TO_WIRE = { Straight: 0, Left: 1, Right: 2, "U-turn": 3 };
+  function factoryMap() {
+    return [...MAP_LETTERS].map(l => Object.prototype.hasOwnProperty.call(BARCODE_RULES, l) ? RULE_TO_WIRE[BARCODE_RULES[l]] : 0);
+  }
+  const validCodes = c => Array.isArray(c) && c.length === 26 && c.every(v => v === 0 || v === 1 || v === 2 || v === 3);
+  const sameMap = (a, b) => validCodes(a) && validCodes(b) && a.every((v, i) => v === b[i]);
+  /* letter i: byte i >> 2, bits 7-6 / 5-4 / 3-2 / 1-0 */
+  function packMap(codes) {
+    if (!validCodes(codes)) return null;
+    const out = new Uint8Array(7);
+    codes.forEach((c, i) => { out[i >> 2] |= c << (6 - 2 * (i & 3)); });
+    return out;
+  }
+  function unpackMap(bytes) {
+    if (!bytes || bytes.length !== 7 || (bytes[6] & 0x0F)) return null;
+    return [...MAP_LETTERS].map((l, i) => (bytes[i >> 2] >> (6 - 2 * (i & 3))) & 3);
+  }
+  const be16 = v => [(v >> 8) & 255, v & 255];
+  function encodeCfgRead(id) { return new Uint8Array([CFG_MARKER, CFG_OP_READ, ...be16(id)]); }
+  function encodeCfgWrite(id, gen, codes) {
+    const m = packMap(codes);
+    return m ? new Uint8Array([CFG_MARKER, CFG_OP_WRITE, ...be16(id), ...be16(gen), ...m]) : null;
+  }
+  function decodeCfgReply(bytes) {
+    if (!bytes || bytes.length !== 15 || bytes[0] !== CFG_MARKER || !(bytes[1] & CFG_OP_REPLY)) return null;
+    const op = bytes[1] & 0x7F, flags = bytes[7];
+    return { op: op === CFG_OP_READ ? "read" : op === CFG_OP_WRITE ? "write" : null,
+      id: (bytes[2] << 8) | bytes[3], result: MAP_RESULTS[bytes[4]] || "unknown", gen: (bytes[5] << 8) | bytes[6],
+      flags, saved: !!(flags & MAP_FLAGS.SAVED), missionActive: !!(flags & MAP_FLAGS.MISSION_ACTIVE),
+      factoryEqual: !!(flags & MAP_FLAGS.FACTORY_EQUAL), noStorage: !!(flags & MAP_FLAGS.NO_STORAGE),
+      codes: unpackMap(bytes.subarray(8, 15)) };
+  }
+  const MAP_REJECT_TEXT = {
+    "mission-active": "Not saved: a mission is running. Stop or finish the run, then Save again.",
+    stale: "Not saved: the robot's map changed since it was read. Read from robot, review, then Save.",
+    malformed: "Not saved: the robot could not read the request.",
+    storage: "Not saved: the robot could not write or read back its flash. Its previous map is still active.",
+    busy: "Not saved: the robot was busy with another save. Try again.",
+    unknown: "Not saved: the robot replied with an unknown result."
+  };
+
+  /* Draft vs robot.  Rules (checked by dashboard_test):
+     - nothing is ever sent except by read() and save(); connecting sends a read
+     - only a reply with the id of our pending request counts
+     - a save is verified only when that reply's map equals all 26 sent letters
+     - a reply never replaces an unsaved draft; if the robot's map differs
+       from the one the draft started from, the draft is flagged (conflict) */
+  class MapEditor {
+    constructor(firstId) {
+      this.nextId = (firstId & 0xFFFF) || 1;
+      this.robot = null;     /* { gen, codes, saved, noStorage, factoryEqual, missionActive, at } */
+      this.base = null;      /* robot map the draft started from */
+      this.draft = null;     /* codes, or null = follow the robot */
+      this.pending = null;   /* { kind, id, codes, gen, sentAt, late } */
+      this.last = null;      /* { kind: verified|rejected|mismatch|noreply|read, text, at, gen } */
+      this.conflict = null;  /* { letters, gen } */
+      this.outdated = false; /* another client's reply showed a different map */
+    }
+    takeId() { const id = this.nextId; this.nextId = (this.nextId % 0xFFFF) + 1; return id; }
+    shown() { return this.draft || (this.robot && this.robot.codes) || null; }
+    dirtyLetters() {
+      const d = this.draft, r = this.robot && this.robot.codes;
+      if (!d || !r) return [];
+      return [...MAP_LETTERS].filter((l, i) => d[i] !== r[i]);
+    }
+    dirty() { return this.dirtyLetters().length > 0; }
+    edit(index, code) {
+      if (!this.robot || index < 0 || index > 25 || !(code >= 0 && code <= 3)) return false;
+      const d = (this.draft || this.robot.codes).slice(); d[index] = code;
+      this.draft = d; if (!this.base) this.base = this.robot;
+      if (!this.dirty()) { this.draft = null; this.base = null; this.conflict = null; }
+      return true;
+    }
+    restoreDefaults() {
+      if (!this.robot) return false;
+      this.draft = factoryMap(); if (!this.base) this.base = this.robot;
+      if (!this.dirty()) { this.draft = null; this.base = null; this.conflict = null; }
+      return true;
+    }
+    discard() { this.draft = null; this.base = null; this.conflict = null; }
+    busy() { return !!(this.pending && !this.pending.late); }
+    read(now) {
+      if (this.busy()) return null;
+      const id = this.takeId();
+      this.pending = { kind: "read", id, sentAt: now, late: false };
+      return { id, payload: encodeCfgRead(id) };
+    }
+    /* why Save is refused, or null.  ctx: { mqtt, missionActive: true / false / null = unknown } */
+    saveBlock(ctx) {
+      if (!ctx.mqtt) return "Saving needs MQTT.";
+      if (!this.robot) return "Read the robot's map first.";
+      if (this.busy()) return this.pending.kind === "write" ? "A save is in progress." : "Reading the robot's map.";
+      /* fresh telemetry decides; without it, the robot's last reply (the robot checks again anyway) */
+      if (ctx.missionActive === true || (ctx.missionActive == null && this.robot.missionActive)) return "A mission is running: edits are refused until it ends.";
+      if (!this.dirty()) return "No changes to save.";
+      return null;
+    }
+    save(now, ctx, force) {
+      if (this.saveBlock(ctx)) return null;
+      if (this.conflict && !force) return null;
+      const id = this.takeId(), codes = this.draft.slice(), gen = this.robot.gen;
+      this.pending = { kind: "write", id, codes, gen, sentAt: now, late: false };
+      return { id, payload: encodeCfgWrite(id, gen, codes) };
+    }
+    setRobot(r, now) {
+      const prev = this.robot;
+      this.robot = { gen: r.gen, codes: r.codes, saved: r.saved, noStorage: r.noStorage, factoryEqual: r.factoryEqual,
+        missionActive: r.missionActive, at: now };
+      this.outdated = false;
+      if (this.draft && this.base && !sameMap(this.base.codes, r.codes)) {
+        const letters = [...MAP_LETTERS].filter((l, i) => this.base.codes[i] !== r.codes[i]);
+        this.conflict = { letters, gen: r.gen, prevGen: this.base.gen };
+        this.base = this.robot;
+      } else if (this.draft && this.base && this.base.gen !== r.gen) this.base = this.robot;
+      if (this.draft && !this.dirty()) this.discard();
+      return prev;
+    }
+    /* returns { kind: matched|late|other|invalid, text } */
+    onReply(rep, now) {
+      if (!rep) return { kind: "invalid", text: "Unreadable barcode map reply" };
+      const p = this.pending;
+      if (!p || rep.id !== p.id || rep.op !== p.kind) {
+        if (rep.codes && this.robot && (rep.gen !== this.robot.gen || !sameMap(rep.codes, this.robot.codes))) this.outdated = true;
+        return { kind: "other", text: "Barcode map reply #" + rep.id + " is not for a request from this page (ignored)" };
+      }
+      const late = p.late;
+      this.pending = null;
+      if (!rep.codes) {
+        this.last = { kind: p.kind === "write" ? "rejected" : "readfail", at: now,
+          text: (p.kind === "write" ? "Not saved" : "Could not read the map") + ": the robot was busy. Try again." };
+        return { kind: late ? "late" : "matched", text: this.last.text };
+      }
+      /* our own accepted write changed the robot's map: that is not a conflict */
+      if (p.kind === "write" && (rep.result === "ok" || rep.result === "unchanged") && this.base) this.base = { gen: rep.gen, codes: rep.codes };
+      this.setRobot(rep, now);
+      if (p.kind === "read") {
+        this.last = { kind: "read", at: now, gen: rep.gen, text: "Read the robot's map (" + (rep.gen ? "save " + rep.gen : "factory defaults") + ")" };
+      } else if ((rep.result === "ok" || rep.result === "unchanged") && sameMap(rep.codes, p.codes)) {
+        this.discard();
+        this.last = { kind: "verified", at: now, gen: rep.gen,
+          text: "Saved and verified: the robot's active map matches all 26 letters (save " + rep.gen + (rep.result === "unchanged" ? ", already the robot's map" : "") + ")" + (rep.noStorage ? ". Not kept after power off: this build has no flash storage." : "") };
+      } else if (rep.result === "ok" || rep.result === "unchanged") {
+        const bad = [...MAP_LETTERS].filter((l, i) => rep.codes[i] !== p.codes[i]);
+        this.last = { kind: "mismatch", at: now, text: "Not verified: the robot reports a different map for " + bad.join(", ") + ". Your draft is kept." };
+      } else {
+        this.last = { kind: "rejected", at: now, result: rep.result, text: MAP_REJECT_TEXT[rep.result] || MAP_REJECT_TEXT.unknown };
+      }
+      return { kind: late ? "late" : "matched", text: this.last.text };
+    }
+    /* a request without a reply: keep its id so a late reply still counts */
+    tick(now) {
+      const p = this.pending;
+      if (!p || p.late || now - p.sentAt < CFG_REPLY_MS) return false;
+      p.late = true;
+      this.last = { kind: "noreply", at: now, text: p.kind === "write"
+        ? "Robot unavailable: no reply to the save within " + CFG_REPLY_MS / 1000 + " s. It may or may not have been saved: Read from robot to check."
+        : "Robot unavailable: no reply within " + CFG_REPLY_MS / 1000 + " s." };
+      return true;
+    }
+    connectionLost(now) {
+      if (this.pending && !this.pending.late) { this.pending.late = true;
+        this.last = { kind: "noreply", at: now, text: this.pending.kind === "write"
+          ? "Robot unavailable: MQTT dropped during the save. Read from robot to check what it holds." : "Robot unavailable: MQTT dropped." }; }
+    }
+  }
+  /* one status line for the panel: { tone, text } */
+  function describeMap(ed, ctx) {
+    if (!ctx.mqtt) {
+      return { tone: "idle", text: "Robot unavailable: reading and saving the map need MQTT." + (ctx.usb ? " USB is monitor-only." : "") +
+        (ed.dirty() ? " Your unsaved changes are kept on this page." : "") };
+    }
+    if (ed.busy()) return { tone: "work", text: ed.pending.kind === "write" ? "Saving…" : "Reading the robot's map…" };
+    if (ed.conflict && ed.dirty())
+      return { tone: "attn", text: "Unsaved changes, and the robot's map changed meanwhile (save " + ed.conflict.prevGen + " → " + ed.conflict.gen +
+        ", letters " + ed.conflict.letters.join(", ") + "). Check them, then Save or Discard." };
+    if (ed.dirty()) {
+      const n = ed.dirtyLetters().length;
+      return { tone: "attn", text: "Unsaved changes: " + n + " letter" + (n > 1 ? "s" : "") + " (" + ed.dirtyLetters().join(", ") + ")." +
+        (ed.last && (ed.last.kind === "rejected" || ed.last.kind === "mismatch" || ed.last.kind === "noreply") ? " " + ed.last.text : "") };
+    }
+    if (ed.last && ed.last.kind !== "read") return { tone: ed.last.kind === "verified" ? "good" : "attn", text: ed.last.text };
+    if (!ed.robot) return { tone: "idle", text: "Not read yet. Press Read from robot." };
+    const r = ed.robot;
+    return { tone: ed.outdated ? "attn" : "idle", text: (ed.outdated ? "Another client changed the map: Read from robot. " : "") +
+      "Robot map: " + (r.saved ? "saved map, save " + r.gen : "factory defaults") + (r.factoryEqual && r.saved ? " (equal to the defaults)" : "") +
+      (r.noStorage ? ". This build has no flash storage: the map resets at power off." : ".") };
   }
 
   /* ---------- persistence ---------- */
@@ -947,7 +1182,9 @@ const DashCore = (() => {
     staleAfterMs, decodeTelemetry, fromUsbJson, decodeBarcode, encodeCommand, decodeCommand, decodeAck,
     parseFaultJson, parseFaultConsole, describeFault, hex4, parseHeartbeat, parseCounters, parseCountersLine, latchStatus, latchCause, latchText, latchAction, LATCH_FRESH_MS,
     LossWindow, CommandTracker, describeCommand, commandAvailability, expectedState,
-    RunTracker, describeOutcome, configuredAction, packStore, unpackStore, writeStore,
+    RunTracker, describeOutcome, configuredAction,
+    CFG_TOPIC, CFG_REPLY_TOPIC, CFG_REPLY_MS, MAP_LETTERS, MAP_ACTIONS, MAP_RESULTS, MAP_FLAGS, factoryMap, packMap, unpackMap, sameMap,
+    encodeCfgRead, encodeCfgWrite, decodeCfgReply, MapEditor, describeMap, packStore, unpackStore, writeStore,
     telemetryCsv, parseCsv, csvCell, logLine, tlmLogText };
 })();
 /* CORE-END */
@@ -976,6 +1213,7 @@ const DashCore = (() => {
   const series = { vl: [], vr: [], line: [], us: [], pitch: [] };
   const loss = new C.LossWindow();
   const cmds = new C.CommandTracker(1 + Math.floor(Math.random() * 63));
+  const mapEd = new C.MapEditor(1 + Math.floor(Math.random() * 65535));
   let run = new C.RunTracker(null);
   let mqttClient = null, port = null, reader = null, gapEvent = null;
 
@@ -1184,11 +1422,11 @@ const DashCore = (() => {
     t = t || now();
     const dup = S.barcodes.find(b => b.text === text && b.source !== source && Math.abs(b.t - t) < 2000);
     if (dup) return;
-    const b = { t, text, source, direction: null, configured: C.configuredAction(text), pending: null, executed: null };
+    const b = { t, text, source, direction: null, configured: C.configuredAction(text, mapEd.robot && mapEd.robot.codes), pending: null, executed: null };
     S.barcodes.push(b); if (S.barcodes.length > BARCODES_MAX) S.barcodes.splice(0, S.barcodes.length - BARCODES_MAX);
     S.lastBarcodeIdx = S.barcodes.length - 1;
     $("t_barcode").textContent = text;
-    addEvent("Barcode \"" + text + "\" read (configured action: " + b.configured + ")", "");
+    addEvent("Barcode \"" + text + "\" read (assigned action: " + b.configured + ")", "");
     announce("Barcode " + text);
     markDirty(); renderBarcodes();
   }
@@ -1200,7 +1438,7 @@ const DashCore = (() => {
       const tr = document.createElement("tr");
       const cells = [fmtTime(b.t) + (b.restored ? " (saved)" : "") + " · " + b.source, b.text, b.direction || "Not reported",
         b.configured, b.pending ? b.pending : "Not reported", b.executed || "Not reported"];
-      const heads = ["Received", "Text", "Scan direction", "Configured action", "Pending (robot)", "Junction action seen"];
+      const heads = ["Received", "Text", "Scan direction", "Assigned action", "Pending (robot)", "Junction action seen"];
       cells.forEach((c, i) => { const td = document.createElement("td"); td.textContent = c; td.dataset.label = heads[i]; if (i === 1) td.className = "mono"; tr.appendChild(td); });
       frag.appendChild(tr);
     }
@@ -1282,6 +1520,19 @@ const DashCore = (() => {
       const f = C.parseFaultJson(s);
       if (!f) { addEvent("Unreadable fault report: " + s.slice(0, 80), ""); return; }
       onFault(f, "mqtt", t);
+    } else if (topic === C.CFG_REPLY_TOPIC) {
+      const r = mapEd.onReply(C.decodeCfgReply(bytes), t);
+      addLine("[mqtt " + topic + "] " + r.text);
+      if (r.kind === "matched" || r.kind === "late") { addEvent(r.text, mapEd.last && mapEd.last.kind === "verified" ? "good" : ""); announce(r.text); }
+      else if (r.kind === "invalid") addEvent(r.text + " (" + bytes.length + " bytes)", "");
+      renderMap(); renderBarcodes();
+    } else if (topic === C.CFG_TOPIC) {
+      /* our own request coming back from the broker, or another client's */
+      const op = bytes.length >= 4 && bytes[0] === 0xC1 ? { 1: "read", 2: "save" }[bytes[1]] : null;
+      const id = bytes.length >= 4 ? (bytes[2] << 8) | bytes[3] : 0;
+      const own = mapEd.pending && mapEd.pending.id === id;
+      addLine("[mqtt " + topic + "] barcode map " + (op || "request") + " #" + id + (own ? " (this page)" : " (another client)"));
+      if (!own && op === "save") addEvent("Another client sent a barcode map save #" + id, "");
     } else if (topic === "robot/g10/cmd") {
       const d = C.decodeCommand(bytes);
       const who = cmds.onCommandSeen(d, t);
@@ -1321,9 +1572,11 @@ const DashCore = (() => {
       mqttClient.subscribe(["robot/g10/#", "+/heartbeat"]);
       loss.reset(); S.mqtt = "on"; S.mqttErr = "";
       addEvent("MQTT connected" + (auto ? " (restored from last session)" : "") + ": " + url, "good"); renderStatus();
+      /* connecting only READS the robot's map; it never writes one */
+      mapSend(mapEd.read(now()));
     });
     mqttClient.on("error", e => { S.mqttErr = e.message; renderStatus(); });
-    mqttClient.on("close", () => { if (mqttClient) { if (S.mqtt === "on") addEvent("MQTT connection lost, retrying every 3 s", ""); S.mqtt = "reconnecting"; renderStatus(); } });
+    mqttClient.on("close", () => { if (mqttClient) { if (S.mqtt === "on") addEvent("MQTT connection lost, retrying every 3 s", ""); S.mqtt = "reconnecting"; mapEd.connectionLost(now()); renderStatus(); } });
     mqttClient.on("message", (topic, payload) => {
       const bytes = payload instanceof Uint8Array ? payload : new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
       handleMqttMessage(topic, bytes);
@@ -1332,7 +1585,7 @@ const DashCore = (() => {
   function disconnectMqtt() {
     if (!mqttClient) return;
     const c = mqttClient; mqttClient = null; c.end(true);
-    S.mqtt = "off"; setSetting("robot.mqttAuto", "0"); addEvent("MQTT disconnected by you", ""); renderStatus();
+    S.mqtt = "off"; setSetting("robot.mqttAuto", "0"); mapEd.connectionLost(now()); addEvent("MQTT disconnected by you", ""); renderStatus();
   }
   $("btnMqtt").onclick = () => mqttClient ? disconnectMqtt() : connectMqtt($("mqttUrl").value.trim(), false);
 
@@ -1356,6 +1609,78 @@ const DashCore = (() => {
     addEvent("Sent " + C.CMD_LABEL[cmd] + " #" + entry.seq, "");
     renderCmdLog(); renderStatus();
   });
+  /* ---------- barcode junction actions ---------- */
+  function mapSend(req) {
+    if (!req || !mqttClient || S.mqtt !== "on") return false;
+    /* QoS 0 and never retained: a stored copy could replay a write later */
+    mqttClient.publish(C.CFG_TOPIC, req.payload, { qos: 0, retain: false });
+    return true;
+  }
+  function mapCtx() {
+    const fresh = S.tlmLive && S.tlm && now() - S.tlmAt <= C.staleAfterMs(S.tlm.source);
+    return { mqtt: S.mqtt === "on", usb: S.usb === "on",
+      missionActive: fresh ? C.ACTIVE.has(S.tlm.state) || !!S.tlm.paused : null };
+  }
+  function buildMapGrid() {
+    const grid = $("mapGrid"); const frag = document.createDocumentFragment();
+    [...C.MAP_LETTERS].forEach((l, i) => {
+      const row = document.createElement("div"); row.className = "maprow"; row.id = "maprow_" + l;
+      const lab = document.createElement("label"); lab.htmlFor = "map_" + l; lab.textContent = l;
+      const sr = document.createElement("span"); sr.className = "sr"; sr.textContent = " action"; lab.appendChild(sr);
+      const sel = document.createElement("select"); sel.id = "map_" + l;
+      C.MAP_ACTIONS.forEach((a, c) => { const o = document.createElement("option"); o.value = String(c); o.textContent = a; sel.appendChild(o); });
+      sel.onchange = () => { mapEd.edit(i, +sel.value); renderMap(); };
+      const mk = document.createElement("span"); mk.className = "mk"; mk.id = "mapmk_" + l;
+      sel.setAttribute("aria-describedby", mk.id);
+      row.append(lab, sel, mk); frag.appendChild(row);
+    });
+    grid.replaceChildren(frag);
+  }
+  function renderMap() {
+    const ctx = mapCtx();
+    const shown = mapEd.shown() || C.factoryMap();
+    const robot = mapEd.robot && mapEd.robot.codes;
+    [...C.MAP_LETTERS].forEach((l, i) => {
+      const sel = $("map_" + l), mk = $("mapmk_" + l), row = $("maprow_" + l);
+      if (sel.value !== String(shown[i])) sel.value = String(shown[i]);
+      sel.disabled = !robot || mapEd.busy();
+      const edited = !!(robot && mapEd.draft && shown[i] !== robot[i]);
+      row.classList.toggle("edited", edited);
+      mk.textContent = edited ? "● Edited · robot has: " + C.MAP_ACTIONS[robot[i]] : "";
+    });
+    const d = C.describeMap(mapEd, ctx);
+    const st = $("mapStatus"); st.textContent = (d.tone === "good" ? "✓ " : d.tone === "attn" ? "! " : d.tone === "work" ? "… " : "○ ") + d.text; setTone(st, d.tone);
+    const block = mapEd.saveBlock(ctx);
+    $("mapSave").disabled = !!block;
+    $("mapRead").disabled = !ctx.mqtt || mapEd.busy();
+    $("mapRestore").disabled = !robot || mapEd.busy() || C.sameMap(shown, C.factoryMap());
+    $("mapDiscard").hidden = !mapEd.dirty();
+    $("mapWhy").textContent = !robot ? "The letters show the factory defaults until the robot's map is read." :
+      block && block !== "No changes to save." ? "Save unavailable: " + block : "";
+  }
+  $("mapRead").onclick = () => {
+    if (mapEd.dirty() && !confirm("Read the robot's map? Your unsaved changes stay as a draft, and any letter the robot changed is flagged.")) return;
+    if (mapSend(mapEd.read(now()))) addEvent("Asked the robot for its barcode map", "");
+    renderMap();
+  };
+  $("mapSave").onclick = () => {
+    const ctx = mapCtx();
+    let force = false;
+    if (mapEd.conflict) {
+      if (!confirm("The robot's map changed since you started editing (letters " + mapEd.conflict.letters.join(", ") + "). Save your draft over it?")) return;
+      force = true;
+    }
+    const req = mapEd.save(now(), ctx, force);
+    if (req && mapSend(req)) addEvent("Sent barcode map save #" + req.id + " (" + mapEd.pending.codes.length + " letters, changed " + mapEd.dirtyLetters().join(", ") + ")", "");
+    renderMap();
+  };
+  $("mapRestore").onclick = () => {
+    if (mapEd.restoreDefaults()) announce("Factory defaults loaded into the draft. Press Save to robot to apply them.");
+    renderMap();
+  };
+  $("mapDiscard").onclick = () => { mapEd.discard(); renderMap(); };
+  buildMapGrid();
+
   function renderCmdLog() {
     const box = $("cmdlog"); const frag = document.createDocumentFragment();
     for (const e of cmds.list.slice(-3).reverse()) {
@@ -1630,11 +1955,12 @@ const DashCore = (() => {
   setInterval(() => {
     const changed = cmds.tick(now());
     for (const e of changed) { const d = C.describeCommand(e); addEvent(d.text, ""); announce(d.text); }
-    renderCmdLog(); renderStatus(); drawAll(); renderDiag();
+    if (mapEd.tick(now())) { addEvent(mapEd.last.text, ""); announce(mapEd.last.text); }
+    renderCmdLog(); renderStatus(); drawAll(); renderDiag(); renderMap();
   }, 500);
   setInterval(renderRetention, 5000);
 
-  function renderAll() { renderEvents(); renderFaults(); renderBarcodes(); renderOutcome(); renderLive(); renderStatus(); renderDiag(); renderRetention(); renderTests(); renderCmdLog(); drawAll(); }
+  function renderAll() { renderEvents(); renderFaults(); renderBarcodes(); renderOutcome(); renderLive(); renderStatus(); renderDiag(); renderRetention(); renderTests(); renderCmdLog(); drawAll(); renderMap(); }
 
   /* phone: show the fixed Stop bar once the top block is out of view */
   if ("IntersectionObserver" in window) {
@@ -1653,7 +1979,7 @@ const DashCore = (() => {
 
   /* for the dashboard checks and bench debugging: the same entry points
      the MQTT and USB handlers use */
-  window.robotDashboard = { handleMqttMessage, handleLine, core: C };
+  window.robotDashboard = { handleMqttMessage, handleLine, core: C, mapEditor: mapEd };
 })();
 </script>
 </body>
