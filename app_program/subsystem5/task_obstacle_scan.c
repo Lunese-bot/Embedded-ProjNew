@@ -87,23 +87,6 @@ static int32_t sweep(const int8_t * p_deg, int32_t count, s5_sample_t * p_out)
     return count;
 }
 
-/* Every sample of a scan on USB, 10 per line, for calibrating the edge
-   trim (S5_EDGE_TRIM_DEG): "s5: fine samples 1/3: -45:0 -40:312 ..." */
-static void print_samples(const char * p_tag, const s5_sample_t * p_s, int32_t n)
-{
-    static char line[(10 * 11) + 1];
-    int32_t     first;
-    int32_t     lines = (n + 9) / 10;
-
-    for (first = 0; first < n; first += 10)
-    {
-        (void)s5_format_samples(line, (int32_t)sizeof(line), p_s, first,
-                                ((n - first) > 10) ? 10 : (n - first));
-        tm_printf((uint8_t *)"s5: %s samples %d/%d:%s\n", p_tag,
-                  (first / 10) + 1, lines, line);
-    }
-}
-
 static void print_profile(const char * p_tag, const s5_profile_t * p_profile)
 {
     tm_printf((uint8_t *)"s5: %s d=%dmm edges R%d..L%d deg w=%dmm "
@@ -134,7 +117,6 @@ static void do_scan(void)
     s5_set_state(S5_ST_COARSE_SCAN);
     count = s5_coarse_angles(ang, SCAN_MAX_SAMPLES);
     coarse_count = sweep(ang, count, csmp);
-    print_samples("coarse", csmp, coarse_count);
     if (!s5_build_profile(csmp, coarse_count, &prof))
     {
         tm_printf((uint8_t *)"s5: coarse scan found nothing\n");
@@ -149,7 +131,6 @@ static void do_scan(void)
         count = s5_fine_angles(&prof, ang, SCAN_MAX_SAMPLES);
         count = sweep(ang, count, smp);
         count = s5_merge_samples(csmp, coarse_count, smp, count, merged, SCAN_MAX_SAMPLES);
-        print_samples("fine", merged, count);
         if (s5_build_profile(merged, count, &prof))
         {
             print_profile("fine", &prof);
