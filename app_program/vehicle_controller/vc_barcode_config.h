@@ -18,8 +18,9 @@
  *
  * NAV_NONE is the existing fallback, not a fifth maneuver: it means
  * "no meaning assigned" and behaves exactly like NAV_STRAIGHT.  Current
- * defaults: A = NAV_NONE (goes straight), Z = NAV_RIGHT, every other letter
- * NAV_NONE.  An unknown or multi-character read also falls back to NAV_NONE.
+ * defaults: A = NAV_NONE (goes straight), H = NAV_LEFT, Z = NAV_RIGHT,
+ * every other letter NAV_NONE.  An unknown or multi-character read also
+ * falls back to NAV_NONE.
  * After the maneuver the instruction is cleared, so a second junction goes
  * straight unless a new barcode is read.  Reset also clears it.
  * Any other value fails the build (check in vc_barcode_rules.c).
@@ -43,7 +44,7 @@
     X(E, NAV_NONE) \
     X(F, NAV_NONE) \
     X(G, NAV_NONE) \
-    X(H, NAV_NONE) \
+    X(H, NAV_LEFT) \
     X(I, NAV_NONE) \
     X(J, NAV_NONE) \
     X(K, NAV_NONE) \

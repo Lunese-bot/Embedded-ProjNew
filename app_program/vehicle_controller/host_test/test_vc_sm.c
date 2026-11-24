@@ -786,8 +786,9 @@ static void test_letter_config(void)
     CHECK("VC-C01", all_match,
           "every letter A..Z returns the value set in vc_barcode_config.h");
     CHECK("VC-C02",
-          (NAV_RIGHT == vc_barcode_lookup("Z")) && (1 == not_none),
-          "as shipped: Z = RIGHT, every other letter NONE "
+          (NAV_LEFT == vc_barcode_lookup("H")) &&
+              (NAV_RIGHT == vc_barcode_lookup("Z")) && (2 == not_none),
+          "as shipped: H = LEFT, Z = RIGHT, every other letter NONE "
           "(when the team changes a row, update this check with it)");
     CHECK("VC-C03",
           (NAV_NONE == vc_barcode_lookup("")) &&
