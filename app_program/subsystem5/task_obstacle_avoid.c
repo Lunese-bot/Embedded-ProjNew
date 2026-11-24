@@ -565,6 +565,10 @@ static step_result_t realign(void)
     const int32_t sighting_heading_deg = g_heading_deg;
     step_result_t result = STEP_DONE;
 
+    /* Rejoin trace (log only): sighting -> axle advance -> heading -> confirm */
+    tm_printf((uint8_t *)"s5: rejoin: first tape sighting at heading %d deg\n",
+              g_heading_deg);
+
     if ((0 != g_heading_deg) && (ROBOT_IR_TO_AXLE_MM > 0))
     {
         /* The search stopped with the SENSORS on the line.  Drive on until
@@ -576,10 +580,19 @@ static step_result_t realign(void)
         fwd.m.distance_mm = (uint16_t)ROBOT_IR_TO_AXLE_MM;
         fwd.m.speed_mm_s  = S5_SEARCH_SPEED_MM_S;
         result            = run_step(&fwd);
+        if (STEP_DONE == result)
+        {
+            tm_printf((uint8_t *)"s5: rejoin: axle advanced %d mm\n",
+                      ROBOT_IR_TO_AXLE_MM);
+        }
     }
     if (STEP_DONE == result)
     {
         result = turn_to_approach();
+        if (STEP_DONE == result)
+        {
+            tm_printf((uint8_t *)"s5: rejoin: heading realigned to the approach\n");
+        }
     }
     if (STEP_DONE == result)
     {
@@ -696,7 +709,7 @@ static void report_result(step_result_t result)
     {
         case STEP_LINE:
             s5_count_avoid_ok();
-            tm_printf((uint8_t *)"s5: line reacquired\n");
+            tm_printf((uint8_t *)"s5: line reacquired, rejoin confirmed; S5 done, VC takes over\n");
             report(S5_EVT_LINE_REACQUIRED, S5_FAULT_NONE);
             break;
         case STEP_NO_LINE:
