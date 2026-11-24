@@ -44,8 +44,9 @@ uint32_t s2_stop_epoch(void) { return stop_epoch; }
 ER s2_cmd_stop(void) { return E_OK; }
 ER s2_cmd_drive(int32_t speed, int32_t steer)
 { (void)speed; (void)steer; return E_OK; }
+static int32_t last_turn_angle;
 ER s2_cmd_turn(int32_t speed, int32_t angle)
-{ (void)speed; (void)angle; return E_OK; }
+{ (void)speed; last_turn_angle = angle; return E_OK; }
 ER s2_cmd_drive_dist(int32_t speed, int32_t distance)
 { (void)speed; (void)distance; return E_OK; }
 ER s2_cmd_reset(void) { reset_count++; return E_OK; }
@@ -104,6 +105,12 @@ int main(void)
     assert(vc_bridge_s2_move(VC_MOVE_SAFE_STOP, 0) == E_OK);
     status.stop_epoch = stop_epoch = 0;
     assert(!vc_bridge_s2_next(&event)); /* aborted self-check stays cancelled */
+
+    /* encoder-based turn requests: the bridge passes the angle to S2 */
+    assert(vc_bridge_s2_move(VC_MOVE_U_TURN, 0) == E_OK && last_turn_angle == 180);
+    assert(vc_bridge_s2_move(VC_MOVE_TURN_LEFT, 90) == E_OK && last_turn_angle == 90);
+    assert(vc_bridge_s2_move(VC_MOVE_TURN_RIGHT, 90) == E_OK && last_turn_angle == -90);
+    puts("[TEST] S6-U01 PASS  U-turn asks S2 for 180 deg; left +90, right -90");
 
     puts("[TEST] S6-SAFE03 PASS  motion readiness follows applied stop and reset");
     return 0;

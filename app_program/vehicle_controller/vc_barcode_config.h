@@ -1,19 +1,28 @@
 /*
  * vc_barcode_config.h
  *
- * THE ONE PLACE THE TEAM EDITS to say what each barcode letter means.
- * One line per letter A to Z.  Change only the second value of a line.
+ * THE ONE PLACE THE TEAM EDITS to say what each barcode letter does.
+ * One row per letter A to Z in the table below.  Change only the second
+ * value of a row, save, rebuild (cd build_make && make NET=lwip MQTT=1 -j8)
+ * and flash.  Example, make S turn left:
  *
- *   NAV_LEFT      90 deg left at the next junction
- *   NAV_RIGHT     90 deg right at the next junction
- *   NAV_STRAIGHT  drive straight over the next junction
- *   NAV_U_TURN    turn round at the next junction
- *   NAV_NONE      meaning not defined: same as straight
+ *      X(S, NAV_NONE)   becomes   X(S, NAV_LEFT)
  *
- * The course has NOT defined the letter meanings (owner, 2026-11-14).
- * Only Z = RIGHT is known, so every other letter stays NAV_NONE.
- * Do not invent a meaning: change a line only when the course or the
- * team says so.
+ * The four maneuvers (executed once, at the next confirmed junction after
+ * the letter is read; decoding a letter never turns the robot by itself):
+ *
+ *   NAV_LEFT      turn 90 deg left
+ *   NAV_RIGHT     turn 90 deg right
+ *   NAV_U_TURN    turn round, 180 deg
+ *   NAV_STRAIGHT  drive straight through the junction
+ *
+ * NAV_NONE is the existing fallback, not a fifth maneuver: it means
+ * "no meaning assigned" and behaves exactly like NAV_STRAIGHT.  Current
+ * defaults: A = NAV_NONE (goes straight), Z = NAV_RIGHT, every other letter
+ * NAV_NONE.  An unknown or multi-character read also falls back to NAV_NONE.
+ * After the maneuver the instruction is cleared, so a second junction goes
+ * straight unless a new barcode is read.  Reset also clears it.
+ * Any other value fails the build (check in vc_barcode_rules.c).
  *
  * Multi-character codes are not configured here; the lookup matches the
  * whole decoded text, so only the single letters below match.

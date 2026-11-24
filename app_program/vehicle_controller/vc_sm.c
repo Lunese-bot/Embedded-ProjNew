@@ -230,6 +230,9 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
     switch (next)
     {
         case VC_ST_IDLE:
+            /* Reset: a barcode read before the stop must not act later. */
+            p_sm->pending_nav        = NAV_NONE;
+            p_sm->pending_barcode[0] = '\0';
             if ((VC_ST_FAULT == prev) || (VC_ST_MISSION_COMPLETE == prev))
             {
                 /* clear S2's latch (a lift latches it too) */
@@ -245,6 +248,7 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
             p_sm->st.max_hump_um      = 0;
             p_sm->st.barcodes_read    = 0;
             p_sm->st.last_nav         = NAV_NONE;
+            p_sm->st.last_barcode[0]  = '\0';
             request(p_out, VC_SRC_NONE, VC_REQ_SELF_CHECK, 0);
             break;
 
@@ -584,6 +588,15 @@ static void take_barcode(vc_sm_t * p_sm, const vc_event_t * p_event,
         p_sm->pending_nav = (navigation_command_t)p_event->p1;
     }
     p_sm->st.last_nav = p_sm->pending_nav;
+    for (idx = 0u; idx < sizeof(p_sm->st.last_barcode); idx++)
+    {
+        p_sm->st.last_barcode[idx] = p_sm->pending_barcode[idx];
+        if ('\0' == p_sm->pending_barcode[idx])
+        {
+            break;
+        }
+    }
+    p_sm->st.last_barcode[sizeof(p_sm->st.last_barcode) - 1u] = '\0';
     p_sm->st.barcodes_read++;
     enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
 }
