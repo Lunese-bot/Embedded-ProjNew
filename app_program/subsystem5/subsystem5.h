@@ -201,6 +201,7 @@ extern ER s5_get_status_packed(uint16_t * p_word);
 
 /* Hooks to other subsystems.  Defined __attribute__((weak)) in
    s5_ports.c; the owning subsystem overrides them with a real one. */
+extern uint32_t s5_port_odo_mm(void); /* S2: forward travel since boot, mm (wraps; use differences) */
 extern bool s5_port_line_detected(void); /* S3: C or R sees black */
 extern void s5_port_set_line_search(bool b_active); /* S3: sample only for this search */
 

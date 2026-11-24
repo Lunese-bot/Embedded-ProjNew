@@ -52,6 +52,54 @@ _Static_assert(S5_DETECT_MM >= S5_STOP_NEEDED_MM,
 #define S5_MIN_CLEAR_MM        300 /* free range needed on bypass side */
 #define S5_SIDE_BIAS_DEG        10 /* obstacle centre clearly to one side */
 
+/* ---- Measured pass (side look) -----------------------------------
+ *  While passing, the ultrasonic looks sideways at the obstacle and the
+ *  odometer gives forward travel.  Three phases: seeking the side ->
+ *  alongside -> past the rear corner.  The rear corner position is the
+ *  travel at the last echo + sensor-to-axle + the forward reach of the
+ *  beam (range x cos(look angle)); the robot then drives on until its
+ *  rear (axle - rear overhang) and the swept footprint of the inward
+ *  pivot are past it.
+ *
+ *  OFF by default.  It needs robot dimensions that only the owner can
+ *  measure, so there are NO default values: to enable it define
+ *  S5_SIDE_PASS 1 together with S5_US_TO_AXLE_MM, S5_REAR_OVERHANG_MM,
+ *  S5_FRONT_OVERHANG_MM and S5_PIVOT_MARGIN_MM (mm, each with its
+ *  measurement date) and S5_SIDE_LOOK_DEG (<= the validated servo limit;
+ *  checked at compile time in task_obstacle_scan.c). */
+#ifndef S5_SIDE_PASS
+#define S5_SIDE_PASS 0 /* 0 = fixed-depth pass as before */
+#endif
+#if S5_SIDE_PASS
+#if !defined(S5_US_TO_AXLE_MM) || !defined(S5_REAR_OVERHANG_MM) || \
+    !defined(S5_FRONT_OVERHANG_MM) || !defined(S5_PIVOT_MARGIN_MM) || \
+    !defined(S5_SIDE_LOOK_DEG)
+#error "S5_SIDE_PASS needs the owner's measured robot dimensions (see obstacle_logic.h)"
+#endif
+#endif
+#define S5_SIDE_WINDOW_PCT   250  /* accept echoes up to this % of the planned gap */
+#define S5_SIDE_BEAM_HALF_DEG 15  /* (inferred) ultrasonic half beam angle */
+#define S5_SIDE_GUARD_MM     10   /* stop when closer than half-width + this       */
+#define S5_SIDE_FOUND_COUNT  3    /* distinct readings in a row that start "alongside" */
+#define S5_SIDE_LOST_COUNT   3    /* distinct missing readings in a row ... */
+#define S5_SIDE_LOST_MM      20   /* ... spanning this much travel end it   */
+#define S5_SIDE_FAULT_COUNT  5    /* sensor failures in a row = sensor fault */
+#define S5_SIDE_PARTIAL_MM   30   /* echo this early: depth is only a lower bound */
+#define S5_PASS_CAP_MM       1000 /* default cap; the owner confirms (open question) */
+#define S5_SIDE_ARM_TMO_MS   2000 /* wait for the servo to point and ping    */
+
+/* Robot dimensions the tracker needs (mm).  Built from the owner's
+   constants in firmware; host tests pass their own fixture values. */
+typedef struct
+{
+    int32_t us_to_axle_mm;   /* ultrasonic face ahead of the axle  */
+    int32_t rear_mm;         /* rear of the body behind the axle   */
+    int32_t front_mm;        /* front of the body ahead of the axle */
+    int32_t half_width_mm;
+    int32_t margin_mm;       /* extra clearance at turn-in         */
+    int32_t return_turn_deg; /* the inward pivot angle             */
+} s5_geom_t;
+
 /* ---- Bypass manoeuvre ------------------------------------------- */
 #define S5_BYPASS_TURN_DEG   35
 #define S5_BYPASS_FIRST_MM   80 /* short first diagonal before moving farther sideways */
@@ -83,6 +131,12 @@ typedef struct
 {
     s5_motion_req_t m;
     uint8_t         search_line; /* 1 = stop early when line seen */
+    /* Measured pass (S5_SIDE_PASS).  m.distance_mm stays the fixed-depth
+       distance: it is the fallback when the side echo never appears. */
+    uint8_t         side_track;  /* 1 = look sideways and end by measurement */
+    int8_t          look_deg;    /* servo angle, + = left (towards the obstacle) */
+    uint16_t        cap_mm;      /* rear corner must be seen before this travel */
+    uint16_t        request_mm;  /* distance actually requested from motion */
 } s5_step_t;
 
 #define S5_PLAN_MAX 10
@@ -107,6 +161,84 @@ extern s5_side_t s5_choose_side(s5_profile_t * p_profile);
    on the given side. */
 extern int32_t s5_lateral_needed_mm(const s5_profile_t * p_profile,
                                     s5_side_t            side);
+
+/* ---- Measured pass: pure tracker (host tested) ---- */
+typedef enum
+{
+    S5_PASS_SEEKING = 0, /* no side echo yet                           */
+    S5_PASS_ALONGSIDE,   /* the obstacle's side face is in view        */
+    S5_PASS_PASSED,      /* rear corner seen, driving on to clear it   */
+    S5_PASS_CLEARED,     /* DONE: body and pivot are past the rear corner */
+    S5_PASS_FALLBACK,    /* DONE: no echo ever, fixed depth used (clearance NOT certified) */
+    S5_PASS_CAP,         /* FAIL: still beside it at the travel cap    */
+    S5_PASS_TOO_CLOSE,   /* FAIL: gap to the obstacle below the guard  */
+    S5_PASS_SENSOR_FAULT /* FAIL: repeated sensor failures             */
+} s5_pass_phase_t;
+
+/* One side reading as the scan task publishes it */
+typedef enum
+{
+    S5_SIDE_ST_ECHO = 1, /* valid echo, mm is the range              */
+    S5_SIDE_ST_NO_ECHO,  /* valid ping, nothing came back            */
+    S5_SIDE_ST_FAULT     /* the sensor could not make the measurement */
+} s5_side_status_t;
+
+typedef struct
+{
+    uint32_t seq;    /* grows by one per published reading; 0 = none yet */
+    uint8_t  status; /* s5_side_status_t                                  */
+    uint16_t mm;
+} s5_side_reading_t;
+
+typedef struct
+{
+    s5_geom_t geom;
+    uint8_t   phase;       /* s5_pass_phase_t                         */
+    uint8_t   partial;     /* 1 = echo at the very start: depth is a lower bound */
+    int32_t   look_deg;    /* angle magnitude, 1..90                  */
+    int32_t   fallback_mm; /* fixed-depth pass distance (travel since the pass began) */
+    int32_t   cap_mm;
+    uint32_t  last_seq;
+    int32_t   hits;        /* consecutive accepted echoes             */
+    int32_t   misses;      /* consecutive missing echoes while alongside */
+    int32_t   faults;
+    int32_t   run_start_mm;
+    int32_t   run_range_mm;
+    int32_t   first_mm;    /* travel at the first confirmed echo (start of the debounce run) */
+    int32_t   first_range_mm;
+    int32_t   last_mm;     /* travel at the last confirmed echo (NOT at the later decision) */
+    int32_t   last_range_mm;
+    int32_t   min_gap_mm;  /* smallest sensor-to-face gap seen (inferred: sensor on the centre line) */
+    int32_t   rear_mm;     /* rear corner, along the line, axle frame */
+    int32_t   target_mm;   /* axle travel at which the turn-in starts */
+    int32_t   depth_mm;    /* observed span along the line            */
+    int32_t   decided_mm;  /* travel when the rear was declared        */
+} s5_pass_t;
+
+#if S5_SIDE_PASS
+extern void s5_geom_from_config(s5_geom_t * p_geom); /* owner's constants */
+#endif
+
+/* Largest range accepted as "the obstacle side" for this look angle. */
+extern int32_t s5_side_window_mm(int32_t look_deg);
+
+/* Most travel after the last echo that the clearing drive can need. */
+extern int32_t s5_pass_tail_max_mm(const s5_geom_t * p_geom, int32_t look_deg);
+
+/* Smallest (axle - rear corner) distance at which pivoting inward by
+   turn_deg cannot swing any body corner into an obstacle face that is
+   gap_mm from the centre line.  Pure geometry. */
+extern int32_t s5_pivot_min_axle_mm(const s5_geom_t * p_geom, int32_t gap_mm);
+
+extern void s5_pass_init(s5_pass_t * p_pass, const s5_geom_t * p_geom,
+                         int32_t look_deg, int32_t fallback_mm, int32_t cap_mm);
+
+/* Feed one poll.  travel_mm = forward travel since the pass began.
+   p_reading may be NULL or repeat an earlier seq (not counted twice);
+   an older seq is ignored.  Returns the phase; SEEKING, ALONGSIDE and
+   PASSED are running, the others are final. */
+extern s5_pass_phase_t s5_pass_update(s5_pass_t * p_pass, int32_t travel_mm,
+                                      const s5_side_reading_t * p_reading);
 
 /* Steps of the bypass for p->bypass_side.  Returns the step count. */
 extern int32_t s5_plan_bypass(const s5_profile_t * p_profile,

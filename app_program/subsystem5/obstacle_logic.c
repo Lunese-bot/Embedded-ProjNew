@@ -262,6 +262,232 @@ static int32_t diagonal_distance_mm(int32_t lateral_mm, int32_t angle_deg)
     return (lateral_mm * 1000 + sine - 1) / sine;
 }
 
+#if S5_SIDE_PASS
+void s5_geom_from_config(s5_geom_t * p_geom)
+{
+    p_geom->us_to_axle_mm   = S5_US_TO_AXLE_MM;
+    p_geom->rear_mm         = S5_REAR_OVERHANG_MM;
+    p_geom->front_mm        = S5_FRONT_OVERHANG_MM;
+    p_geom->half_width_mm   = S5_ROBOT_HALF_WIDTH_MM;
+    p_geom->margin_mm       = S5_PIVOT_MARGIN_MM;
+    p_geom->return_turn_deg = S5_RETURN_TURN_DEG;
+}
+#endif
+
+int32_t s5_side_window_mm(int32_t look_deg)
+{
+    int32_t gap_mm  = S5_ROBOT_HALF_WIDTH_MM + S5_SIDE_MARGIN_MM;
+    int32_t sine    = s5_sin1000(look_deg);
+    int32_t window  = (gap_mm * S5_SIDE_WINDOW_PCT * 10) / sine;
+
+    return (window > 2000) ? 2000 : window; /* sensor range limit */
+}
+
+int32_t s5_pivot_min_axle_mm(const s5_geom_t * p_geom, int32_t gap_mm)
+{
+    /* Obstacle side is +u, forward is +x, axle at the origin.  The pivot
+       turns the heading towards +u, so the obstacle-side corners swing:
+         x' = x cos(phi) - u sin(phi),  u' = x sin(phi) + u cos(phi).
+       A corner whose u' reaches the face line (gap_mm) must already be
+       beyond the rear corner: axle - rear >= -x'. */
+    const int32_t corner_x[2] = { p_geom->front_mm, -p_geom->rear_mm };
+    int32_t       need = 0;
+    int32_t       phi;
+    int32_t       idx;
+
+    for (phi = 1; phi <= p_geom->return_turn_deg; phi++)
+    {
+        int32_t sn = s5_sin1000(phi);
+        int32_t cs = s5_sin1000(90 - phi);
+
+        for (idx = 0; idx < 2; idx++)
+        {
+            int32_t x  = corner_x[idx];
+            int32_t u  = p_geom->half_width_mm;
+            int32_t xr = (x * cs - u * sn) / 1000;
+            int32_t ur = (x * sn + u * cs) / 1000;
+
+            if ((ur >= gap_mm) && (-xr > need))
+            {
+                need = -xr;
+            }
+        }
+    }
+    return need;
+}
+
+static int32_t pass_clear_mm(const s5_geom_t * p_geom, int32_t gap_mm)
+{
+    int32_t body  = p_geom->rear_mm + p_geom->margin_mm;
+    int32_t pivot = s5_pivot_min_axle_mm(p_geom, gap_mm) + p_geom->margin_mm;
+
+    return (body > pivot) ? body : pivot;
+}
+
+int32_t s5_pass_tail_max_mm(const s5_geom_t * p_geom, int32_t look_deg)
+{
+    int32_t reach = (s5_side_window_mm(look_deg) * s5_sin1000(90 - look_deg)) / 1000;
+
+    return p_geom->us_to_axle_mm + reach +
+           pass_clear_mm(p_geom, p_geom->half_width_mm + S5_SIDE_GUARD_MM);
+}
+
+void s5_pass_init(s5_pass_t * p_pass, const s5_geom_t * p_geom,
+                  int32_t look_deg, int32_t fallback_mm, int32_t cap_mm)
+{
+    *p_pass = (s5_pass_t){ 0 };
+    p_pass->geom        = *p_geom;
+    p_pass->look_deg    = (look_deg < 1) ? 1 : ((look_deg > 90) ? 90 : look_deg);
+    p_pass->fallback_mm = fallback_mm;
+    p_pass->cap_mm      = (cap_mm < fallback_mm) ? fallback_mm : cap_mm;
+    p_pass->min_gap_mm  = 0x7FFF;
+}
+
+static int32_t pass_gap_mm(const s5_pass_t * p_pass, int32_t range_mm)
+{
+    /* The nearest return in the cone comes from the ray closest to the
+       face normal, so range x sin(angle + half beam) is the gap (inferred:
+       beam half-width from the HC-SR04 data sheet; bench step b checks it). */
+    int32_t deg = p_pass->look_deg + S5_SIDE_BEAM_HALF_DEG;
+
+    return (range_mm * s5_sin1000((deg > 90) ? 90 : deg)) / 1000;
+}
+
+static void pass_note_echo(s5_pass_t * p_pass, int32_t travel_mm, int32_t range_mm)
+{
+    int32_t gap_mm = pass_gap_mm(p_pass, range_mm);
+
+    p_pass->misses        = 0;
+    p_pass->last_mm       = travel_mm;
+    p_pass->last_range_mm = range_mm;
+    if (gap_mm < p_pass->min_gap_mm)
+    {
+        p_pass->min_gap_mm = gap_mm;
+    }
+    if (gap_mm < (p_pass->geom.half_width_mm + S5_SIDE_GUARD_MM))
+    {
+        p_pass->phase = (uint8_t)S5_PASS_TOO_CLOSE;
+    }
+}
+
+static void pass_rear_found(s5_pass_t * p_pass, int32_t travel_mm)
+{
+    int32_t cosine = s5_sin1000(90 - p_pass->look_deg);
+    int32_t front  = p_pass->first_mm + p_pass->geom.us_to_axle_mm +
+                     (p_pass->first_range_mm * cosine) / 1000;
+
+    /* Beam reach: at a shallow look angle the echo ends before the sensor
+       is level with the rear corner, by range x cos(angle).  last_mm is
+       the travel at the last CONFIRMED echo, so the debounce delay after
+       it only makes the decision later, never the corner earlier. */
+    p_pass->rear_mm = p_pass->last_mm + p_pass->geom.us_to_axle_mm +
+                      (p_pass->last_range_mm * cosine) / 1000;
+    p_pass->depth_mm = p_pass->rear_mm - front;
+    if (p_pass->depth_mm < 0)
+    {
+        p_pass->depth_mm = 0;
+    }
+    p_pass->partial   = (p_pass->first_mm <= S5_SIDE_PARTIAL_MM) ? 1U : 0U;
+    p_pass->decided_mm = travel_mm;
+    p_pass->target_mm = p_pass->rear_mm +
+                        pass_clear_mm(&p_pass->geom, p_pass->min_gap_mm);
+    if (p_pass->target_mm < travel_mm)
+    {
+        p_pass->target_mm = travel_mm;
+    }
+    p_pass->phase = (uint8_t)S5_PASS_PASSED;
+}
+
+s5_pass_phase_t s5_pass_update(s5_pass_t * p_pass, int32_t travel_mm,
+                               const s5_side_reading_t * p_reading)
+{
+    bool    b_fresh = (NULL != p_reading) && (p_reading->seq > p_pass->last_seq);
+    bool    b_echo  = false;
+    bool    b_fault = false;
+    int32_t range_mm = 0;
+
+    if (b_fresh)
+    {
+        p_pass->last_seq = p_reading->seq;
+        b_fault = (S5_SIDE_ST_FAULT == p_reading->status);
+        range_mm = p_reading->mm;
+        b_echo = (S5_SIDE_ST_ECHO == p_reading->status) && (range_mm > 0) &&
+                 (range_mm <= s5_side_window_mm(p_pass->look_deg));
+        p_pass->faults = b_fault ? (p_pass->faults + 1) : 0;
+        if (p_pass->faults >= S5_SIDE_FAULT_COUNT)
+        {
+            p_pass->phase = (uint8_t)S5_PASS_SENSOR_FAULT;
+        }
+    }
+
+    switch ((s5_pass_phase_t)p_pass->phase)
+    {
+        case S5_PASS_SEEKING:
+            if (b_fresh && !b_fault)
+            {
+                if (b_echo)
+                {
+                    if (0 == p_pass->hits)
+                    {
+                        p_pass->run_start_mm = travel_mm;
+                        p_pass->run_range_mm = range_mm;
+                    }
+                    p_pass->hits++;
+                }
+                else
+                {
+                    p_pass->hits = 0;
+                }
+                if (p_pass->hits >= S5_SIDE_FOUND_COUNT)
+                {
+                    p_pass->phase          = (uint8_t)S5_PASS_ALONGSIDE;
+                    p_pass->first_mm       = p_pass->run_start_mm;
+                    p_pass->first_range_mm = p_pass->run_range_mm;
+                    pass_note_echo(p_pass, travel_mm, range_mm);
+                }
+            }
+            if ((S5_PASS_SEEKING == (s5_pass_phase_t)p_pass->phase) &&
+                (travel_mm >= p_pass->fallback_mm))
+            {
+                p_pass->phase = (uint8_t)S5_PASS_FALLBACK;
+            }
+            break;
+        case S5_PASS_ALONGSIDE:
+            if (b_fresh && !b_fault)
+            {
+                if (b_echo)
+                {
+                    pass_note_echo(p_pass, travel_mm, range_mm);
+                }
+                else
+                {
+                    p_pass->misses++;
+                }
+                if ((S5_PASS_ALONGSIDE == (s5_pass_phase_t)p_pass->phase) &&
+                    (p_pass->misses >= S5_SIDE_LOST_COUNT) &&
+                    ((travel_mm - p_pass->last_mm) >= S5_SIDE_LOST_MM))
+                {
+                    pass_rear_found(p_pass, travel_mm);
+                }
+            }
+            if ((S5_PASS_ALONGSIDE == (s5_pass_phase_t)p_pass->phase) &&
+                (travel_mm >= p_pass->cap_mm))
+            {
+                p_pass->phase = (uint8_t)S5_PASS_CAP;
+            }
+            break;
+        case S5_PASS_PASSED:
+            if (travel_mm >= p_pass->target_mm)
+            {
+                p_pass->phase = (uint8_t)S5_PASS_CLEARED;
+            }
+            break;
+        default: /* final phases do not change */
+            break;
+    }
+    return (s5_pass_phase_t)p_pass->phase;
+}
+
 int32_t s5_plan_bypass(const s5_profile_t * p_profile, s5_step_t * p_plan,
                        int32_t max)
 {
@@ -314,6 +540,24 @@ int32_t s5_plan_bypass(const s5_profile_t * p_profile, s5_step_t * p_plan,
                      -sign * S5_BYPASS_CLEARANCE_DEG, 0, 0, 0);
     count = add_step(p_plan, count, max, S5_MOVE_FORWARD, 0, pass_mm,
                      S5_BYPASS_SPEED_MM_S, 0);
+#if S5_SIDE_PASS
+    if (count > 0)
+    {
+        s5_step_t * p_pass  = &p_plan[count - 1];
+        int32_t     cap_mm  = (pass_mm > S5_PASS_CAP_MM) ? pass_mm : S5_PASS_CAP_MM;
+        s5_geom_t   geom;
+        int32_t     request;
+
+        s5_geom_from_config(&geom);
+        request = cap_mm + s5_pass_tail_max_mm(&geom, S5_SIDE_LOOK_DEG);
+
+        /* The obstacle is on the side opposite the bypass side. */
+        p_pass->side_track = 1U;
+        p_pass->look_deg   = (int8_t)(-sign * S5_SIDE_LOOK_DEG);
+        p_pass->cap_mm     = (uint16_t)cap_mm;
+        p_pass->request_mm = (uint16_t)((request > 65535) ? 65535 : request);
+    }
+#endif
     count = add_step(p_plan, count, max, S5_MOVE_TURN,
                      -sign * S5_RETURN_TURN_DEG, 0, 0, 0);
     count = add_step(p_plan, count, max, S5_MOVE_FORWARD, 0,

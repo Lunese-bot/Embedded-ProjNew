@@ -155,6 +155,54 @@ static void do_scan(void)
     s5_store_profile(&prof);
 }
 
+#if S5_SIDE_PASS
+/* The side-look angle must be one the servo is allowed to reach. */
+_Static_assert((S5_SIDE_LOOK_DEG > 0) && (S5_SIDE_LOOK_DEG <= SERVO_MAX_DEG),
+               "S5_SIDE_LOOK_DEG exceeds SERVO_MAX_DEG (the validated servo limit)");
+#endif
+
+/* Measured pass: point the sensor sideways, then publish one reading per
+   period until the avoid task ends it.  Pings here are expected to be
+   silent when the obstacle is not beside the robot, so they feed neither
+   the echo-fault counter nor the monitoring status.  Ends at once on
+   SIDE_END, RESUME, a new SCAN_REQ or when the controller disables S5
+   (those flags are left for the main loop), then returns the servo to
+   centre. */
+static void do_side_look(void)
+{
+    UINT     flg;
+    SYSTIM   start_time;
+    SYSTIM   end_time;
+    int32_t  used;
+    uint16_t mm;
+
+    point_and_wait(s5_side_deg());
+    s5_side_arm();
+    for (;;)
+    {
+        if ((E_OK == tk_wai_flg(g_flg_s5,
+                                S5_FLG_SIDE_END | S5_FLG_RESUME | S5_FLG_SCAN_REQ,
+                                TWF_ORW, &flg, TMO_POL)) ||
+            (E_OK != tk_wai_flg(g_flg_s5, S5_FLG_ENABLED, TWF_ORW, &flg, TMO_POL)))
+        {
+            break;
+        }
+        tk_get_tim(&start_time);
+        mm = us_read_mm();
+        s5_side_publish((US_NO_ECHO == mm) ? (uint8_t)S5_SIDE_ST_NO_ECHO
+                                           : (uint8_t)S5_SIDE_ST_ECHO,
+                        mm);
+        tk_get_tim(&end_time);
+        used = (int32_t)(end_time.lo - start_time.lo);
+        if (used < S5_PERIOD_MS)
+        {
+            tk_dly_tsk(S5_PERIOD_MS - used);
+        }
+    }
+    tk_clr_flg(g_flg_s5, ~(uint32_t)S5_FLG_SIDE_END);
+    point_and_wait(0);
+}
+
 /* An obstacle has been seen S5_DETECT_COUNT times in a row */
 static void report_obstacle(uint16_t dist_mm)
 {
@@ -299,6 +347,12 @@ void s5_scan_task(int32_t stacd, void * p_exinf)
             tk_set_flg(g_flg_s5, S5_FLG_PROFILE);
             mode = MODE_HOLD;
         }
+        else if (E_OK == tk_wai_flg(g_flg_s5, S5_FLG_SIDE_REQ,
+                                    TWF_ORW | TWF_BITCLR, &flg, TMO_POL))
+        {
+            do_side_look();
+            mode = MODE_HOLD;
+        }
         else
         {
             if (E_OK == tk_wai_flg(g_flg_s5, S5_FLG_RESUME,
@@ -312,8 +366,9 @@ void s5_scan_task(int32_t stacd, void * p_exinf)
             if (MODE_HOLD == mode)
             {
                 /* sleep until the avoid task wants something */
-                tk_wai_flg(g_flg_s5, S5_FLG_SCAN_REQ | S5_FLG_RESUME, TWF_ORW,
-                           &flg, TMO_FEVR);
+                tk_wai_flg(g_flg_s5,
+                           S5_FLG_SCAN_REQ | S5_FLG_RESUME | S5_FLG_SIDE_REQ,
+                           TWF_ORW, &flg, TMO_FEVR);
             }
             /* MONITOR, but only while the controller allows it */
             else if (E_OK != tk_wai_flg(g_flg_s5, S5_FLG_ENABLED, TWF_ORW, &flg,

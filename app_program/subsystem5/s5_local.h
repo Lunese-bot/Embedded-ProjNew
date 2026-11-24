@@ -66,6 +66,9 @@
 #define S5_FLG_PROFILE  0x0004 /* scan -> avoid: profile done    */
 #define S5_FLG_RESUME   0x0008 /* avoid -> scan: back to monitor */
 
+#define S5_FLG_SIDE_REQ 0x0010 /* avoid -> scan: look sideways (angle in s5_side_deg) */
+#define S5_FLG_SIDE_END 0x0020 /* avoid -> scan: stop looking sideways    */
+
 #define S5_EVT_BUF_MSGS 8
 #define S5_CMD_BUF_MSGS 8
 #define S5_MBF_MSG_OVERHEAD 4 /* kernel header bytes per message */
@@ -83,6 +86,16 @@ extern void s5_count_obstacle(void);
 extern void s5_count_avoid_ok(void);
 extern void s5_store_profile(const s5_profile_t * p_profile);
 extern void s5_load_profile(s5_profile_t * p_profile);
+
+/* Side look (measured pass).  Avoid task: request / end / read.  Scan task:
+   arm once the servo is pointed, then publish one reading per ping.  All
+   calls are coherent under g_mtx_s5. */
+extern void    s5_side_request(int32_t deg);
+extern void    s5_side_end(void);
+extern int32_t s5_side_deg(void);
+extern void    s5_side_arm(void);
+extern void    s5_side_publish(uint8_t status, uint16_t mm);
+extern bool    s5_side_read(s5_side_reading_t * p_reading); /* TRUE once armed */
 
 /* Send an event to the Vehicle Controller without blocking */
 extern ER       s5_send_evt(s5_evt_t * p_evt);

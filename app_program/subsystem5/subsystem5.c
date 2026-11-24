@@ -154,6 +154,89 @@ static void s5_unlock(void)
     tk_unl_mtx(g_mtx_s5);
 }
 
+/* ---- side-look sample, shared by the scan task (writer) and the
+   avoid task (reader).  One mutex-protected record, so a reader never
+   sees a new range with an old status or sequence number. ---- */
+static struct
+{
+    bool              armed; /* servo is pointed and pings are flowing */
+    int32_t           deg;   /* requested angle, + = left              */
+    s5_side_reading_t reading;
+} g_side;
+
+void s5_side_request(int32_t deg)
+{
+    tk_clr_flg(g_flg_s5, ~(uint32_t)S5_FLG_SIDE_END);
+    if (s5_lock())
+    {
+        g_side.armed   = false;
+        g_side.deg     = deg;
+        g_side.reading = (s5_side_reading_t){ 0 };
+        s5_unlock();
+    }
+    tk_set_flg(g_flg_s5, S5_FLG_SIDE_REQ);
+}
+
+void s5_side_end(void)
+{
+    if (s5_lock())
+    {
+        g_side.armed   = false;
+        g_side.reading = (s5_side_reading_t){ 0 };
+        s5_unlock();
+    }
+    tk_set_flg(g_flg_s5, S5_FLG_SIDE_END);
+}
+
+int32_t s5_side_deg(void)
+{
+    int32_t deg = 0;
+
+    if (s5_lock())
+    {
+        deg = g_side.deg;
+        s5_unlock();
+    }
+    return deg;
+}
+
+void s5_side_arm(void)
+{
+    if (s5_lock())
+    {
+        g_side.armed = true;
+        s5_unlock();
+    }
+}
+
+void s5_side_publish(uint8_t status, uint16_t mm)
+{
+    if (s5_lock())
+    {
+        if (g_side.armed)
+        {
+            g_side.reading.seq++;
+            g_side.reading.status = status;
+            g_side.reading.mm     = mm;
+        }
+        s5_unlock();
+    }
+}
+
+bool s5_side_read(s5_side_reading_t * p_reading)
+{
+    bool b_armed = false;
+
+    *p_reading = (s5_side_reading_t){ 0 };
+    if (s5_lock())
+    {
+        b_armed   = g_side.armed;
+        *p_reading = g_side.reading;
+        s5_unlock();
+    }
+    return b_armed;
+}
+
 void s5_set_state(s5_state_t state)
 {
     if (s5_lock())

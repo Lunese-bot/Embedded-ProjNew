@@ -26,6 +26,8 @@ typedef enum
     STEP_DOUBLE_BLACK, /* both sensors see black at an angled rejoin probe */
     STEP_NO_LINE, /* a search finished without seeing tape */
     STEP_LINE_LOST, /* tape sighting lost during braking or alignment */
+    STEP_PASS_END, /* measured pass finished or fell back: stop the car */
+    STEP_PASS_BLOCKED, /* pass cannot continue safely (reason in g_pass_why) */
     STEP_FAILED,  /* controller reported failure     */
     STEP_TIMEOUT, /* no MOTION_DONE in time          */
     STEP_ABORT    /* ABORT / DISABLE received        */
@@ -34,6 +36,15 @@ typedef enum
 static uint16_t g_seq_next = 1;
 static int32_t  g_heading_deg; /* sum of completed turns since START */
 static const s5_step_t g_stop_step = { .m.kind = S5_MOVE_STOP };
+
+/* Measured pass: tracker state of the running pass leg (local debug data). */
+typedef struct
+{
+    s5_pass_t pass;
+    uint32_t  odo0_mm; /* odometer when the pass leg was requested */
+} pass_ctx_t;
+static pass_ctx_t      g_pass;
+static s5_pass_phase_t g_pass_why; /* final tracker phase of the last pass leg */
 
 #define S5_DEFAULT_SPEED_MM_S 100 /* used when a move gives no speed */
 #define S5_MS_PER_S           1000U
@@ -173,18 +184,57 @@ static void bench_fake_motion(const s5_step_t * p_step, uint16_t seq)
 }
 #endif
 
-/* Send one step and wait for it to finish. */
-static step_result_t run_motion(const s5_step_t * p_step)
+/* One poll of the measured pass.  Returns true when the leg must end
+   now; *p_result then says how. */
+static bool pass_poll(step_result_t * p_result)
+{
+#if !S5_SIDE_PASS
+    (void)p_result;
+    return false;
+#else
+    s5_side_reading_t reading;
+    int32_t           travel_mm;
+
+    (void)s5_side_read(&reading);
+    travel_mm = (int32_t)(s5_port_odo_mm() - g_pass.odo0_mm);
+    g_pass_why = s5_pass_update(&g_pass.pass, travel_mm, &reading);
+    switch (g_pass_why)
+    {
+        case S5_PASS_CLEARED:
+        case S5_PASS_FALLBACK:
+            *p_result = STEP_PASS_END;
+            return true;
+        case S5_PASS_CAP:
+        case S5_PASS_TOO_CLOSE:
+        case S5_PASS_SENSOR_FAULT:
+            *p_result = STEP_PASS_BLOCKED;
+            return true;
+        default:
+            return false;
+    }
+#endif
+}
+
+/* Send one step and wait for it to finish.  p_pass != NULL: also run the
+   measured-pass tracker every period and end the step early with
+   STEP_PASS_END / STEP_PASS_BLOCKED (the caller then stops the car). */
+static step_result_t run_motion_ex(const s5_step_t * p_step, bool b_pass)
 {
     s5_cmd_t      cmd;
     uint16_t      seq;
-    TMO           left = step_timeout_ms(&p_step->m);
+    s5_motion_req_t req = p_step->m;
+    TMO           left;
     TMO           slice;
     int32_t       len;
     bool          b_finished = false;
     step_result_t result     = STEP_TIMEOUT;
 
-    seq = send_motion(&p_step->m);
+    if (b_pass)
+    {
+        req.distance_mm = p_step->request_mm; /* the cap plus the longest clearing drive */
+    }
+    left = step_timeout_ms(&req);
+    seq = send_motion(&req);
 
 #if S5_BENCH_MODE
     bench_fake_motion(p_step, seq);
@@ -197,7 +247,7 @@ static step_result_t run_motion(const s5_step_t * p_step)
         TMO    waited;
 
         /* search steps poll the line sensors every period */
-        slice = (0U != p_step->search_line) ? S5_PERIOD_MS : left;
+        slice = ((0U != p_step->search_line) || b_pass) ? S5_PERIOD_MS : left;
         if (slice > left)
         {
             slice = left;
@@ -225,6 +275,10 @@ static step_result_t run_motion(const s5_step_t * p_step)
             result     = STEP_LINE;
             b_finished = true;
         }
+        else if (b_pass && pass_poll(&result))
+        {
+            b_finished = true;
+        }
         else
         {
             /* nothing yet: keep waiting */
@@ -233,12 +287,103 @@ static step_result_t run_motion(const s5_step_t * p_step)
     return result;
 }
 
+static step_result_t run_motion(const s5_step_t * p_step)
+{
+    return run_motion_ex(p_step, false);
+}
+
+/* The measured pass leg: look sideways while driving forward, end by
+   measurement, and always stop the car before anything else happens.
+   If the side look cannot start, drive the fixed-depth distance as before. */
+static step_result_t run_pass_step(const s5_step_t * p_step)
+{
+#if S5_SIDE_PASS
+    s5_geom_t         geom;
+    s5_side_reading_t reading;
+    step_result_t     result = STEP_DONE;
+    s5_step_t         fixed  = *p_step;
+    TMO               waited = 0;
+
+    fixed.side_track = 0U;
+    s5_geom_from_config(&geom);
+    s5_pass_init(&g_pass.pass, &geom, S5_SIDE_LOOK_DEG, p_step->m.distance_mm,
+                 p_step->cap_mm);
+    g_pass_why = S5_PASS_SEEKING;
+    s5_side_request(p_step->look_deg);
+    while ((STEP_DONE == result) && !s5_side_read(&reading))
+    {
+        s5_cmd_t cmd;
+
+        if (waited >= S5_SIDE_ARM_TMO_MS)
+        {
+            break;
+        }
+        if (tk_rcv_mbf(g_mbf_s5_cmd, &cmd, S5_PERIOD_MS) > 0)
+        {
+            result = busy_command(&cmd) ? STEP_ABORT : STEP_DONE;
+        }
+        waited += S5_PERIOD_MS;
+    }
+    if (STEP_DONE != result)
+    {
+        s5_side_end();
+        return result;
+    }
+    if (!s5_side_read(&reading))
+    {
+        s5_side_end();
+        tm_printf((uint8_t *)"s5: side look unavailable, depth assumed (fixed pass %d mm)\n",
+                  p_step->m.distance_mm);
+        return run_motion(&fixed);
+    }
+    g_pass.odo0_mm = s5_port_odo_mm();
+    result = run_motion_ex(p_step, true);
+    s5_side_end(); /* the servo returns to centre; never delays the stop */
+    if ((STEP_PASS_END == result) || (STEP_PASS_BLOCKED == result))
+    {
+        step_result_t stopped = run_motion(&g_stop_step);
+
+        if (STEP_DONE != stopped)
+        {
+            return stopped;
+        }
+        result = (STEP_PASS_END == result) ? STEP_DONE : STEP_PASS_BLOCKED;
+    }
+    else if (STEP_DONE == result)
+    {
+        /* the motion ended on its own: nothing was measured to the end */
+        g_pass_why = S5_PASS_FALLBACK;
+    }
+    if ((STEP_DONE == result) && (S5_PASS_CLEARED == g_pass_why))
+    {
+        tm_printf((uint8_t *)"s5: pass measured: first echo %d mm last echo %d mm span %d mm%s "
+                             "min gap %d mm, turn-in at %d mm\n",
+                  g_pass.pass.first_mm, g_pass.pass.last_mm, g_pass.pass.depth_mm,
+                  g_pass.pass.partial ? " (partial: already alongside)" : "",
+                  g_pass.pass.min_gap_mm, g_pass.pass.target_mm);
+    }
+    else if ((STEP_DONE == result) && (S5_PASS_FALLBACK == g_pass_why))
+    {
+        tm_printf((uint8_t *)"s5: no side echo, depth assumed (fixed pass %d mm, "
+                             "clearance not certified)\n",
+                  p_step->m.distance_mm);
+    }
+    return result;
+#else
+    return run_motion(p_step);
+#endif
+}
+
 /* Finish braking before acting on a sighting. The line can slip out from
    under the sensors while the wheels slow down. */
 static step_result_t run_step(const s5_step_t * p_step)
 {
     step_result_t result;
 
+    if (0U != p_step->side_track)
+    {
+        return run_pass_step(p_step);
+    }
     if ((0U != p_step->search_line) && s5_port_line_detected())
     {
         result = STEP_LINE;
@@ -556,6 +701,25 @@ static void report_result(step_result_t result)
         case STEP_LINE_LOST:
             tm_printf((uint8_t *)"s5: black line not confirmed after recovery, stopping\n");
             report(S5_EVT_AVOID_FAILED, S5_FAULT_LINE_NOT_FOUND);
+            break;
+        case STEP_PASS_BLOCKED:
+            /* The car is already stopped.  Existing codes only (no new
+               field or fault): BLOCKED = no safe way on, ECHO_TIMEOUT =
+               the side sensor failed. */
+            if (S5_PASS_SENSOR_FAULT == g_pass_why)
+            {
+                tm_printf((uint8_t *)"s5: side sensor failed during the pass, stopping\n");
+                report(S5_EVT_FAULT, S5_FAULT_ECHO_TIMEOUT);
+            }
+            else
+            {
+                tm_printf((uint8_t *)"s5: pass stopped, %s (min gap %d mm)\n",
+                          (S5_PASS_CAP == g_pass_why)
+                              ? "obstacle side never cleared before the length cap"
+                              : "gap to the obstacle below the guard",
+                          g_pass.pass.min_gap_mm);
+                report(S5_EVT_AVOID_FAILED, S5_FAULT_BLOCKED);
+            }
             break;
         case STEP_TIMEOUT:
             report(S5_EVT_FAULT, S5_FAULT_MOTION_TIMEOUT);
