@@ -27,6 +27,7 @@
 /* Robot telemetry / command bridge (app_program/subsystem1, Buddy 1).
  * Plain-C header: safe to include here. */
 #include "../../../../app_program/subsystem1/s1_bridge.h"
+#include "../../../../app_program/subsystem1/s1_stats.h"
 
 #define MQTT_UTK_HEARTBEAT_MS   5000
 #define MQTT_UTK_KEEPALIVE_S    60
@@ -40,7 +41,15 @@
  * heartbeat this demo publishes; anything longer is truncated and flagged
  * rather than being allowed to run off the end. */
 #define MQTT_UTK_RX_TOPIC_MAX   64
-#define MQTT_UTK_RX_DATA_MAX    128
+#define MQTT_UTK_RX_DATA_MAX    320	/* holds the longest heartbeat echo */
+
+/* Heartbeat text: "hb <count> " then the S1 delivery counters. */
+#define MQTT_UTK_HB_PREFIX_MAX  14	/* "hb 4294967295 " */
+#define MQTT_UTK_HB_MAX         (MQTT_UTK_HB_PREFIX_MAX + S1_STATS_TEXT_MAX)
+
+/* Compile-time checks (C89-safe): a negative array size fails the build. */
+typedef char mqtt_utk_hb_echo_fits[(MQTT_UTK_HB_MAX <= MQTT_UTK_RX_DATA_MAX) ? 1 : -1];
+typedef char mqtt_utk_hb_len_fits[(MQTT_UTK_HB_MAX <= 0xFFFF) ? 1 : -1];
 
 static mqtt_client_t	*client;
 static ip_addr_t	broker_addr;
@@ -126,20 +135,53 @@ static void publish_done_cb(void *arg, err_t result)
 	}
 }
 
+/* Completion of an S1 publish; arg is its s1_bridge_publish_tag(). */
+static void s1_publish_done_cb(void *arg, err_t result)
+{
+	s1_bridge_publish_done(arg, (int32_t)result);
+	publish_done_cb(NULL, result);
+}
+
+/* "hb <count> s1 tq=..." into payload[size]; bounded, returns length. */
+static int heartbeat_text(char *payload, int size, unsigned int count)
+{
+	char		digits[10];
+	int		n = 0, len = 0;
+
+	if(size < MQTT_UTK_HB_PREFIX_MAX + 1) {
+		return 0;
+	}
+	payload[len++] = 'h';
+	payload[len++] = 'b';
+	payload[len++] = ' ';
+	do {
+		digits[n++] = (char)('0' + (count % 10U));
+		count /= 10U;
+	} while(count != 0U && n < (int)sizeof(digits));
+	while(n > 0) {
+		payload[len++] = digits[--n];
+	}
+	payload[len++] = ' ';
+	len += (int)s1_bridge_format_counters(&payload[len], (int32_t)(size - len));
+	return len;
+}
+
 static void heartbeat_timeout(void *arg)
 {
 	static unsigned int	count = 0;
-	UB			payload[48];
+	static char		payload[MQTT_UTK_HB_MAX];
 	int			len;
+	err_t			err;
 
 	(void)arg;
 
 	if(mqtt_client_is_connected(client)) {
-		len = tm_sprintf(payload, (const UB*)"hb %u", count++);
+		len = heartbeat_text(payload, (int)sizeof(payload), count++);
 		tm_printf((UB*)"mqtt: TX [" MQTT_TOPIC "] \"%s\"\n", payload);
-		(void)mqtt_publish(client, MQTT_TOPIC, payload, (u16_t)len,
+		err = mqtt_publish(client, MQTT_TOPIC, payload, (u16_t)len,
 				   0 /* qos */, 0 /* retain */,
 				   publish_done_cb, NULL);
+		s1_bridge_heartbeat_result((int32_t)err);
 	}
 
 	/* Re-arms itself every call -- mqtt.c's connection callback (below)
@@ -155,6 +197,8 @@ static void telemetry_timeout(void *arg)
 	static char	topic[S1_BRIDGE_FULL_TOPIC_MAX];
 	static uint8_t	payload[S1_BRIDGE_LINE_MAX];
 	int		i, len;
+	void		*tag;
+	err_t		err;
 
 	(void)arg;
 
@@ -163,9 +207,12 @@ static void telemetry_timeout(void *arg)
 		if(len <= 0) {
 			break;
 		}
-		(void)mqtt_publish(client, topic, (const u8_t *)payload, (u16_t)len,
+		tag = s1_bridge_publish_tag(topic);
+		err = mqtt_publish(client, topic, (const u8_t *)payload, (u16_t)len,
 				   0 /* qos */, 0 /* retain */,
-				   publish_done_cb, NULL);
+				   s1_publish_done_cb, tag);
+		/* counters only: a refused message is still lost, as before */
+		s1_bridge_published(tag, (int32_t)err);
 	}
 	sys_timeout(MQTT_UTK_TELEMETRY_MS, telemetry_timeout, NULL);
 }
@@ -234,6 +281,8 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
 		 * into a tight reconnect loop. */
 		tm_printf((UB*)"mqtt: connection status %d, retrying in %ds\n",
 			  (int)status, MQTT_UTK_RETRY_MS / 1000);
+		/* one retry chain at most, however many failures arrive */
+		sys_untimeout(retry_timeout, NULL);
 		sys_timeout(MQTT_UTK_RETRY_MS, retry_timeout, NULL);
 	}
 }

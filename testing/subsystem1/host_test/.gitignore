@@ -1,0 +1,5 @@
+s1_host_test
+s1_capture_test
+s1_queue_test
+s1_mqtt_test
+*.exe

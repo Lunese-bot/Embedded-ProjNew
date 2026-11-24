@@ -30,6 +30,8 @@
 
 #include "../app.h"
 #include "s1_bridge.h"
+#include "s1_stats.h"
+#include "s1_lock.h"
 
 #define S1_PRI_TELEMETRY 12 /* priority band 12-13 (TEAM.md) */
 #define S1_PERIOD_MS     200
@@ -39,6 +41,9 @@
 /* Also print telemetry on the console every 5 x 200 ms = 1 s while MQTT
    is not connected (read by tools/dashboard.html). */
 #define S1_CONSOLE_EVERY 5
+/* Print the delivery counters (s1_stats.h) on the console every
+   25 x 200 ms = 5 s, connected or not. */
+#define S1_STATS_EVERY 25
 
 /* IF-T1: queue one MQTT message. The payload may contain any byte value.
    topic is the suffix after S1_TOPIC_ROOT (for example "t", "ack", "fault").
@@ -56,11 +61,17 @@ typedef struct
 
 extern ER s1_get_status(comms_status_t * p_status);
 
+/* Coherent copy of the delivery counters (s1_stats.h).  E_OK, or E_TMOUT
+   when the S1 lock was busy (*p_stats is then left unchanged). */
+extern ER s1_get_stats(S1_STATS * p_stats);
+
 /* ---- private to subsystem 1 ---------------------------------------- */
 extern ID             g_tid_telemetry;
 extern ID             g_mbf_telemetry;
 extern comms_status_t g_s1_stat; /* counters, single-word updates */
+extern S1_STATS       g_s1_stats; /* delivery counters, under s1_lock() */
 extern void           telemetry_task(int32_t stacd, void * p_exinf);
+extern int32_t        s1_line_kind(const uint8_t * p_line, int32_t len);
 
 #if APP_TEST
 extern ID g_mbf_s1_test;

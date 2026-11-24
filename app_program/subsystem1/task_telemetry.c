@@ -25,6 +25,9 @@
 
 #define S1_UM_PER_MM 1000
 
+/* static: keeps the 2 KB task stack free for tm_printf */
+static char s_stats_line[S1_STATS_TEXT_MAX];
+
 void telemetry_task(int32_t stacd, void * p_exinf)
 {
     vc_status_t      vc_st;
@@ -108,6 +111,14 @@ void telemetry_task(int32_t stacd, void * p_exinf)
         if ((!g_s1_stat.mqtt_up) && (0 == (tick % S1_CONSOLE_EVERY)))
         {
             tm_printf((uint8_t *)"%s\n", buf);
+        }
+
+        /* Delivery counters every 5 s, connected or not (s1_stats.h). */
+        if (0 == (tick % S1_STATS_EVERY))
+        {
+            (void)s1_bridge_format_counters(s_stats_line,
+                                            (int32_t)sizeof(s_stats_line));
+            tm_printf((uint8_t *)"%s\n", s_stats_line);
         }
     }
 }
