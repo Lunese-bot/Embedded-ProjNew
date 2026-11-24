@@ -1,5 +1,5 @@
 SRC = ../../../app_program/subsystem5
-test: test_s5_pack test_navigation test_side_pass test_side_task test_side_pass_cfg test_side_task_cfg test_obstacle_report test_obstacle_report_off
+test: test_s5_pack test_navigation test_side_pass test_side_task test_side_pass_cfg test_side_task_cfg test_obstacle_report test_obstacle_report_off test_scan_diag
 	sh ./check_no_new_binaries.sh
 	./test_s5_pack
 	./test_navigation
@@ -12,6 +12,7 @@ test: test_s5_pack test_navigation test_side_pass test_side_task test_side_pass_
 	./test_obstacle_report_off trace > obstacle_trace_off.txt
 	cmp obstacle_trace_on.txt obstacle_trace_off.txt && echo "[TEST] S5-R08 PASS  bypass motion identical with and without the length observation"
 	rm -f obstacle_trace_on.txt obstacle_trace_off.txt
+	./test_scan_diag
 test_side_pass: test_side_pass.c $(wildcard $(SRC)/*.c $(SRC)/*.h)
 	$(CC) -std=c11 -Wall -Wextra -Werror -O1 -o $@ test_side_pass.c
 test_side_task: test_side_task.c $(wildcard $(SRC)/*.c $(SRC)/*.h)
@@ -28,5 +29,7 @@ test_obstacle_report: test_obstacle_report.c $(wildcard $(SRC)/*.c $(SRC)/*.h)
 	$(CC) -std=c11 -Wall -Wextra -Werror -O1 -DS5_LENGTH_OBSERVE=1 -o $@ test_obstacle_report.c
 test_obstacle_report_off: test_obstacle_report.c $(wildcard $(SRC)/*.c $(SRC)/*.h)
 	$(CC) -std=c11 -Wall -Wextra -Werror -O1 -DS5_LENGTH_OBSERVE=0 -o $@ test_obstacle_report.c
+test_scan_diag: test_scan_diag.c $(wildcard $(SRC)/*.c $(SRC)/*.h)
+	$(CC) -std=c11 -Wall -Wextra -Werror -O1 -o $@ test_scan_diag.c
 clean:
-	rm -f test_s5_pack test_navigation test_side_pass test_side_task test_side_pass_cfg test_side_task_cfg test_obstacle_report test_obstacle_report_off obstacle_trace_on.txt obstacle_trace_off.txt
+	rm -f test_s5_pack test_navigation test_side_pass test_side_task test_side_pass_cfg test_side_task_cfg test_obstacle_report test_obstacle_report_off test_scan_diag obstacle_trace_on.txt obstacle_trace_off.txt

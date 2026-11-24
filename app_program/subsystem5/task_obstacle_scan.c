@@ -17,6 +17,7 @@
 #include "s5_local.h"
 #include "drv_ultrasonic.h"
 #include "drv_servo.h"
+#include "s5_scan_diag.h"
 
 #define SCAN_MAX_SAMPLES 40
 #define SCAN_READS       3 /* median of 3 per angle */
@@ -68,24 +69,54 @@ static void point_and_wait(int32_t deg)
     tk_dly_tsk((steps <= 1) ? S5_SERVO_SETTLE_SHORT_MS : S5_SERVO_SETTLE_MS);
 }
 
-/* Sweep the given angles, one median reading each. */
-static int32_t sweep(const int8_t * p_deg, int32_t count, s5_sample_t * p_out)
+/* Evidence behind the last scan, printed as the "s5d:" record once the
+   profile has been handed over (S5_SCAN_DIAG).  Only the scan task
+   touches it. */
+typedef struct
+{
+    uint32_t     id;        /* scans since power-up, 1 = first        */
+    int32_t      dur_ms;    /* SCAN_REQ taken -> profile ready         */
+    uint8_t      fallback;  /* 1 = fine scan lost it, coarse profile used */
+    int32_t      n_coarse;
+    int32_t      n_fine;
+    int32_t      n;         /* trips behind the final profile          */
+    s5_trip_t    trips[SCAN_MAX_SAMPLES];
+    s5_profile_t prof;      /* the profile handed over                 */
+} scan_diag_t;
+
+static scan_diag_t g_diag;
+static s5_trip_t   g_ctrip[SCAN_MAX_SAMPLES];
+static s5_trip_t   g_ftrip[SCAN_MAX_SAMPLES];
+
+/* Sweep the given angles, one median reading each.  The pings behind
+   each median are kept in p_trip (no extra readings are taken). */
+static int32_t sweep(const int8_t * p_deg, int32_t count, s5_sample_t * p_out,
+                     s5_trip_t * p_trip, s5_src_t src)
 {
     int32_t  idx;
     uint16_t dist_mm;
+    uint16_t raw[S5_TRIP_READS];
 
     for (idx = 0; idx < count; idx++)
     {
         point_and_wait(p_deg[idx]);
-        dist_mm = us_read_median_mm(SCAN_READS, SCAN_READ_GAP_MS);
+        dist_mm = us_read_raw_mm(SCAN_READS, SCAN_READ_GAP_MS, raw);
         s5_note_ping(dist_mm);
         g_silent_in_scan =
             (US_NO_ECHO == dist_mm) ? (g_silent_in_scan + 1U) : 0U;
         p_out[idx].deg = p_deg[idx];
         p_out[idx].mm  = dist_mm;
+        p_trip[idx].deg    = p_deg[idx];
+        p_trip[idx].src    = (uint8_t)src;
+        p_trip[idx].raw[0] = raw[0];
+        p_trip[idx].raw[1] = raw[1];
+        p_trip[idx].raw[2] = raw[2];
+        p_trip[idx].used   = dist_mm;
     }
     return count;
 }
+
+_Static_assert(SCAN_READS == S5_TRIP_READS, "a trip holds every ping of one angle");
 
 static void print_profile(const char * p_tag, const s5_profile_t * p_profile)
 {
@@ -111,12 +142,22 @@ static void do_scan(void)
     int32_t      coarse_count;
     s5_evt_t     evt = { 0 };
 
+    SYSTIM       t_start;
+    SYSTIM       t_end;
+
+    tk_get_tim(&t_start);
     g_silent_in_scan = 0;
+    g_diag.id++;
+    g_diag.fallback = 0U;
+    g_diag.n_fine   = 0;
 
     /* 1. coarse */
     s5_set_state(S5_ST_COARSE_SCAN);
     count = s5_coarse_angles(ang, SCAN_MAX_SAMPLES);
-    coarse_count = sweep(ang, count, csmp);
+    coarse_count = sweep(ang, count, csmp, g_ctrip, S5_SRC_COARSE);
+    g_diag.n_coarse = coarse_count;
+    g_diag.n        = s5_merge_trips(g_ctrip, coarse_count, NULL, 0,
+                                     g_diag.trips, SCAN_MAX_SAMPLES);
     if (!s5_build_profile(csmp, coarse_count, &prof))
     {
         tm_printf((uint8_t *)"s5: coarse scan found nothing\n");
@@ -129,17 +170,22 @@ static void do_scan(void)
         /* 2. fine, around the edges seen by the coarse scan */
         s5_set_state(S5_ST_FINE_SCAN);
         count = s5_fine_angles(&prof, ang, SCAN_MAX_SAMPLES);
-        count = sweep(ang, count, smp);
+        count = sweep(ang, count, smp, g_ftrip, S5_SRC_FINE);
+        g_diag.n_fine = count;
         count = s5_merge_samples(csmp, coarse_count, smp, count, merged, SCAN_MAX_SAMPLES);
         if (s5_build_profile(merged, count, &prof))
         {
             print_profile("fine", &prof);
+            g_diag.n = s5_merge_trips(g_ctrip, coarse_count, g_ftrip,
+                                      g_diag.n_fine, g_diag.trips,
+                                      SCAN_MAX_SAMPLES);
         }
         else
         {
             /* moved away or a bad read: keep the coarse profile */
             tm_printf((uint8_t *)"s5: fine scan lost it, using coarse\n");
             prof = coarse;
+            g_diag.fallback = 1U;
         }
     }
 
@@ -153,7 +199,66 @@ static void do_scan(void)
 
     point_and_wait(0);
     s5_store_profile(&prof);
+    g_diag.prof = prof;
+    tk_get_tim(&t_end);
+    g_diag.dur_ms = (int32_t)(t_end.lo - t_start.lo);
 }
+
+#if S5_SCAN_DIAG
+/* Median range used at an edge angle of the final profile, 0 if absent */
+static int32_t edge_range(int32_t deg)
+{
+    int32_t idx;
+
+    for (idx = 0; idx < g_diag.n; idx++)
+    {
+        if ((int32_t)g_diag.trips[idx].deg == deg)
+        {
+            return (int32_t)g_diag.trips[idx].used;
+        }
+    }
+    return 0;
+}
+
+/* The "s5d:" record of the last scan (format: s5_scan_diag.h and
+   testing/subsystem5/host_test/s5_replay.c, which reads it back).
+   Called after the profile has been handed over, so printing never
+   delays the scan or the bypass decision. */
+static void print_diag(void)
+{
+    static char line[(8 * 26) + 1];
+    const s5_profile_t * p = &g_diag.prof;
+    int32_t first;
+    int32_t lines = (g_diag.n + 7) / 8;
+    int32_t lat   = 0;
+
+    tm_printf((uint8_t *)"s5d: #%d scan dur=%dms fb=%d coarse=%d fine=%d n=%d\n",
+              (int32_t)g_diag.id, g_diag.dur_ms, (int32_t)g_diag.fallback,
+              g_diag.n_coarse, g_diag.n_fine, g_diag.n);
+    for (first = 0; first < g_diag.n; first += 8)
+    {
+        (void)s5_format_trips(line, (int32_t)sizeof(line), g_diag.trips, first,
+                              ((g_diag.n - first) > 8) ? 8 : (g_diag.n - first));
+        tm_printf((uint8_t *)"s5d: #%d p %d/%d:%s\n", (int32_t)g_diag.id,
+                  (first / 8) + 1, lines, line);
+    }
+    if (0U == p->valid)
+    {
+        tm_printf((uint8_t *)"s5d: #%d raw none\n", (int32_t)g_diag.id);
+        return;
+    }
+    if (S5_SIDE_NONE != (s5_side_t)p->bypass_side)
+    {
+        lat = s5_lateral_needed_mm(p, (s5_side_t)p->bypass_side);
+    }
+    tm_printf((uint8_t *)"s5d: #%d raw d=%d R%d:%d L%d:%d rmm=%d lmm=%d w=%d side=%d lat=%d\n",
+              (int32_t)g_diag.id, (int32_t)p->distance_mm,
+              (int32_t)p->right_edge_deg, edge_range(p->right_edge_deg),
+              (int32_t)p->left_edge_deg, edge_range(p->left_edge_deg),
+              (int32_t)p->right_mm, (int32_t)p->left_mm, (int32_t)p->width_mm,
+              (int32_t)p->bypass_side, lat);
+}
+#endif
 
 #if S5_SIDE_PASS || S5_LENGTH_OBSERVE
 /* The side-look angle must be one the servo is allowed to reach. */
@@ -345,6 +450,9 @@ void s5_scan_task(int32_t stacd, void * p_exinf)
         {
             do_scan();
             tk_set_flg(g_flg_s5, S5_FLG_PROFILE);
+#if S5_SCAN_DIAG
+            print_diag(); /* after the hand-over: never delays the bypass */
+#endif
             mode = MODE_HOLD;
         }
         else if (E_OK == tk_wai_flg(g_flg_s5, S5_FLG_SIDE_REQ,

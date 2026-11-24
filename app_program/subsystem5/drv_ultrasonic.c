@@ -13,6 +13,7 @@
  */
 
 #include "drv_ultrasonic.h"
+#include "s5_scan_diag.h" /* s5_median_nonzero */
 
 #define TRIG_PULSE_US     10
 #define ECHO_START_TMO_US 3000   /* sensor raises ECHO within ~0.5 ms */
@@ -96,14 +97,10 @@ uint16_t us_read_mm(void)
     return (uint16_t)width;
 }
 
-uint16_t us_read_median_mm(int32_t samples, int32_t gap_ms)
+uint16_t us_read_raw_mm(int32_t samples, int32_t gap_ms, uint16_t * p_raw)
 {
     uint16_t vals[5];
-    int32_t  got = 0;
     int32_t  idx;
-    int32_t  jdx;
-    uint16_t reading;
-    uint16_t tmp;
 
     if (samples < 1)
     {
@@ -115,31 +112,22 @@ uint16_t us_read_median_mm(int32_t samples, int32_t gap_ms)
     }
     for (idx = 0; idx < samples; idx++)
     {
-        reading = us_read_mm();
-        if (reading != US_NO_ECHO)
+        vals[idx] = us_read_mm();
+        if (NULL != p_raw)
         {
-            vals[got++] = reading;
+            p_raw[idx] = vals[idx];
         }
         if (((idx + 1) < samples) && (gap_ms > 0))
         {
             tk_dly_tsk(gap_ms);
         }
     }
-    if (0 == got)
-    {
-        return US_NO_ECHO;
-    }
-    /* insertion sort, at most 5 items */
-    for (idx = 1; idx < got; idx++)
-    {
-        tmp = vals[idx];
-        for (jdx = idx - 1; (jdx >= 0) && (vals[jdx] > tmp); jdx--)
-        {
-            vals[jdx + 1] = vals[jdx];
-        }
-        vals[jdx + 1] = tmp;
-    }
-    return vals[got / 2];
+    return s5_median_nonzero(vals, samples);
+}
+
+uint16_t us_read_median_mm(int32_t samples, int32_t gap_ms)
+{
+    return us_read_raw_mm(samples, gap_ms, NULL);
 }
 
 /*** end of file ***/

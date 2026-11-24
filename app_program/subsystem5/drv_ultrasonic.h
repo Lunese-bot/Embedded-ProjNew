@@ -28,6 +28,12 @@ extern uint16_t us_read_mm(void);
    Returns US_NO_ECHO when every reading was missing. */
 extern uint16_t us_read_median_mm(int32_t samples, int32_t gap_ms);
 
+/* The same n (1..5) readings as us_read_median_mm, same timing, each one
+   kept in p_raw[0..n-1] (US_NO_ECHO = missing).  Returns their median
+   (s5_median_nonzero, the rule us_read_median_mm uses). */
+extern uint16_t us_read_raw_mm(int32_t samples, int32_t gap_ms,
+                               uint16_t * p_raw);
+
 /* Free-running 1 MHz hardware timer (RP2040 TIMER), microseconds. */
 extern uint32_t us_now_us(void);
 
