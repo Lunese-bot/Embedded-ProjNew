@@ -11,6 +11,7 @@
 #include "../../../lib/liblwip/sysdepend/pico_rp2040/mqtt_utk.c"
 #include "s1_host_kernel.h" /* before subsystem1.h: replaces the kernel */
 #include "../../../app_program/subsystem1/subsystem1.h"
+#include "../../../app_program/vehicle_controller/vc_barcode_map.h"
 
 extern uint32_t s1_lock_host_fail;
 
@@ -46,6 +47,7 @@ typedef struct
     mqtt_request_cb_t cb;
     void *            arg;
     err_t             result;
+    u8_t              retain;
 } fake_pub_t;
 
 static struct mqtt_client_s    g_fake_client;
@@ -55,6 +57,7 @@ static err_t                   g_pub_results[FAKE_RESULTS_MAX];
 static int32_t                 g_pub_results_count;
 static int32_t                 g_connect_calls;
 static int32_t                 g_subscribes;
+static char                    g_sub_topics[8][48];
 
 typedef struct
 {
@@ -102,10 +105,13 @@ err_t mqtt_subscribe(mqtt_client_t * c, const char * topic, u8_t qos,
                      mqtt_request_cb_t cb, void * arg)
 {
     (void)c;
-    (void)topic;
     (void)qos;
     (void)cb;
     (void)arg;
+    if (g_subscribes < 8)
+    {
+        snprintf(g_sub_topics[g_subscribes], sizeof(g_sub_topics[0]), "%s", topic);
+    }
     g_subscribes++;
     return ERR_OK;
 }
@@ -120,7 +126,6 @@ err_t mqtt_publish(mqtt_client_t * c, const char * topic, const void * payload,
 
     (void)c;
     (void)qos;
-    (void)retain;
     if (s1_lock_host_depth != 0)
     {
         g_failed++;
@@ -137,6 +142,7 @@ err_t mqtt_publish(mqtt_client_t * c, const char * topic, const void * payload,
     {
         p_pub = &g_pub[g_pub_count++];
         snprintf(p_pub->topic, sizeof(p_pub->topic), "%s", topic);
+        p_pub->retain = retain;
         p_pub->len = len;
         memcpy(p_pub->payload, payload,
                (len < sizeof(p_pub->payload)) ? len : sizeof(p_pub->payload));
@@ -432,7 +438,7 @@ static void test_lwip_limits(void)
           "S1's PUBLISH size matches lwIP's ring check; longest S1 is 206 B");
     CHECK("S1-M15", (MQTT_REQ_MAX_IN_FLIGHT == 16) &&
           (MQTT_OUTPUT_RINGBUF_SIZE == 1024) &&
-          (MQTT_REQ_MAX_IN_FLIGHT >= S1_TLM_INFLIGHT_MAX + 4) &&
+          (MQTT_REQ_MAX_IN_FLIGHT >= S1_TLM_INFLIGHT_MAX + 5) &&
           (MQTT_OUTPUT_RINGBUF_SIZE > 2 * S1_BRIDGE_PUBLISH_MAX),
           "lwipopts.h: 16 request slots and a 1024-byte ring, as checked");
 
@@ -454,12 +460,43 @@ static void test_lwip_limits(void)
           "with one byte to spare the same frame is published");
 }
 
+
+/* barcode map protocol: subscribed at connect, routed to S1, answered */
+static void test_config_topic(void)
+{
+    static const u8_t read_req[4] = { 0xC1, 0x01, 0x12, 0x34 };
+    bool b_sub = false;
+    int32_t idx;
+
+    reset_all();
+    vc_bcmap_init(NULL);
+    broker_up();
+    for (idx = 0; (idx < g_subscribes) && (idx < 8); idx++)
+    {
+        b_sub = b_sub || (strcmp(g_sub_topics[idx], "robot/g10/cfg") == 0);
+    }
+    CHECK("S1-M20", b_sub && (g_subscribes == 3),
+          "connect subscribes heartbeat, robot/g10/cmd and robot/g10/cfg");
+
+    g_pub_count = 0;
+    incoming_publish_cb(NULL, "robot/g10/cfg", 4);
+    incoming_data_cb(NULL, read_req, 4, MQTT_DATA_FLAG_LAST);
+    fire(telemetry_timeout);
+    CHECK("S1-M21", (g_pub_count >= 1) &&
+          (strcmp(g_pub[0].topic, "robot/g10/cfgr") == 0) &&
+          (g_pub[0].len == 15) && (g_pub[0].payload[0] == 0xC1) &&
+          (g_pub[0].payload[1] == 0x81) && (g_pub[0].payload[2] == 0x12) &&
+          (g_pub[0].payload[3] == 0x34) && (g_pub[0].retain == 0),
+          "a READ on robot/g10/cfg is answered on robot/g10/cfgr, not retained");
+}
+
 int main(void)
 {
     test_timer_chains();
     test_heartbeat_bounds();
     test_counters();
     test_lwip_limits();
+    test_config_topic();
     printf("[TEST] subsystem1 mqtt_utk host SUMMARY %d passed, %d failed\n",
            (int)g_passed, (int)g_failed);
     return (g_failed == 0) ? 0 : 1;

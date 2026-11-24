@@ -12,6 +12,8 @@
 #include "../../../app_program/subsystem1/subsystem1.h"
 #include "../../../app_program/subsystem1/s1_codec.h"
 #include "../../../app_program/subsystem4/imu_terrain.h"
+#include "../../../app_program/subsystem1/s1_cfg.h"
+#include "../../../app_program/vehicle_controller/vc_barcode_map.h"
 
 extern int32_t  s1_lock_host_refuse;
 extern uint32_t s1_lock_host_fail;
@@ -595,6 +597,79 @@ static void test_eviction_counts(void)
     }
 }
 
+
+/* robot/g10/cfg -> robot/g10/cfgr through the real S1 bridge and queue */
+static int32_t cfg_reply(uint8_t out[S1_CFG_REPLY_LEN])
+{
+    int32_t start = g_pub_count;
+
+    (void)s1_bridge_service(stub_publish, 1);
+    if ((g_pub_count != start + 1) || !pub_is(start, S1_TOPIC_CFG_REPLY) ||
+        (g_pub[start].len != S1_CFG_REPLY_LEN))
+    {
+        return 0;
+    }
+    memcpy(out, g_pub[start].payload, S1_CFG_REPLY_LEN);
+    return 1;
+}
+
+static void test_config(void)
+{
+    static const uint8_t factory[7] = { 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x20 };
+    uint8_t msg[S1_CFG_WRITE_LEN];
+    uint8_t rep[S1_CFG_REPLY_LEN];
+    int32_t calls;
+
+    reset_policy(1);
+    vc_bcmap_init(NULL); /* factory map, RAM only */
+    calls = host_vc_calls;
+    (void)s1_cfg_encode_read(0x1234u, msg);
+    s1_bridge_on_config(msg, S1_CFG_READ_LEN);
+    CHECK("S1-G01", cfg_reply(rep) && (rep[0] == 0xC1) && (rep[1] == 0x81) &&
+          (rep[2] == 0x12) && (rep[3] == 0x34) && (rep[4] == VC_BCMAP_OK) &&
+          (memcmp(&rep[8], factory, 7) == 0) && (host_vc_calls == calls),
+          "READ is answered at once on robot/g10/cfgr with the id and the active map");
+
+    reset_policy(1);
+    calls = host_vc_calls;
+    msg[0] = 0xC2;
+    s1_bridge_on_config(msg, S1_CFG_READ_LEN);
+    s1_bridge_on_config(msg, -1); /* truncated */
+    CHECK("S1-G02", cfg_reply(rep) && (rep[4] == VC_BCMAP_REJ_MALFORMED) &&
+          (rep[1] == 0x80) && cfg_reply(rep) && (rep[4] == VC_BCMAP_REJ_MALFORMED) &&
+          (host_vc_calls == calls),
+          "malformed or truncated request: MALFORMED reply, nothing reaches the VC");
+
+    reset_policy(1);
+    (void)s1_cfg_encode_write(0x0202u, 0u, factory, msg);
+    calls = host_vc_calls;
+    s1_bridge_on_config(msg, S1_CFG_WRITE_LEN);
+    (void)s1_bridge_service(stub_publish, 4);
+    CHECK("S1-G03", (host_vc_calls == calls + 1) && (g_pub_count == 0),
+          "WRITE goes to the Vehicle Controller (one event); no reply until it is applied");
+
+    s1_bridge_on_config(msg, S1_CFG_WRITE_LEN);
+    CHECK("S1-G04", cfg_reply(rep) && (rep[4] == VC_BCMAP_BUSY) &&
+          (rep[2] == 0x02) && (host_vc_calls == calls + 1),
+          "a second WRITE while one is pending: BUSY, not queued");
+    vc_bcmap_cancel_write();
+
+    reset_policy(1);
+    host_vc_result = E_TMOUT;
+    s1_bridge_on_config(msg, S1_CFG_WRITE_LEN);
+    host_vc_result = E_OK;
+    CHECK("S1-G05", cfg_reply(rep) && (rep[4] == VC_BCMAP_BUSY) &&
+          vc_bcmap_post_write(1u, 0u, factory),
+          "VC queue full: BUSY reply and the pending slot is released");
+    vc_bcmap_cancel_write();
+
+    reset_policy(1);
+    s1_bridge_config_reply(S1_CFG_OP_WRITE, 0x0303u, VC_BCMAP_REJ_ACTIVE);
+    CHECK("S1-G06", cfg_reply(rep) && (rep[1] == 0x82) && (rep[2] == 0x03) &&
+          (rep[3] == 0x03) && (rep[4] == VC_BCMAP_REJ_ACTIVE),
+          "the VC's answer is published with the request id and result");
+}
+
 int main(void)
 {
     test_kinds();
@@ -607,6 +682,7 @@ int main(void)
     test_offline();
     test_claimed_interleave();
     test_lock_busy();
+    test_config();
     printf("[TEST] subsystem1 queue host SUMMARY %d passed, %d failed\n",
            (int)g_passed, (int)g_failed);
     return (g_failed == 0) ? 0 : 1;
