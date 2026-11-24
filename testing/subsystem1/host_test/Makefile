@@ -6,6 +6,11 @@ run: s1_host_test s1_capture_test s1_queue_test s1_mqtt_test
 	./s1_capture_test
 	./s1_queue_test
 	./s1_mqtt_test
+	@if command -v python3 >/dev/null 2>&1; then \
+	    python3 s1_seqcheck.py --selftest; \
+	else \
+	    echo "[TEST] subsystem1 seqcheck SKIPPED (python3 not found; not a pass)"; \
+	fi
 
 s1_host_test: test_codec.c $(SRC)/s1_codec.c $(SRC)/s1_codec.h
 	$(CC) $(CFLAGS) -o $@ test_codec.c $(SRC)/s1_codec.c
