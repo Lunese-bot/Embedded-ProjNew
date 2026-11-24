@@ -15,6 +15,8 @@ Define a test here before running it. Test IDs never change.
 | S1-U03 | reserved binary command is counted and rejected | IF-T2 | auto | `subsystem1_test.c` | `[TEST] S1-U03 PASS` |
 | S1-H16 | Pause / Resume command bridge and feature gate | IF-T2 | auto (PC) | Build `test_capture.c` with `S1_ENABLE_REMOTE_PAUSE` set to 1 and 0 | Enabled commands reach VC and receive accepted, rejected, or busy acknowledgements; disabled commands are rejected |
 | S1-H17..H18 | Compact barcode event encoding | IF-T1 | auto (PC) | Run `test_codec.c` | Known vectors and valid Code 39 characters encode; invalid readings are rejected |
+| S1-D01..D34 | Dashboard logic against firmware sources | IF-T1, IF-T2 | auto (PC) | `make -C testing/subsystem1/dashboard_test run` (C compiler + Node 18) | Golden C frames decode in JS, every firmware fault code is named, theme contrast holds, loss/storage/ack/outcome/CSV rules hold |
+| S1-M09 | Dashboard operator check on the robot | IF-T1, IF-T2 | manual | Owner runbook for the S1 dashboard: power-cycle, freshness, Start ack + state, lift ends run, Reset/Start, reload mid-run, save log and CSV | One reconnect after reload and no replayed command; outcome, history and exports correct |
 | S1-M01 | binary telemetry reaches the broker | NFR2 | manual | 1. Build with `NET=lwip MQTT=1` and local `config/wifi_secrets.h`. 2. `mosquitto_sub -t "robot/g10/#" -F "%t %x"` | 14-byte hex payload on `robot/g10/t` every 200 ms |
 | S1-M02 | binary start / stop / reset reaches the Vehicle Controller | IF-T2 | manual | Publish one byte to `robot/g10/cmd`; top bits `00` start, `01` stop, `10` reset; low six bits sequence | One-byte ack appears on `robot/g10/ack`; VC state confirms whether event executes |
 | S1-M03 | invalid command frame is rejected and valid command ack echoes its sequence | IF-T2 | manual | Publish `C1` (reserved, sequence 1) and `01` (start, sequence 1) | Ack `81` for rejection and `01` for queued start |
@@ -47,6 +49,7 @@ Add a new row for every run. Never edit or delete old rows.
 | 2026-11-22 | S1-U01..U03 | Uncommitted changes | User | PASS 4/4 | `robot-log-2026-11-22T11-20-17-871Z.txt` | Target run with the bounded backlog-drain fix |
 | 2026-11-22 | S1-H16 | Uncommitted changes | Copilot | PASS | Host capture regression with Pause/Resume enabled and disabled | Simulated VC queue and acknowledgements; no hardware tested |
 | 2026-11-22 | S1-H17..H18 | Uncommitted changes | Copilot | PASS | Host GCC codec run | Browser checked with mock MQTT and console log replay; no robot barcode test |
+| 2026-11-24 | S1-D01..D34 | s1/dashboard (local, not pushed; patches/s1-dashboard) | Claude | PASS | `make -C testing/subsystem1/dashboard_test run`: 34 passed, 0 failed | Host and headless Chromium only; local Mosquitto broker with C-encoded frames; no robot |
 
 The captured test buffer is independent of MQTT, so these checks do not prove
 broker delivery or measure the telemetry interval.

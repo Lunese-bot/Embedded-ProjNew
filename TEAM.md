@@ -241,6 +241,42 @@ The configured telemetry period is 200 ms, but its hardware timing and stale
 queue handling on reconnect still need validation; old queued snapshots can
 currently be replayed after reconnect.
 
+### Operator dashboard (`tools/dashboard.html`)
+
+One HTML file opened from disk; MQTT.js 5.10.1 is its only library. What
+each source can tell the operator:
+
+| Source | Gives | Freshness | Not available |
+|---|---|---|---|
+| MQTT `robot/g10/t` | state, paused, speeds, distance, line, obstacle, nav, barcode count, pitch, hump, last fault code, WiFi; 8-bit sequence | 200 ms, stale after 1 s | IMU latch, scan direction, executed turn |
+| MQTT `fault`, `barcode`, `ack`, `cmd` | fault source/severity/code, decoded text, command results, commands from any client | as sent | barcode direction (text only) |
+| MQTT heartbeat (`MQTT_TOPIC`, default `robot/g10/heartbeat`; the example secrets use `mtk3smp-pico/heartbeat`, so the page also subscribes to `+/heartbeat`) | `hb N` and, from the delivery-counter build on, the S1 counters | 5 s | older builds: counters |
+| USB console (read-only) | console lines, `[TEST]` results, `vc: A -> B`, `vc: fault from`, `vc: barcode`, JSON once a second while MQTT is down | 1 s, stale after 2 s | sequence (cannot count MQTT loss), fault, paused |
+| Saved history (`localStorage` `robot.dash.v1`) | newest 300 events, 200 barcode reads, 100 faults, last state and run outcome, at most 300 kB, written every 2 s | shown as "restored, not live" | anything live |
+
+Commands use MQTT only. The page derives button availability from the
+controller's guards (`vc_sm.c`): Start in Idle or Mission complete, Reset
+outside a run, Pause only in FOLLOW_LINE, Resume only when paused; Stop stays
+available whenever MQTT is connected. Each command is tracked by its 6-bit
+sequence (0 is never used: the robot echoes 0 for an unreadable command);
+an ack is shown separately from the state change that confirms it.
+Browser-observed loss counts sequence gaps over 60 s and never counts a gap
+after more than 5 s of silence, a sequence restart, or a jump that could not
+fit in the elapsed time.
+
+**IMU lift/tilt latch is not on the wire.** All 112 bits of the version-1
+frame are used (3+8+4+8+8+16+8+7+1+4+3+4+8+6+6+16+1+1 in `s1_codec.c`), so
+`g_s2_imu_stop` cannot be added without a new version. The dashboard shows
+"Latch status unavailable" and never infers the latch from tilt, state or a
+missing field. Proposed, awaiting the owner: append ` il=0|1`
+(`g_s2_imu_stop`) to the heartbeat counters line. It is optional for old
+decoders, costs 5 bytes, and updates every 5 s; the dashboard already reads
+it and blocks Start while a fresh (under 6.5 s) heartbeat reports `il=1`.
+
+Checks: `make -C testing/subsystem1/dashboard_test run` (also run by the S1
+`host_test` `make run`). They load the page's own logic block and compare it
+with `s1_codec.c`, the fault codes in the firmware, and the theme contrast.
+
 ### Obstacle avoidance and junctions
 
 The obstacle-avoidance configuration enables obstacle checking and defaults
