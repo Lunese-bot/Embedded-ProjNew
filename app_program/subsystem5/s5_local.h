@@ -22,6 +22,19 @@
 #endif
 #define S5_BENCH_MOVE_MS 500
 
+/* Side-visibility probe (S5 step 1).  1 = at power-up the scan task does
+   NOT monitor: it points the sensor at each side angle the servo allows
+   (never beyond SERVO_MAX_DEG), takes S5_PROBE_READS raw readings per
+   angle, prints them, and repeats.  Use it with the robot parked beside
+   the obstacle at the real passing gap, then again with the obstacle
+   removed.  Build with -DS5_SIDE_PROBE=1; the normal build is 0. */
+#ifndef S5_SIDE_PROBE
+#define S5_SIDE_PROBE 0
+#endif
+#define S5_PROBE_READS   10
+#define S5_PROBE_GAP_MS  30   /* between two readings (echo has died away) */
+#define S5_PROBE_REST_MS 3000 /* pause between two full rounds             */
+
 /* Monitor straight ahead from power-up (else wait for S5_CMD_ENABLE) */
 #define S5_ENABLE_AT_START 1
 

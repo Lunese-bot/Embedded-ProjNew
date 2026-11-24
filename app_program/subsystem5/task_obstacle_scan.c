@@ -221,6 +221,57 @@ static scan_mode_t monitor_step(int32_t * p_near_count)
     return mode;
 }
 
+#if S5_SIDE_PROBE
+/* Angles tried on each side, nearest to the forward axis first.  The
+   probe never asks for more than SERVO_MAX_DEG: raise that limit (after
+   the mount is fixed) to probe 75 and 90 degrees. */
+static const int8_t g_probe_deg[] = { 30, 45, 60, 75, 90 };
+
+/* One angle: print the raw readings.  0 = no echo. */
+static void probe_angle(int32_t deg)
+{
+    uint16_t mm;
+    int32_t  idx;
+    int32_t  echoes = 0;
+
+    point_and_wait(deg);
+    tm_printf((uint8_t *)"s5: probe deg=%d:", deg);
+    for (idx = 0; idx < S5_PROBE_READS; idx++)
+    {
+        mm = us_read_mm();
+        echoes += (US_NO_ECHO != mm) ? 1 : 0;
+        tm_printf((uint8_t *)" %d", mm);
+        tk_dly_tsk(S5_PROBE_GAP_MS);
+    }
+    tm_printf((uint8_t *)" | echoes=%d/%d\n", echoes, S5_PROBE_READS);
+}
+
+/* Never returns: this build is a bench tool, not the robot. */
+static void side_probe_forever(void)
+{
+    int32_t round = 0;
+    int32_t idx;
+
+    for (;;)
+    {
+        round++;
+        tm_printf((uint8_t *)"s5: probe round %d (max %d deg)\n", round,
+                  SERVO_MAX_DEG);
+        for (idx = 0; idx < (int32_t)(sizeof(g_probe_deg) / sizeof(g_probe_deg[0])); idx++)
+        {
+            if (g_probe_deg[idx] <= SERVO_MAX_DEG)
+            {
+                probe_angle(-g_probe_deg[idx]); /* right */
+                probe_angle(g_probe_deg[idx]);  /* left  */
+            }
+        }
+        point_and_wait(0);
+        tm_printf((uint8_t *)"s5: probe round %d done\n", round);
+        tk_dly_tsk(S5_PROBE_REST_MS);
+    }
+}
+#endif /* S5_SIDE_PROBE */
+
 void s5_scan_task(int32_t stacd, void * p_exinf)
 {
     scan_mode_t mode       = MODE_MONITOR;
@@ -234,6 +285,9 @@ void s5_scan_task(int32_t stacd, void * p_exinf)
     app_check(servo_init(), "s5 servo_init");
     tm_printf((uint8_t *)"s5: scan task %d up (bench mode %d)\n", tk_get_tid(),
               S5_BENCH_MODE);
+#if S5_SIDE_PROBE
+    side_probe_forever();
+#endif
 
     for (;;)
     {
