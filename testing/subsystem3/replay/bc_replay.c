@@ -8,12 +8,19 @@
  * on_run() / timeouts / try_decode() / decode() / shape_read().  If those
  * change, change this file the same way.
  *
+ * The edge finder is the one task_line.c uses: bc_edge_step_adapt() with
+ * S3_BC_EDGE_ADAPT 1 (b_freeze = a read is open), else bc_edge_step_pos()
+ * with S3_BC_EDGE_SWING / S3_BC_EDGE_FLOOR.  Build with
+ * -DS3_BC_EDGE_ADAPT=0 to replay the old path.
+ *
  * Trace file: one 10 ms record per line, "L_raw fwd yaw" where
  * fwd = left + right wheel counts and yaw = right - left in that record
  * (the dashboard CSV columns).  Position = 2 x left wheel = sum(fwd - yaw),
  * the same as s3_bc_pos() with S3_BC_DIST_WHEEL 1.
  *
- * usage: bc_replay [-v] trace.txt [trace.txt ...]
+ * usage: bc_replay [-v] [-prime] trace.txt [trace.txt ...]
+ * Sample numbers count from the first record of the file; with -prime they
+ * include the PRIME_N records put in front (see prime()).
  * One line per read:
  *   <file> start=<sample> end=<sample> why=<..> elems=<n> path=<..> out=<..>
  * and one summary line per file.
@@ -36,6 +43,8 @@ static uint8_t  g_f[NMAX];
 static int8_t   g_y[NMAX];
 static int      g_n;
 static int      g_verbose;
+static int      g_prime; /* -prime: see prime() */
+static int      g_primed_n; /* records added in front */
 static const char * g_name;
 
 typedef struct
@@ -246,9 +255,15 @@ static void replay(void)
         pos += (uint32_t)((int32_t)g_f[i] - (int32_t)g_y[i]);
         ep = pos;
         /* task_line.c barcode_runs_step() */
+#if S3_BC_EDGE_ADAPT
+        e.hold = (uint8_t)S3_BC_ADAPT_HOLD;
+        if (0U != bc_edge_step_adapt(&e, (int32_t)g_l[i], t, pos, (1 == st_read),
+                                     &eu, &ep))
+#else
         e.hold = (S3_BC_EDGE_SWING <= S3_BC_WEAK_SWING_MAX) ? (uint8_t)S3_BC_WEAK_HOLD : 0U;
         if (0U != bc_edge_step_pos(&e, (int32_t)g_l[i], t, pos, S3_BC_EDGE_SWING,
                                    S3_BC_EDGE_FLOOR, &eu, &ep))
+#endif
         {
             run_t r;
             r.lead_us = 0u; r.lead_pos = 0u;
@@ -266,6 +281,7 @@ static void replay(void)
                 printf("   run %s %u ms %u counts @%d\n", r.black ? "BAR" : "spc",
                        r.width_us / 1000u, r.width_pos, i);
             }
+            if (g_verbose > 1) { printf("   white=%d m=%d\n", e.w_x16 / 16, bc_edge_margin(&e)); }
             on_run(&r, i);
         }
         else if (1 == st_read)
@@ -304,6 +320,51 @@ static void replay(void)
            n_starts, n_letters, letters, n_fail);
 }
 
+/* -prime: the robot learns white before a barcode, but many saved traces
+   start only a few records before (or inside) one.  Put in front a copy of
+   this pass's own steadiest low 40-record stretch, so the learner has the
+   approach it would have had.  Diagnostic only: the copy is inferred. */
+#define PRIME_N 40
+static void prime(void)
+{
+    int best = -1, best_spread = 1 << 30, i, k;
+    int sorted_q;
+    {
+        /* 25th percentile of the pass: the stretch must lie on white */
+        static uint16_t tmp[NMAX];
+        memcpy(tmp, g_l, sizeof(uint16_t) * (size_t)g_n);
+        for (i = 1; i < g_n; i++)
+        {
+            uint16_t v = tmp[i];
+            for (k = i - 1; (k >= 0) && (tmp[k] > v); k--) { tmp[k + 1] = tmp[k]; }
+            tmp[k + 1] = v;
+        }
+        sorted_q = tmp[g_n / 4];
+    }
+    for (i = 0; (i + PRIME_N) <= g_n; i++)
+    {
+        int lo = 1 << 30, hi = 0;
+        for (k = i; k < (i + PRIME_N); k++)
+        {
+            if (g_l[k] < lo) { lo = g_l[k]; }
+            if (g_l[k] > hi) { hi = g_l[k]; }
+        }
+        if ((lo <= sorted_q) && ((hi - lo) < best_spread)) { best_spread = hi - lo; best = i; }
+    }
+    g_primed_n = 0;
+    if ((best < 0) || ((g_n + PRIME_N) > NMAX)) { return; }
+    memmove(&g_l[PRIME_N], g_l, sizeof(uint16_t) * (size_t)g_n);
+    memmove(&g_f[PRIME_N], g_f, (size_t)g_n);
+    memmove(&g_y[PRIME_N], g_y, (size_t)g_n);
+    best += PRIME_N;
+    for (k = 0; k < PRIME_N; k++)
+    {
+        g_l[k] = g_l[best + k]; g_f[k] = g_f[best + k]; g_y[k] = g_y[best + k];
+    }
+    g_n += PRIME_N;
+    g_primed_n = PRIME_N;
+}
+
 int main(int argc, char ** argv)
 {
     int a;
@@ -312,6 +373,7 @@ int main(int argc, char ** argv)
         FILE * f;
         int x, y, z;
         if (0 == strcmp(argv[a], "-v")) { g_verbose++; continue; }
+        if (0 == strcmp(argv[a], "-prime")) { g_prime = 1; continue; }
         f = fopen(argv[a], "r");
         if (NULL == f) { perror(argv[a]); return 1; }
         g_n = 0;
@@ -321,6 +383,8 @@ int main(int argc, char ** argv)
         }
         fclose(f);
         g_name = strrchr(argv[a], '/') ? strrchr(argv[a], '/') + 1 : argv[a];
+        g_primed_n = 0;
+        if (0 != g_prime) { prime(); }
         replay();
     }
     return 0;

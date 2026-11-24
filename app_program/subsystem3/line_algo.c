@@ -542,6 +542,15 @@ void bc_edge_reset_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
     p_e->last_pos  = pos;
     p_e->hold      = 0U; /* the caller sets it again if it wants a hold */
     p_e->hold_cnt  = 0U;
+    p_e->w_valid   = 0U; /* adaptive path: learn white again */
+    p_e->w_relearn = 0U;
+    p_e->w_n       = 0U;
+    p_e->w_min     = raw;
+    p_e->w_max     = raw;
+    p_e->w_sum     = 0;
+    p_e->w_x16     = 0;
+    p_e->w_sd_x16  = 0;
+    p_e->w_high    = 0U;
 }
 
 void bc_edge_reset(bc_edge_t * p_e, int32_t raw, uint32_t t_us)
@@ -558,9 +567,12 @@ uint8_t bc_edge_step(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
                             &edge_pos);
 }
 
-uint8_t bc_edge_step_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
-                         uint32_t pos, int32_t swing, int32_t floor,
-                         uint32_t * p_edge_us, uint32_t * p_edge_pos)
+/* The edge finder itself.  A bar starts above `enter` and is forced to
+   end below `leave` (bc_edge_step_pos passes its one floor for both). */
+static uint8_t bc_edge_core(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                            uint32_t pos, int32_t swing, int32_t enter,
+                            int32_t leave, uint32_t * p_edge_us,
+                            uint32_t * p_edge_pos)
 {
     uint8_t next = p_e->level;
     int32_t mid;
@@ -585,7 +597,7 @@ uint8_t bc_edge_step_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
                wobble on top of a dark bar does not end it */
             int32_t need = ((p_e->ext - p_e->prev) * S3_BC_EDGE_FALL_PCT) / 100;
             if (need < swing) { need = swing; }
-            if ((raw < (p_e->ext - need)) || (raw < floor)) { next = 0U; }
+            if ((raw < (p_e->ext - need)) || (raw < leave)) { next = 0U; }
         }
     }
     else
@@ -594,7 +606,7 @@ uint8_t bc_edge_step_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
         mid = (0U != p_e->b_prev) ? ((p_e->ext + p_e->prev) / 2)
                                   : (p_e->ext + (swing / 2));
         if (raw <= mid) { p_e->mid_t_us = t_us; p_e->mid_pos = pos; }
-        if ((raw > (p_e->ext + swing)) && (raw > floor)) { next = 1U; }
+        if ((raw > (p_e->ext + swing)) && (raw > enter)) { next = 1U; }
     }
 
     if (next == p_e->level)
@@ -648,6 +660,176 @@ uint8_t bc_edge_step_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
     p_e->last_t_us = t_us;
     p_e->last_pos  = pos;
     return 1U;
+}
+
+uint8_t bc_edge_step_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                         uint32_t pos, int32_t swing, int32_t floor,
+                         uint32_t * p_edge_us, uint32_t * p_edge_pos)
+{
+    return bc_edge_core(p_e, raw, t_us, pos, swing, floor, floor, p_edge_us,
+                        p_edge_pos);
+}
+
+/* ---- adaptive edge finder: thresholds from the learned white ---- */
+void bc_edge_relearn(bc_edge_t * p_e)
+{
+    p_e->w_relearn = 1U;
+}
+
+int32_t bc_edge_margin(bc_edge_t const * p_e)
+{
+    if (0U == p_e->w_valid)
+    {
+        return 0;
+    }
+    return ((S3_BC_NOISE_K * p_e->w_sd_x16) / 16) + S3_BC_NOISE_ADD;
+}
+
+/* start (or restart) the learning window at this sample */
+static void bc_white_window(bc_edge_t * p_e, int32_t raw)
+{
+    p_e->w_n   = 1U;
+    p_e->w_min = raw;
+    p_e->w_max = raw;
+    p_e->w_sum = raw;
+}
+
+uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                           uint32_t pos, bool b_freeze, uint32_t * p_edge_us,
+                           uint32_t * p_edge_pos)
+{
+    uint8_t changed;
+    int32_t m;
+    int32_t white;
+
+    /* Cast: wrapping difference of the microsecond clock */
+    if ((uint32_t)(t_us - p_e->last_t_us) > S3_BC_WHITE_STALE_US)
+    {
+        p_e->w_relearn = 1U; /* samples were missed: white may be stale */
+    }
+    if (0U != p_e->w_relearn)
+    {
+        uint8_t was = p_e->level;
+
+        p_e->w_relearn = 0U;
+        p_e->w_valid   = 0U;
+        p_e->w_high    = 0U;
+        p_e->hold_cnt  = 0U;
+        bc_white_window(p_e, raw);
+        if (0U != was)
+        {
+            /* end the open bar where L was last on its dark side */
+            *p_edge_us  = p_e->mid_t_us;
+            *p_edge_pos = p_e->mid_pos;
+        }
+        p_e->level     = 0U;
+        p_e->b_prev    = 0U;
+        p_e->ext       = raw;
+        p_e->prev      = raw;
+        p_e->mid_t_us  = t_us;
+        p_e->mid_pos   = pos;
+        p_e->last_raw  = raw;
+        p_e->last_t_us = t_us;
+        p_e->last_pos  = pos;
+        return was;
+    }
+
+    if (0U == p_e->w_valid)
+    {
+        /* learning: a steady stretch of S3_BC_WHITE_INIT_N samples */
+        if (0U == p_e->w_n)
+        {
+            bc_white_window(p_e, raw);
+        }
+        else
+        {
+            int32_t lo = (raw < p_e->w_min) ? raw : p_e->w_min;
+            int32_t hi = (raw > p_e->w_max) ? raw : p_e->w_max;
+            if ((hi - lo) > S3_BC_WHITE_INIT_SPREAD)
+            {
+                bc_white_window(p_e, raw); /* not steady: start again */
+            }
+            else
+            {
+                p_e->w_min = lo;
+                p_e->w_max = hi;
+                p_e->w_sum += raw;
+                p_e->w_n++;
+            }
+        }
+        if (p_e->w_n >= S3_BC_WHITE_INIT_N)
+        {
+            /* Casts: w_n is at most S3_BC_WHITE_INIT_N */
+            p_e->w_x16    = (p_e->w_sum * 16) / (int32_t)p_e->w_n;
+            /* the range of ~32 noisy samples is about 4 sd */
+            p_e->w_sd_x16 = ((p_e->w_max - p_e->w_min) * 16) / 4;
+            p_e->w_valid  = 1U;
+            p_e->w_high   = 0U;
+            p_e->ext      = raw;
+            p_e->b_prev   = 0U;
+        }
+        p_e->mid_t_us  = t_us;
+        p_e->mid_pos   = pos;
+        p_e->last_raw  = raw;
+        p_e->last_t_us = t_us;
+        p_e->last_pos  = pos;
+        return 0U;
+    }
+
+    if (p_e->w_sd_x16 < (S3_BC_NOISE_SD_MIN * 16))
+    {
+        p_e->w_sd_x16 = S3_BC_NOISE_SD_MIN * 16;
+    }
+    m       = bc_edge_margin(p_e);
+    white   = p_e->w_x16 / 16;
+    changed = bc_edge_core(p_e, raw, t_us, pos, m, white + m, white + (m / 2),
+                           p_edge_us, p_edge_pos);
+
+    if ((0U == p_e->level) && !b_freeze)
+    {
+        int32_t d16  = (raw * 16) - p_e->w_x16; /* x 16 */
+        int32_t ad16 = (d16 < 0) ? -d16 : d16;
+        if (ad16 <= (m * 16))
+        {
+            /* white travel: follow the level slowly */
+            p_e->w_x16 += d16 / (1 << S3_BC_WHITE_EMA_SHIFT);
+            if (d16 < 0)
+            {
+                /* and the noise, from the samples below white only: ink
+                   only reads higher, so the rising and falling sides of
+                   faint marks cannot grow it (sd of a normal noise =
+                   1.25 x its mean deviation, on either side) */
+                p_e->w_sd_x16 += (((ad16 * 5) / 4) - p_e->w_sd_x16) /
+                                 (1 << S3_BC_WHITE_EMA_SHIFT);
+            }
+        }
+        else if (d16 < -(2 * m * 16))
+        {
+            /* far below the learned white (it was learned on ink, or
+               the paper reads lower now): follow down fast */
+            p_e->w_x16 += d16 / 4;
+        }
+        else
+        {
+            /* above white but not a bar: leave the estimate alone */
+        }
+    }
+    if ((0U != p_e->level) && !b_freeze)
+    {
+        if (p_e->w_high < 0xFFFFU)
+        {
+            p_e->w_high++;
+        }
+        if (p_e->w_high >= S3_BC_WHITE_RELEARN_SAMPLES)
+        {
+            p_e->w_relearn = 1U; /* black far longer than any bar */
+        }
+    }
+    else
+    {
+        p_e->w_high = 0U;
+    }
+    return changed;
 }
 
 /* ------------------------------------------------------------------ */

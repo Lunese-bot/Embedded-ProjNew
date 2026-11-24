@@ -148,6 +148,43 @@
 #define S3_BC_EDGE_FALL_PCT 35 /* 2026-11-12 MY: back to 35, matches the 2026-11-11 Z read */
 #endif
 
+/* Adaptive edge finder (2026-11-24): the venue sheets read white ~145 and
+   ink only 180-245 raw, so the fixed 300 rise and 400 floor above never
+   see a bar.  1 = thresholds from L's learned white level and noise
+   (bc_edge_step_adapt, line_algo.h); the dashboard rise/fall and floor
+   then do nothing.  0 = the fixed swing / floor (old behaviour). */
+#ifndef S3_BC_EDGE_ADAPT
+#define S3_BC_EDGE_ADAPT 1
+#endif
+/* margin m = K x white noise sd + ADD (raw).  3 sd + 8 is Group 7's
+   start rule, evaluated here as a candidate.  sd is never taken below
+   S3_BC_NOISE_SD_MIN, so m is at least 3 x 1 + 8 = 11. */
+#ifndef S3_BC_NOISE_K
+#define S3_BC_NOISE_K       3
+#endif
+#ifndef S3_BC_NOISE_ADD
+#define S3_BC_NOISE_ADD     8
+#endif
+#define S3_BC_NOISE_SD_MIN  1
+/* white is learned from this many samples (10 ms) in a row whose
+   highest and lowest differ by at most INIT_SPREAD raw (white paper read
+   with spreads up to ~100 on the 10 ms reads of 2026-11-05..12, before
+   the 500 Hz front end; ~15 since) */
+#define S3_BC_WHITE_INIT_N      32u
+#define S3_BC_WHITE_INIT_SPREAD 128
+/* white follows the white travel with weight 1 / 2^SHIFT per sample */
+#define S3_BC_WHITE_EMA_SHIFT   4
+/* a gap longer than this between two samples (us): learn white again */
+#define S3_BC_WHITE_STALE_US    50000u
+/* black this many samples in a row outside a read (longer than any bar,
+   S3_BC_ELEMENT_MAX_MS): not a bar, learn white again */
+#define S3_BC_WHITE_RELEARN_SAMPLES 150u
+/* samples in a row a change of level must last (1 = at once); the
+   margin is already several noise sd */
+#ifndef S3_BC_ADAPT_HOLD
+#define S3_BC_ADAPT_HOLD    1u
+#endif
+
 /* Digital level the module outputs over BLACK tape.  TUNE: most TCRT5000
    style modules give 1 on black, some give 0. */
 #define S3_IR_BLACK_LEVEL 1

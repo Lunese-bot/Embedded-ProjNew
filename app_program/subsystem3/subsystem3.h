@@ -220,6 +220,9 @@ extern volatile bool    g_b_s3_bc_scanning;   /* barcode_task -> line_task:
    under L with nothing after it is a junction's side arm (or the line on
    a curve), and the junction behind it must still be reported. */
 extern volatile bool    g_b_s3_bc_bars;
+/* barcode_task -> line_task: + 1 at each rearm, so the adaptive edge
+   finder learns L's white again (S3_BC_EDGE_ADAPT; one writer) */
+extern volatile uint32_t g_s3_bc_relearn_seq;
 /* line_task -> vehicle controller: barcode lock (S3_BC_LOCK) is on, so
    drive straight at no more than VC_SPEED_SLOW_MMS */
 extern volatile bool    g_b_s3_bc_lock;

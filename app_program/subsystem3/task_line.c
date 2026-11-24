@@ -48,6 +48,9 @@ static int32_t        g_bc_edge_was_on = 1;
 #define BC_EDGE_FLOOR S3_BC_EDGE_FLOOR
 #endif
 #endif
+#if S3_BC_EDGE && S3_BC_EDGE_ADAPT
+static uint32_t       g_bc_relearn_seen; /* last g_s3_bc_relearn_seq acted on */
+#endif
 static uint32_t       g_bc_run_start_us;
 static uint32_t       g_bc_run_start_pos; /* wheel counts when the run began */
 
@@ -180,6 +183,22 @@ static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT],
     {
         uint32_t edge_us  = t_us;
         uint32_t edge_pos = pos;
+#if S3_BC_EDGE_ADAPT
+        uint8_t  b_edge;
+        /* learn white again after a barcode rearm (task_barcode.c) */
+        if (g_s3_bc_relearn_seq != g_bc_relearn_seen)
+        {
+            g_bc_relearn_seen = g_s3_bc_relearn_seq;
+            bc_edge_relearn(&g_bc_edge);
+        }
+        /* thresholds from L's learned white and noise, frozen while a
+           read is open (line_algo.h) */
+        g_bc_edge.hold = (uint8_t)S3_BC_ADAPT_HOLD;
+        b_edge = bc_edge_step_adapt(&g_bc_edge, (int32_t)p_raw[S3_BC_SENSOR],
+                                    t_us, pos, g_b_s3_bc_scanning, &edge_us,
+                                    &edge_pos);
+        if (0U != b_edge)
+#else
         /* weak print: with a small rise/fall, ask for several samples in
            a row so single noisy readings cannot make a bar or a gap */
         g_bc_edge.hold = (BC_EDGE_SWING <= S3_BC_WEAK_SWING_MAX)
@@ -187,6 +206,7 @@ static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT],
         if (0U != bc_edge_step_pos(&g_bc_edge, (int32_t)p_raw[S3_BC_SENSOR],
                                    t_us, pos, BC_EDGE_SWING, BC_EDGE_FLOOR,
                                    &edge_us, &edge_pos))
+#endif
         {
             run.lead_us  = 0U;
             run.lead_pos = 0U;

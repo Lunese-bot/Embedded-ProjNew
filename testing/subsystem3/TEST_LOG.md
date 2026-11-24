@@ -13,6 +13,8 @@ Define a test here before running it. Test IDs never change.
 | H-C01..H-C08 | Code 39 decoder: all characters both directions, 2:1 ratio, ±20 % jitter, 2× speed ramp, bad length / contrast / framing / overflow rejected | FR2 | auto (PC) | `cd testing/subsystem3/host_test && make` | `[TEST] H-Cxx PASS` ×8 |
 | H-L01..H-L05c | Line tracker: FOLLOW, steer sign, LOST after 5 samples with last side, junction + inhibit, calibration accept/reject | FR1, NFR9 | auto (PC) | same | `[TEST] H-Lxx PASS` ×8 |
 | H-L25..H-L28 | Double black during rejoin and junction rearming | FR1, FR4 | auto (PC) | Feed double black, a brief gap, and a clear stretch to the line tracker | Keep steering during rejoin, classify a new junction after ten clear samples |
+| H-W00..H-W13 | Adaptive barcode edge finder (`S3_BC_EDGE_ADAPT`): faint A/Z (white 145, ink < +100) at both print sizes, 60 and 120 mm/s, both ways give 29 elements and no wrong letter; old 300/400 sees no bar; white-only, tape crossing, start on ink, frozen white, missed samples, rearm, long black, 3 mm bar at cruise, learned noise sd | FR2 | auto (PC) | `cd testing/subsystem3/host_test && make` | `[TEST] H-Wxx PASS` ×14 |
+| S3-REPLAY | Saved dashboard L traces replayed through the real edge finder and decoders give exactly the letters in `replay/expected_letters.txt`, and no other letter | FR2 | auto (PC) | `cd testing/subsystem3/replay && make check` | `[TEST] S3-REPLAY PASS` |
 | S3-U01 / U01b | Code 39 `*L*` decodes forwards and backwards on the Pico | FR2 | auto | `make TEST=1`, `subsystem3_test.c` | PASS |
 | S3-U02 | corrupted barcode rejected on the Pico | FR2 | auto | same | PASS |
 | S3-U03 | line on right → +1000, steer right | FR1 | auto | same | PASS |

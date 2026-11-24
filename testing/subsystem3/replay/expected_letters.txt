@@ -1,0 +1,9 @@
+# Letters the replay must give (make check).  Any other trace must give none.
+# 20261118T134113 is *A* read backwards (inferred from the trace, review R5);
+# g62 is the robot's 2026-11-11 08:46 Z, g44 the 07:29 A (README of the
+# handoff replay).  plain = as recorded, prime = with -prime.
+plain 20261118T134113.txt A
+plain g62.txt Z
+prime 20261118T134113.txt A
+prime g44.txt A
+prime g62.txt Z

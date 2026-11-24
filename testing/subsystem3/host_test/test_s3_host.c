@@ -1714,6 +1714,395 @@ static void test_bc_lock_tracker(void)
           "lock+tracker: confirmed, a lasting C black steers left, capped");
 }
 
+/* ---- H-W: adaptive edge finder on low-contrast print (S3_BC_EDGE_ADAPT) -
+   Synthetic driven passes, made in distance and sampled like the robot:
+   10 ms records, each the mean of five 2 ms samples of a Gaussian spot
+   over the print, plus record noise.  Position = 2 x left wheel counts
+   (one count ~0.148 mm).  The glue copies task_line.c barcode_runs_step()
+   and task_barcode.c on_run() (start after >= S3_BC_START_WHITE_MS white,
+   end after S3_BC_QUIET_COUNTS of white, decode by distance: full, then
+   partial). */
+#define SIM_MAX       6000u
+#define SIM_MM_PER_C  0.148
+typedef struct
+{
+    double   white;    /* paper (raw)                                  */
+    double   ink;      /* full-coverage ink above white (raw)          */
+    double   spot_mm;  /* sensor spot sd (mm)                          */
+    double   noise;    /* record noise sd (raw)                        */
+    uint32_t seed;
+} sim_opt_t;
+
+static int32_t  g_sv[SIM_MAX];  /* L raw per record */
+static uint32_t g_sp[SIM_MAX];  /* position (counts) per record */
+static uint32_t g_sn;
+static double   g_bar0[64], g_bar1[64]; /* ink intervals (mm) */
+static uint32_t g_nbar;
+static uint32_t g_rng;
+
+static double sim_rand(void) /* 0..1, deterministic */
+{
+    g_rng = (g_rng * 1103515245u) + 12345u;
+    return ((double)((g_rng >> 8) & 0xFFFFu) + 0.5) / 65536.0;
+}
+static double sim_gauss(void)
+{
+    double u1 = sim_rand(), u2 = sim_rand();
+    return sqrt(-2.0 * log(u1)) * cos(6.283185307 * u2);
+}
+/* lay "*text*" (bars first) from x0 mm, narrow / wide in mm; returns end */
+static double sim_lay(char const * text, double x0, double nar, double wid, bool b_rev)
+{
+    uint32_t w[200], n, k;
+    double   x = x0;
+    n = code39_encode(text, 1000u, (uint32_t)(wid / nar * 1000.0 + 0.5), w, 200u);
+    if (b_rev) { reverse(w, n); }
+    for (k = 0u; k < n; k++)
+    {
+        double len = nar * (double)w[k] / 1000.0;
+        if ((0u == (k % 2u)) && (g_nbar < 64u)) { g_bar0[g_nbar] = x; g_bar1[g_nbar] = x + len; g_nbar++; }
+        x += len;
+    }
+    return x;
+}
+static void sim_tape(double x0, double width) /* plain black tape */
+{
+    if (g_nbar < 64u) { g_bar0[g_nbar] = x0; g_bar1[g_nbar] = x0 + width; g_nbar++; }
+}
+static double sim_cover(double x, double sd)
+{
+    double c = 0.0;
+    uint32_t k;
+    for (k = 0u; k < g_nbar; k++)
+    {
+        c += 0.5 * (erf((g_bar1[k] - x) / (sd * 1.41421356)) -
+                    erf((g_bar0[k] - x) / (sd * 1.41421356)));
+    }
+    return (c > 1.0) ? 1.0 : c;
+}
+/* drive from x_from to x_to mm at v mm/s (v 0: stand still for t_s s) */
+static void sim_drive(sim_opt_t const * o, double x_from, double x_to, double v, double t_s)
+{
+    double x = x_from;
+    double t_end = (v > 0.0) ? ((x_to - x_from) / v) : t_s;
+    double t;
+    for (t = 0.0; (t < t_end) && (g_sn < SIM_MAX); t += 0.010)
+    {
+        double s = 0.0;
+        int    j;
+        for (j = 0; j < 5; j++) /* five 2 ms samples, each at its own place */
+        {
+            double xs = x + (v * 0.002 * (double)j);
+            s += o->white + (o->ink * sim_cover(xs, o->spot_mm));
+        }
+        x += v * 0.010;
+        s = (s / 5.0) + (o->noise * sim_gauss());
+        g_sv[g_sn] = (int32_t)(s + 0.5);
+        g_sp[g_sn] = 2u * (uint32_t)(x / (2.0 * SIM_MM_PER_C));
+        g_sn++;
+    }
+}
+
+typedef struct
+{
+    uint32_t starts;   /* reads started */
+    uint32_t letters;  /* letters decoded */
+    char     text[16]; /* all letters, in order */
+    uint32_t elems;    /* elements of the last read */
+    uint32_t edges;    /* level changes seen */
+} sim_res_t;
+
+/* the glue: adaptive (b_adapt) or old fixed swing / floor */
+static void sim_read(bool b_adapt, int32_t swing, int32_t floor, sim_res_t * p_r)
+{
+    bc_edge_t e;
+    uint32_t  wp[S3_BC_MAX_ELEMENTS];
+    uint32_t  nw = 0u, total = 0u, i, rs_pos = 0u, rs_us = 0u, last_run_pos = 0u;
+    uint8_t   level = 0u;
+    bool      b_read = false;
+    code39_options_t o = { S3_BC_MIN_RATIO_X10, true, (uint8_t)S3_BC_MAX_CHARS };
+
+    memset(p_r, 0, sizeof *p_r);
+    bc_edge_reset_pos(&e, g_sv[0], 0u, g_sp[0]);
+    rs_pos = g_sp[0];
+    for (i = 0u; i < g_sn; i++)
+    {
+        uint32_t t = i * 10000u, eu = t, ep = g_sp[i];
+        uint8_t  ch;
+        bool     b_dec = false;
+        if (b_adapt)
+        {
+            e.hold = (uint8_t)S3_BC_ADAPT_HOLD;
+            ch = bc_edge_step_adapt(&e, g_sv[i], t, g_sp[i], b_read, &eu, &ep);
+        }
+        else
+        {
+            e.hold = (swing <= S3_BC_WEAK_SWING_MAX) ? (uint8_t)S3_BC_WEAK_HOLD : 0U;
+            ch = bc_edge_step_pos(&e, g_sv[i], t, g_sp[i], swing, floor, &eu, &ep);
+        }
+        if (0u != ch)
+        {
+            uint32_t lead_pos = 0u, wpos, wus;
+            uint8_t  black = level;
+            p_r->edges++;
+            if (0u != level)
+            {
+                lead_pos = e.bar_pos - rs_pos;
+                rs_pos = e.bar_pos; rs_us = e.bar_t_us;
+            }
+            wpos = ep - rs_pos; wus = eu - rs_us;
+            level = e.level; rs_pos = ep; rs_us = eu;
+            last_run_pos = g_sp[i];
+            if (!b_read)
+            {
+                if ((0u == black) && (wus >= (uint32_t)S3_BC_START_WHITE_MS * 1000u))
+                {
+                    b_read = true; nw = 0u; total = 0u; p_r->starts++;
+                }
+            }
+            else if ((0u != black) && (wus > (uint32_t)S3_BC_ELEMENT_MAX_MS * 1000u))
+            {
+                b_read = false; /* abort */
+            }
+            else if ((0u == black) && (nw > 0u) && (wpos >= S3_BC_QUIET_COUNTS))
+            {
+                b_dec = true;
+            }
+            else if (nw < S3_BC_MAX_ELEMENTS)
+            {
+                if ((0u != black) && (nw > 0u)) { wp[nw - 1u] += lead_pos; total += lead_pos; }
+                wp[nw++] = wpos; total += wpos;
+            }
+        }
+        else if (b_read && (1u == (nw % 2u)) && ((g_sp[i] - last_run_pos) >= S3_BC_QUIET_COUNTS))
+        {
+            b_dec = true; /* white long enough by distance */
+        }
+        if (b_dec)
+        {
+            char txt[S3_BC_TEXT_MAX + 2] = { 0 };
+            bool rv = false;
+            p_r->elems = nw;
+            if ((nw >= S3_BC_MIN_ELEMENTS) &&
+                ((CODE39_OK == code39_decode_ex(wp, nw, &o, txt, sizeof txt, &rv)) ||
+                 (CODE39_OK == code39_decode_partial(wp, nw, &o, txt, sizeof txt, &rv))))
+            {
+                p_r->letters++;
+                if ((strlen(p_r->text) + strlen(txt)) < (sizeof p_r->text - 1u)) { strcat(p_r->text, txt); }
+            }
+            b_read = false;
+        }
+    }
+}
+
+/* venue-like print: white 145, thick bars ~+90 (the 21:41 logs) */
+static sim_opt_t const g_venue = { 145.0, 100.0, 1.2, 2.0, 1u };
+
+static void sim_new(void) { g_sn = 0u; g_nbar = 0u; }
+
+static void test_bc_adapt(void)
+{
+    static char const * const letter[2] = { "A", "Z" };
+    double const nar[2] = { 3.0, 5.5 };  /* small / big print (mm) */
+    double const wid[2] = { 9.0, 16.5 };
+    double const vel[2] = { 60.0, 120.0 }; /* VC slow / cruise (mm/s) */
+    uint32_t total = 0u, ok = 0u, wrong = 0u, old_bars = 0u, full = 0u, s;
+    uint32_t li, pi, vi, ri;
+    sim_res_t r;
+    sim_opt_t o = g_venue;
+    double thin_peak = 0.0, thick_peak = 0.0;
+
+    /* H-W00: the test print really is faint: thin bars <= +60, thick <= +100 */
+    sim_new();
+    (void)sim_lay("A", 100.0, 3.0, 9.0, false);
+    {
+        double x;
+        for (x = 100.0; x < 101.5; x += 0.05) { double c = sim_cover(x, o.spot_mm); if (c > thin_peak) { thin_peak = c; } }
+        for (x = 100.0; x < 260.0; x += 0.05) { double c = sim_cover(x, o.spot_mm); if (c > thick_peak) { thick_peak = c; } }
+    }
+    printf("        faint print: thin 3 mm bar +%.0f, thick +%.0f raw over white %.0f\n",
+           thin_peak * o.ink, thick_peak * o.ink, o.white);
+    CHECK("H-W00", (thin_peak * o.ink <= 85.0) && (thick_peak * o.ink <= 100.0),
+          "adaptive: test print is as faint as the venue sheets (ink < +100 raw)");
+
+    /* H-W01 / H-W02: A and Z, both print sizes, slow and cruise speed, both
+       directions, 3 noise seeds: every pass reads its own letter, none
+       reads a wrong one; the old fixed 300 / 400 finds no bar at all */
+    for (li = 0u; li < 2u; li++)
+    for (pi = 0u; pi < 2u; pi++)
+    for (vi = 0u; vi < 2u; vi++)
+    for (ri = 0u; ri < 2u; ri++)
+    for (s = 0u; s < 3u; s++)
+    {
+        double end;
+        sim_new();
+        g_rng = 77u + (s * 131u) + (li * 7u) + (pi * 3u) + vi + (ri * 5u);
+        end = sim_lay(letter[li], 300.0, nar[pi], wid[pi], 0u != ri);
+        sim_drive(&o, 0.0, end + 150.0, vel[vi], 0.0);
+        sim_read(true, 0, 0, &r);
+        total++;
+        if ((1u == r.starts) && (29u == r.elems)) { full++; }
+        if ((1u == r.letters) && (0 == strcmp(r.text, letter[li]))) { ok++; }
+        else
+        {
+            printf("        not read: %s print %u at %.0f mm/s rev %u seed %u: starts %u letters %u '%s' elems %u\n",
+                   letter[li], (unsigned)pi, vel[vi], (unsigned)ri, (unsigned)s,
+                   (unsigned)r.starts, (unsigned)r.letters, r.text, (unsigned)r.elems);
+        }
+        if ((r.letters > 0u) && (0 != strcmp(r.text, letter[li]))) { wrong++; }
+        sim_read(false, S3_BC_EDGE_SWING, S3_BC_EDGE_FLOOR, &r);
+        old_bars += r.edges;
+    }
+    printf("        faint A/Z: %u of %u passes give one read of 29 elements, %u read by the element\n"
+           "        decoders, %u wrong; old 300/400 edges %u\n",
+           (unsigned)full, (unsigned)total, (unsigned)ok, (unsigned)wrong, (unsigned)old_bars);
+    CHECK("H-W01", full == total,
+          "adaptive: faint A and Z, both sizes, 60 and 120 mm/s, both ways: every bar and gap found (29)");
+    CHECK("H-W12", 0u == wrong, "adaptive: no faint pass gives a wrong letter");
+    CHECK("H-W02", 0u == old_bars,
+          "old fixed rise 300 / floor 400 sees no bar on the same faint print (baseline failure)");
+
+    /* H-W03: 20 s of white only, noise sd 2 / 5 / 10 and a slow +-15 drift:
+       no level change after learning */
+    {
+        double const nz[3] = { 2.0, 5.0, 10.0 };
+        uint32_t edges = 0u, k, i;
+        for (k = 0u; k < 3u; k++)
+        {
+            sim_opt_t w = o;
+            w.noise = nz[k];
+            sim_new();
+            g_rng = 900u + k;
+            sim_drive(&w, 0.0, 1440.0, 72.0, 0.0);
+            for (i = 0u; i < g_sn; i++) { g_sv[i] += (int32_t)(15.0 * sin((double)i / 300.0)); }
+            sim_read(true, 0, 0, &r);
+            edges += r.edges;
+        }
+        CHECK("H-W03", 0u == edges, "adaptive: 20 s of white (noise sd 2, 5, 10, drifting) gives no bar");
+    }
+
+    /* H-W04: one black tape crossing (18 mm, ~2800 raw) and a 50 mm wide
+       junction arm: a bar each, no letter */
+    {
+        sim_opt_t t = o;
+        t.ink = 2700.0;
+        sim_new();
+        g_rng = 5u;
+        sim_tape(300.0, 18.0);
+        sim_tape(700.0, 50.0);
+        sim_drive(&t, 0.0, 1000.0, 120.0, 0.0);
+        sim_read(true, 0, 0, &r);
+        CHECK("H-W04", (2u == r.starts) && (0u == r.letters) && (4u == r.edges),
+              "adaptive: a tape crossing and a junction arm: one bar each, no letter");
+    }
+
+    /* H-W05: start standing on the thick bar of a *Z* (white is learned on
+       ink), then drive over the rest of it and on to a whole *A*: the cut
+       *Z* gives no letter, the *A* is read */
+    {
+        double end;
+        sim_new();
+        g_rng = 3u;
+        end = sim_lay("Z", 0.0, 3.0, 9.0, false);
+        (void)sim_lay("A", end + 200.0, 3.0, 9.0, false);
+        {
+            /* stand on the middle of the first wide bar for 1 s */
+            double x0 = g_bar0[1] + 4.5;
+            sim_drive(&o, x0, x0, 0.0, 1.0);
+            sim_drive(&o, x0, end + 200.0 + 200.0, 60.0, 0.0);
+        }
+        sim_read(true, 0, 0, &r);
+        CHECK("H-W05", (0 == strcmp(r.text, "A")) && (1u == r.letters),
+              "adaptive: start on ink: no letter from the cut barcode, the next one reads");
+    }
+
+    /* H-W06..H-W09: the white estimate itself */
+    {
+        bc_edge_t e;
+        uint32_t eu = 0u, ep = 0u, i, t = 0u, edges = 0u;
+        int32_t  w0;
+        bool     b_learned = false;
+        g_rng = 11u;
+        bc_edge_reset_pos(&e, 145, 0u, 0u);
+        for (i = 0u; i < 40u; i++, t += 10000u)
+        {
+            (void)bc_edge_step_adapt(&e, 145 + (int32_t)(2.0 * sim_gauss()), t, i, false, &eu, &ep);
+            if ((i == (S3_BC_WHITE_INIT_N - 2u)) && (0u != e.w_valid)) { b_learned = true; }
+        }
+        CHECK("H-W06", (0u != e.w_valid) && !b_learned && (bc_edge_margin(&e) >= 11) &&
+                       (bc_edge_margin(&e) <= 20),
+              "adaptive: white learned after S3_BC_WHITE_INIT_N steady samples, margin 3 sd + 8 within 11..20");
+        /* frozen: 2 s of white 10 above, while a read is open */
+        w0 = e.w_x16;
+        for (i = 0u; i < 200u; i++, t += 10000u) { (void)bc_edge_step_adapt(&e, 152, t, i, true, &eu, &ep); }
+        CHECK("H-W07", e.w_x16 == w0, "adaptive: white is frozen while a read is open");
+        /* a bar is open, then 100 ms of samples are missed: the bar ends,
+           white is learned again, no new bar before that */
+        for (i = 0u; i < 5u; i++, t += 10000u) { edges += bc_edge_step_adapt(&e, 260, t, i, false, &eu, &ep); }
+        t += 100000u;
+        edges += bc_edge_step_adapt(&e, 260, t, 0u, false, &eu, &ep);
+        {
+            uint32_t later = 0u;
+            for (i = 0u; i < (S3_BC_WHITE_INIT_N - 2u); i++)
+            {
+                t += 10000u;
+                later += bc_edge_step_adapt(&e, (0u == (i % 4u)) ? 260 : 145, t, i, false, &eu, &ep);
+            }
+            CHECK("H-W08", (2u == edges) && (0u == e.w_valid) && (0u == later),
+                  "adaptive: missed samples end the open bar and white is learned again first");
+        }
+        /* rearm: learn again at the next sample */
+        for (i = 0u; i < 40u; i++, t += 10000u) { (void)bc_edge_step_adapt(&e, 145, t, i, false, &eu, &ep); }
+        bc_edge_relearn(&e);
+        (void)bc_edge_step_adapt(&e, 145, t, 0u, false, &eu, &ep);
+        CHECK("H-W09", 0u == e.w_valid, "adaptive: bc_edge_relearn() (barcode rearm) learns white again");
+        /* black far longer than any bar, outside a read: learned again */
+        edges = 0u;
+        for (i = 0u; i < 40u; i++, t += 10000u) { (void)bc_edge_step_adapt(&e, 145, t, i, false, &eu, &ep); }
+        for (i = 0u; i < (S3_BC_WHITE_RELEARN_SAMPLES + 2u); i++, t += 10000u)
+        {
+            edges += bc_edge_step_adapt(&e, 2800, t, i, false, &eu, &ep);
+        }
+        CHECK("H-W10", (2u == edges) && (0u == e.w_valid),
+              "adaptive: 1.5 s of black outside a read ends the bar and learns white again");
+    }
+
+    /* H-W13: the learned noise sd is close to the real one (G7's 3 sd + 8
+       margin only means something if sd is right) */
+    {
+        double const sd[3] = { 2.0, 5.0, 10.0 };
+        uint32_t k, i, bad = 0u, eu = 0u, ep = 0u;
+        for (k = 0u; k < 3u; k++)
+        {
+            bc_edge_t e;
+            double    est;
+            g_rng = 300u + k;
+            bc_edge_reset_pos(&e, 145, 0u, 0u);
+            for (i = 0u; i < 2000u; i++)
+            {
+                (void)bc_edge_step_adapt(&e, (int32_t)lround(145.0 + (sd[k] * sim_gauss())),
+                                         i * 10000u, i, false, &eu, &ep);
+            }
+            est = (double)e.w_sd_x16 / 16.0;
+            printf("        white noise sd %.0f: learned %.2f, margin %d\n", sd[k], est,
+                   (int)bc_edge_margin(&e));
+            if ((est < (0.7 * sd[k])) || (est > (1.3 * sd[k]))) { bad++; }
+        }
+        CHECK("H-W13", 0u == bad, "adaptive: learned white noise sd within 30 % of the real sd (2, 5, 10)");
+    }
+
+    /* H-W11: a 3 mm first bar at cruise speed (120 mm/s, 25 ms) is found
+       with one 10 ms record per level (S3_BC_ADAPT_HOLD 1) */
+    {
+        sim_new();
+        g_rng = 21u;
+        sim_tape(300.0, 3.0);
+        sim_drive(&o, 0.0, 450.0, 120.0, 0.0);
+        sim_read(true, 0, 0, &r);
+        CHECK("H-W11", 2u == r.edges, "adaptive: a lone 3 mm bar at 120 mm/s is seen (rise and fall)");
+    }
+}
+
 int main(void)
 {
     test_code39();
@@ -1728,6 +2117,7 @@ int main(void)
     test_l_fast();
     test_bc_lock();
     test_bc_lock_tracker();
+    test_bc_adapt();
     printf("[TEST] subsystem3-host SUMMARY %d passed, %d failed\n", g_pass, g_fail);
     return (0 == g_fail) ? 0 : 1;
 }

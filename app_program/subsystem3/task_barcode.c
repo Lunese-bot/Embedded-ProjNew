@@ -41,6 +41,7 @@ static uint32_t        g_widths_pos[S3_BC_MAX_ELEMENTS]; /* by distance */
 static uint32_t        g_total_pos; /* distance covered by the stored ones */
 static uint32_t        g_last_run_pos; /* wheel counts when the last run came */
 static uint32_t        g_white_ms;     /* time polled since then */
+volatile uint32_t      g_s3_bc_relearn_seq; /* + 1 per rearm (subsystem3.h) */
 
 /* bench copy of the last read (subsystem3.h) */
 volatile uint32_t g_s3_bc_dbg_seq;
@@ -124,6 +125,7 @@ static void handle_requests(void)
     if (0U != (ptn & S3_REQ_BC_REARM))
     {
         g_retries = 0;
+        g_s3_bc_relearn_seq++; /* line_task learns L's white again */
         go_idle();
     }
 }

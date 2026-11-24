@@ -141,6 +141,18 @@ typedef struct
        the edge is still placed at the 50 % point, so holding adds no shift. */
     uint8_t  hold;
     uint8_t  hold_cnt;
+    /* Learned white (S3_BC_EDGE_ADAPT, bc_edge_step_adapt): L's level and
+       noise on white paper, raw x 16.  Learned from a steady stretch,
+       updated on white outside a read, frozen during one. */
+    uint8_t  w_valid;   /* 0 = still learning: no bars are found       */
+    uint8_t  w_relearn; /* 1 = learn again at the next sample           */
+    uint16_t w_n;       /* samples in the learning window               */
+    int32_t  w_min;     /* learning window: lowest, highest, sum        */
+    int32_t  w_max;
+    int32_t  w_sum;
+    int32_t  w_x16;     /* white level x 16                              */
+    int32_t  w_sd_x16;  /* white noise (standard deviation) x 16         */
+    uint16_t w_high;    /* samples black in a row outside a read         */
 } bc_edge_t;
 
 void bc_edge_reset(bc_edge_t * p_e, int32_t raw, uint32_t t_us);
@@ -157,6 +169,31 @@ uint8_t bc_edge_step(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
 uint8_t bc_edge_step_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
                          uint32_t pos, int32_t swing, int32_t floor,
                          uint32_t * p_edge_us, uint32_t * p_edge_pos);
+
+/*
+ * Adaptive edge finder (S3_BC_EDGE_ADAPT): the same rises and falls, but
+ * the thresholds come from L's learned white level W and noise sd:
+ *   m = S3_BC_NOISE_K x sd + S3_BC_NOISE_ADD  (G7's 3 sd + 8, a candidate)
+ *   a bar starts once L is m above the gap's valley AND above W + m;
+ *   a bar ends once L falls max(m, S3_BC_EDGE_FALL_PCT of the bar's
+ *   height) below its peak, or below W + m / 2.
+ * White is learned from S3_BC_WHITE_INIT_N samples in a row that stay
+ * within S3_BC_WHITE_INIT_SPREAD; no bar is found before that.  It is
+ * then updated on white samples within m of W while b_freeze is false
+ * (no read open), follows L down quickly when L sits below W - m outside
+ * a read, and is learned again (a bar still open is ended first) after
+ * bc_edge_relearn(), bc_edge_reset_pos(), a gap of more than
+ * S3_BC_WHITE_STALE_US between samples, or S3_BC_WHITE_RELEARN_SAMPLES
+ * of black outside a read.  Returns 1 when the level changed, like
+ * bc_edge_step_pos().
+ */
+uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                           uint32_t pos, bool b_freeze, uint32_t * p_edge_us,
+                           uint32_t * p_edge_pos);
+/* learn white again from the next sample (e.g. after a barcode rearm) */
+void bc_edge_relearn(bc_edge_t * p_e);
+/* m above (raw); 0 while white is not learned */
+int32_t bc_edge_margin(bc_edge_t const * p_e);
 
 /*
  * Barcode lock (S3_BC_LOCK, MY 2026-11-12): from the first bar of a
