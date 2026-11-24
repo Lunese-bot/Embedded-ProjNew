@@ -358,6 +358,15 @@ static void replay(void)
         printf("%s start=%d end=%d why=open-at-trace-end elems=%u span=%u white=%d margin=%d path=none out=incomplete(elements-now:%s)\n",
                g_name, read_start, g_n - 1, nw, g_pos - g_start_pos, (int)g_white, (int)g_margin,
                c39_err(res));
+        if (g_verbose)
+        {
+            uint32_t k;
+            printf("   counts:");
+            for (k = 0; k < nw; k++) { printf(" %u", WP[k]); }
+            printf("\n   ms:");
+            for (k = 0; k < nw; k++) { printf(" %u", W[k] / 1000u); }
+            printf("\n");
+        }
         n_open++;
     }
     printf("%s SUMMARY starts=%d letters=%d [%s] rejected=%d incomplete=%d\n", g_name,
