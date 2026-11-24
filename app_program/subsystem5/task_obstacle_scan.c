@@ -155,7 +155,7 @@ static void do_scan(void)
     s5_store_profile(&prof);
 }
 
-#if S5_SIDE_PASS
+#if S5_SIDE_PASS || S5_LENGTH_OBSERVE
 /* The side-look angle must be one the servo is allowed to reach. */
 _Static_assert((S5_SIDE_LOOK_DEG > 0) && (S5_SIDE_LOOK_DEG <= SERVO_MAX_DEG),
                "S5_SIDE_LOOK_DEG exceeds SERVO_MAX_DEG (the validated servo limit)");

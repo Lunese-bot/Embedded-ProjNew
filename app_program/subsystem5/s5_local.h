@@ -85,6 +85,7 @@ extern void s5_note_ping(uint16_t dist_mm);
 extern void s5_count_obstacle(void);
 extern void s5_count_avoid_ok(void);
 extern void s5_store_profile(const s5_profile_t * p_profile);
+extern void s5_report_store(const s5_obst_report_t * p_rec); /* avoid task */
 extern void s5_load_profile(s5_profile_t * p_profile);
 
 /* Side look (measured pass).  Avoid task: request / end / read.  Scan task:

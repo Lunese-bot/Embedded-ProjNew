@@ -57,6 +57,18 @@ uint32_t s2_imu_stop_cause(uint32_t stop_epoch) { (void)stop_epoch; return g_s2_
 uint32_t s2_stop_epoch(void) { return 0u; }
 #include "../../../app_program/vehicle_controller/vc_bridge_s2.c"
 #include "../../../app_program/subsystem5/obstacle_logic.c"
+#include "../../../app_program/subsystem5/s5_obst_report.c"
+/* Obstacle report and the report-only side look (S5_LENGTH_OBSERVE).  This
+   suite checks that the bypass motion is unchanged with it on; the side
+   look here never produces a reading, as on a robot whose sensor sees
+   nothing sideways. */
+static s5_obst_report_t g_nav_report;
+static int32_t g_nav_side_requests, g_nav_side_ends;
+void s5_report_store(const s5_obst_report_t *p) { g_nav_report = *p; }
+void s5_side_request(int32_t deg) { (void)deg; g_nav_side_requests++; }
+void s5_side_end(void) { g_nav_side_ends++; }
+bool s5_side_read(s5_side_reading_t *r) { *r = (s5_side_reading_t){ 0 }; return false; }
+uint32_t s5_port_odo_mm(void) { return 0U; }
 
 typedef enum
 {

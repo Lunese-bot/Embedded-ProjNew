@@ -146,6 +146,9 @@ ER s5_send_critical_to(ID id, s5_evt_t *e) { (void)id; return s5_send_evt(e); }
 ER tk_snd_mbf(ID id, const void *m, int32_t s, TMO t) { (void)id; (void)m; (void)s; (void)t; return E_OK; }
 
 #include "../../../app_program/subsystem5/obstacle_logic.c"
+#include "../../../app_program/subsystem5/s5_obst_report.c"
+static s5_obst_report_t g_task_report;
+void s5_report_store(const s5_obst_report_t *p) { g_task_report = *p; }
 
 /* side-look scan task stand-in: one reading per 20 ms once armed */
 static void side_pump(void)

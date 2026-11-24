@@ -72,6 +72,18 @@ _Static_assert(S5_DETECT_MM >= S5_STOP_NEEDED_MM,
 #define S5_SIDE_PASS 0 /* 0 = fixed-depth pass as before */
 #endif
 
+/* Length observation only (owner 2026-11-24, reporting task).  With the
+   measured pass OFF, the fixed-depth pass leg still points the ultrasonic
+   sideways and runs the same tracker, but ONLY to report the obstacle's
+   length (s5_obst_report.h).  The motion requests, their distances and
+   their order are exactly those of the fixed-depth bypass: the tracker
+   never ends, extends or stops the leg (no cap, no gap guard).  0 = the
+   servo stays centred during the bypass and length is reported
+   "unavailable: side look off in this build". */
+#ifndef S5_LENGTH_OBSERVE
+#define S5_LENGTH_OBSERVE 1
+#endif
+
 /* Extra gap (mm) kept between the robot and the obstacle's rear corner at
    turn-in.  Approved by the owner 2026-11-24 at 30 mm.  This is the ONE
    place to change it if the robot clips the corner (larger = turns in
@@ -180,7 +192,8 @@ typedef struct
     uint8_t         search_line; /* 1 = stop early when line seen */
     /* Measured pass (S5_SIDE_PASS).  m.distance_mm stays the fixed-depth
        distance: it is the fallback when the side echo never appears. */
-    uint8_t         side_track;  /* 1 = look sideways and end by measurement */
+    uint8_t         side_track;  /* 1 = look sideways and end by measurement;
+                                    2 = look sideways to report length only */
     int8_t          look_deg;    /* servo angle, + = left (towards the obstacle) */
     uint16_t        cap_mm;      /* rear corner must be seen before this travel */
     uint16_t        request_mm;  /* distance actually requested from motion */
@@ -260,9 +273,11 @@ typedef struct
     int32_t   target_mm;   /* axle travel at which the turn-in starts */
     int32_t   depth_mm;    /* observed span along the line            */
     int32_t   decided_mm;  /* travel when the rear was declared        */
+    uint8_t   observe;     /* 1 = report only: never CAP, never TOO_CLOSE */
+    int32_t   seen_from_mm;/* observe: travel at the first fresh reading, -1 = none yet */
 } s5_pass_t;
 
-#if S5_SIDE_PASS
+#if S5_SIDE_PASS || S5_LENGTH_OBSERVE
 extern void s5_geom_from_config(s5_geom_t * p_geom); /* owner's constants */
 #endif
 
@@ -284,6 +299,23 @@ extern int32_t s5_pivot_min_axle_mm(const s5_geom_t * p_geom, int32_t gap_mm);
 
 extern void s5_pass_init(s5_pass_t * p_pass, const s5_geom_t * p_geom,
                          int32_t look_deg, int32_t fallback_mm, int32_t cap_mm);
+
+/* Report-only tracker for the fixed-depth leg (S5_LENGTH_OBSERVE):
+   leg_mm = the fixed pass distance.  It still records first / last echo
+   and the span, but has no cap and no gap guard; "partial" is judged
+   from the first reading actually received (the side look may start a
+   little after the wheels). */
+extern void s5_pass_init_observe(s5_pass_t * p_pass, const s5_geom_t * p_geom,
+                                 int32_t look_deg, int32_t leg_mm);
+
+/* What the tracker says about the obstacle's length after (or during)
+   a pass leg.  b_leg_over = the leg has ended; b_any_reading = at least
+   one side reading arrived.  Returns MEASURING while it is still open
+   (only when !b_leg_over), else MEASURED / PARTIAL with *p_len_mm =
+   depth_mm, or UNAVAILABLE with *p_reason. */
+extern s5_or_length_t s5_pass_length(const s5_pass_t * p_pass, bool b_leg_over,
+                                     bool b_any_reading, int32_t * p_len_mm,
+                                     s5_or_reason_t * p_reason);
 
 /* Feed one poll.  travel_mm = forward travel since the pass began.
    p_reading may be NULL or repeat an earlier seq (not counted twice);

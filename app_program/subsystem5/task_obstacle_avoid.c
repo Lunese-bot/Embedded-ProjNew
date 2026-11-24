@@ -46,6 +46,61 @@ typedef struct
 static pass_ctx_t      g_pass;
 static s5_pass_phase_t g_pass_why; /* final tracker phase of the last pass leg */
 
+/* Obstacle size report of the running encounter (s5_obst_report.h).  Only
+   stored for S1 to read; S5 never waits for MQTT. */
+static s5_obst_report_t g_report;
+static uint16_t         g_report_id;
+static bool             g_observing;     /* the report-only side look is running */
+static bool             g_obs_reading;   /* it produced at least one reading     */
+static bool             g_length_done;   /* length already resolved this encounter */
+static step_result_t    g_bypass_result; /* how the bypass ended (final reason)  */
+
+/* Store the record for S1 and print it on USB with the exact MQTT frame,
+   so the USB console and the dashboard can be compared byte for byte. */
+static void report_publish(void)
+{
+    uint8_t frame[S5_OR_BYTES];
+    char    hex[(2 * S5_OR_BYTES) + 1];
+    int32_t idx;
+    static const char digits[] = "0123456789abcdef";
+
+    s5_report_store(&g_report);
+    s5_or_encode(&g_report, frame);
+    for (idx = 0; idx < S5_OR_BYTES; idx++)
+    {
+        hex[2 * idx]       = digits[frame[idx] >> 4];
+        hex[(2 * idx) + 1] = digits[frame[idx] & 0x0FU];
+    }
+    hex[2 * S5_OR_BYTES] = '\0';
+    tm_printf((uint8_t *)"s5: obstacle #%d rev %d %s: front %d mm, width %d mm (%s), "
+                         "length %d mm (%s, %s) | frame %s\n",
+              g_report.profile_id, g_report.rev, s5_or_stage_name(g_report.stage),
+              g_report.front_mm, g_report.width_mm,
+              s5_or_width_name(g_report.width_status), g_report.length_mm,
+              s5_or_length_name(g_report.length_status),
+              s5_or_reason_name(g_report.length_reason), hex);
+}
+
+/* Resolve the length once per encounter from the pass tracker. */
+static void report_length(bool b_leg_over, bool b_any_reading)
+{
+    int32_t        len_mm;
+    s5_or_reason_t why;
+    s5_or_length_t st;
+
+    if (g_length_done)
+    {
+        return;
+    }
+    st = s5_pass_length(&g_pass.pass, b_leg_over, b_any_reading, &len_mm, &why);
+    if (S5_OR_L_MEASURING != st)
+    {
+        g_length_done = true;
+        s5_or_length(&g_report, st, len_mm, why);
+        report_publish();
+    }
+}
+
 #define S5_DEFAULT_SPEED_MM_S 100 /* used when a move gives no speed */
 #define S5_MS_PER_S           1000U
 
@@ -215,6 +270,23 @@ static bool pass_poll(step_result_t * p_result)
 #endif
 }
 
+/* One poll of the report-only side look (S5_LENGTH_OBSERVE).  Feeds the
+   tracker and publishes the length as soon as the rear edge is seen.
+   Changes nothing about the motion. */
+static void observe_poll(void)
+{
+    s5_side_reading_t reading;
+    int32_t           travel_mm;
+
+    if (s5_side_read(&reading) && (0U != reading.seq))
+    {
+        g_obs_reading = true;
+    }
+    travel_mm = (int32_t)(s5_port_odo_mm() - g_pass.odo0_mm);
+    (void)s5_pass_update(&g_pass.pass, travel_mm, &reading);
+    report_length(false, g_obs_reading);
+}
+
 /* Send one step and wait for it to finish.  p_pass != NULL: also run the
    measured-pass tracker every period and end the step early with
    STEP_PASS_END / STEP_PASS_BLOCKED (the caller then stops the car). */
@@ -247,7 +319,8 @@ static step_result_t run_motion_ex(const s5_step_t * p_step, bool b_pass)
         TMO    waited;
 
         /* search steps poll the line sensors every period */
-        slice = ((0U != p_step->search_line) || b_pass) ? S5_PERIOD_MS : left;
+        slice = ((0U != p_step->search_line) || b_pass || g_observing)
+                    ? S5_PERIOD_MS : left;
         if (slice > left)
         {
             slice = left;
@@ -281,7 +354,10 @@ static step_result_t run_motion_ex(const s5_step_t * p_step, bool b_pass)
         }
         else
         {
-            /* nothing yet: keep waiting */
+            if (g_observing)
+            {
+                observe_poll(); /* report only: never ends the step */
+            }
         }
     }
     return result;
@@ -334,6 +410,12 @@ static step_result_t run_pass_step(const s5_step_t * p_step)
         s5_side_end();
         tm_printf((uint8_t *)"s5: side look unavailable, depth assumed (fixed pass %d mm)\n",
                   p_step->m.distance_mm);
+        if (!g_length_done)
+        {
+            g_length_done = true;
+            s5_or_length(&g_report, S5_OR_L_UNAVAILABLE, 0, S5_OR_R_LOOK_FAILED);
+            report_publish();
+        }
         return run_motion(&fixed);
     }
     g_pass.odo0_mm = s5_port_odo_mm();
@@ -341,6 +423,10 @@ static step_result_t run_pass_step(const s5_step_t * p_step)
               p_step->look_deg, p_step->m.distance_mm, p_step->cap_mm);
     result = run_motion_ex(p_step, true);
     s5_side_end(); /* the servo returns to centre; never delays the stop */
+    if (STEP_ABORT != result)
+    {
+        report_length(true, true);
+    }
     if ((STEP_PASS_END == result) || (STEP_PASS_BLOCKED == result))
     {
         step_result_t stopped = run_motion(&g_stop_step);
@@ -376,13 +462,57 @@ static step_result_t run_pass_step(const s5_step_t * p_step)
 #endif
 }
 
+/* The fixed-depth pass leg with the report-only side look.  The motion
+   request is the plan's own (same distance, speed and order) and is sent
+   at once: the side look starts in parallel and its first readings may
+   come a little after the wheels start (then "partial" is judged from the
+   first reading received). */
+static step_result_t run_observe_step(const s5_step_t * p_step)
+{
+#if S5_LENGTH_OBSERVE && !S5_SIDE_PASS
+    s5_geom_t     geom;
+    s5_step_t     leg = *p_step;
+    step_result_t result;
+
+    leg.side_track = 0U;
+    s5_geom_from_config(&geom);
+    s5_pass_init_observe(&g_pass.pass, &geom, S5_SIDE_LOOK_DEG, p_step->m.distance_mm);
+    g_pass.odo0_mm = s5_port_odo_mm();
+    g_obs_reading  = false;
+    s5_side_request(p_step->look_deg);
+    g_observing = true;
+    result = run_motion(&leg);
+    g_observing = false;
+    s5_side_end(); /* the servo returns to centre in the scan task */
+    if (STEP_DONE == result)
+    {
+        observe_poll(); /* the last reading before the leg ended */
+        report_length(true, g_obs_reading);
+        tm_printf((uint8_t *)"s5: length observe: first echo %d mm last echo %d mm span %d mm, "
+                             "phase %d (fixed pass %d mm, depth assumed for planning)\n",
+                  g_pass.pass.first_mm, g_pass.pass.last_mm, g_pass.pass.depth_mm,
+                  g_pass.pass.phase, p_step->m.distance_mm);
+    }
+    return result;
+#else
+    s5_step_t leg = *p_step;
+
+    leg.side_track = 0U;
+    return run_motion(&leg);
+#endif
+}
+
 /* Finish braking before acting on a sighting. The line can slip out from
    under the sensors while the wheels slow down. */
 static step_result_t run_step(const s5_step_t * p_step)
 {
     step_result_t result;
 
-    if (0U != p_step->side_track)
+    if ((2U == p_step->side_track) && (0U == p_step->search_line))
+    {
+        return run_observe_step(p_step); /* the pass leg never searches the line */
+    }
+    if (1U == p_step->side_track)
     {
         return run_pass_step(p_step);
     }
@@ -666,6 +796,30 @@ static bool search_missed(step_result_t result)
     return (STEP_NO_LINE == result) || (STEP_LINE_LOST == result);
 }
 
+/* Width as soon as the front profile is ready.  The scan covered the
+   coarse angles (s5_coarse_angles): an edge at either end of that range
+   makes the width a lower bound. */
+static void report_front(const s5_profile_t * p_prof)
+{
+    int8_t ang[8];
+    int32_t n = s5_coarse_angles(ang, (int32_t)sizeof(ang));
+    bool    b_follow = (0U != p_prof->valid) &&
+                       (S5_SIDE_NONE != (s5_side_t)p_prof->bypass_side) &&
+                       ((0 != S5_SIDE_PASS) || (0 != S5_LENGTH_OBSERVE));
+    s5_or_reason_t why = ((0 == S5_SIDE_PASS) && (0 == S5_LENGTH_OBSERVE))
+                             ? S5_OR_R_OBSERVE_OFF : S5_OR_R_NO_BYPASS;
+
+    s5_or_front(&g_report, p_prof->valid, p_prof->distance_mm,
+                p_prof->right_edge_deg, p_prof->left_edge_deg, p_prof->width_mm,
+                p_prof->bypass_side, (n > 0) ? ang[0] : 0, (n > 0) ? ang[n - 1] : 0,
+                b_follow, why);
+    if (!b_follow)
+    {
+        g_length_done = true;
+    }
+    report_publish();
+}
+
 /* 1. Ask the scan task for a profile.  Returns true when there is an
    obstacle to go round; otherwise the outcome is already reported. */
 static bool get_profile(s5_profile_t * p_prof)
@@ -685,6 +839,7 @@ static bool get_profile(s5_profile_t * p_prof)
     else
     {
         s5_load_profile(p_prof);
+        report_front(p_prof);
         evt.type      = S5_EVT_PROFILE_READY;
         evt.u.profile = *p_prof;
         s5_send_evt(&evt);
@@ -761,7 +916,7 @@ static void bypass(const s5_profile_t * p_prof)
     count = s5_plan_bypass(p_prof, plan, S5_PLAN_MAX);
     if (S5_SIDE_NONE == p_prof->bypass_side)
     {
-        (void)run_plan(plan, count, S5_ST_SEARCH_LINE); /* stop + back off */
+        g_bypass_result = run_plan(plan, count, S5_ST_SEARCH_LINE); /* stop + back off */
         report(S5_EVT_AVOID_FAILED, S5_FAULT_BLOCKED);
     }
     else
@@ -794,6 +949,7 @@ static void bypass(const s5_profile_t * p_prof)
             tm_printf((uint8_t *)"s5: final %d mm line search\n", S5_EXTRA_SEARCH_MM);
             result = retry_search(S5_EXTRA_SEARCH_MM, S5_ST_LINE_RECOVERY);
         }
+        g_bypass_result = result;
         report_result(result);
     }
 }
@@ -803,12 +959,30 @@ static void avoid_obstacle(void)
     s5_profile_t prof;
     UINT         flg;
 
+    SYSTIM       t0;
+
     g_heading_deg = 0;
+
+    /* a new encounter: nothing of the previous obstacle is carried over */
+    tk_get_tim(&t0);
+    g_report_id     = s5_or_next_id(g_report_id);
+    g_length_done   = false;
+    g_observing     = false;
+    g_bypass_result = STEP_DONE;
+    s5_or_begin(&g_report, g_report_id, t0.lo);
+    report_publish();
 
     if (get_profile(&prof))
     {
         bypass(&prof);
     }
+    s5_or_final(&g_report, (STEP_ABORT == g_bypass_result) ? S5_OR_R_ABORTED
+                           : ((STEP_FAILED == g_bypass_result) ||
+                              (STEP_TIMEOUT == g_bypass_result) ||
+                              (STEP_PASS_BLOCKED == g_bypass_result))
+                                 ? S5_OR_R_BYPASS_FAILED
+                                 : S5_OR_R_NO_BYPASS);
+    report_publish();
 
     /* 5. back to monitoring (or idle when the controller disabled us) */
     s5_set_state(

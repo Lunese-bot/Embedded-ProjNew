@@ -142,6 +142,28 @@ ER s5_get_status_packed(uint16_t * p_word)
     return E_OK;
 }
 
+/* ---- obstacle size report (s5_obst_report.h): written by the avoid
+   task, read by S1's telemetry task.  Same mutex as the status. ---- */
+static s5_obst_report_t g_s5_report;
+
+ER s5_get_obstacle_report(s5_obst_report_t * p_out)
+{
+    ER ercd;
+
+    if (NULL == p_out)
+    {
+        return E_PAR;
+    }
+    ercd = tk_loc_mtx(g_mtx_s5, S5_STATUS_TMO_MS);
+    if (ercd < E_OK)
+    {
+        return ercd;
+    }
+    *p_out = g_s5_report;
+    tk_unl_mtx(g_mtx_s5);
+    return E_OK;
+}
+
 /* Lock / unlock the status snapshot.  BARR-C 6.3: functions, not a
    statement macro. */
 static bool s5_lock(void)
@@ -152,6 +174,15 @@ static bool s5_lock(void)
 static void s5_unlock(void)
 {
     tk_unl_mtx(g_mtx_s5);
+}
+
+void s5_report_store(const s5_obst_report_t * p_rec)
+{
+    if (s5_lock())
+    {
+        g_s5_report = *p_rec;
+        s5_unlock();
+    }
 }
 
 /* ---- side-look sample, shared by the scan task (writer) and the

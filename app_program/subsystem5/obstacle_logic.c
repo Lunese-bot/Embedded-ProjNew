@@ -262,7 +262,7 @@ static int32_t diagonal_distance_mm(int32_t lateral_mm, int32_t angle_deg)
     return (lateral_mm * 1000 + sine - 1) / sine;
 }
 
-#if S5_SIDE_PASS
+#if S5_SIDE_PASS || S5_LENGTH_OBSERVE
 void s5_geom_from_config(s5_geom_t * p_geom)
 {
     p_geom->servo_ahead_mm  = S5_SERVO_AHEAD_MM;
@@ -354,6 +354,61 @@ void s5_pass_init(s5_pass_t * p_pass, const s5_geom_t * p_geom,
     p_pass->min_gap_mm  = 0x7FFF;
 }
 
+void s5_pass_init_observe(s5_pass_t * p_pass, const s5_geom_t * p_geom,
+                          int32_t look_deg, int32_t leg_mm)
+{
+    s5_pass_init(p_pass, p_geom, look_deg, leg_mm, leg_mm);
+    p_pass->observe      = 1U;
+    p_pass->cap_mm       = 0x3FFFFFFF; /* never: the motion ends the leg */
+    p_pass->seen_from_mm = -1;
+}
+
+s5_or_length_t s5_pass_length(const s5_pass_t * p_pass, bool b_leg_over,
+                              bool b_any_reading, int32_t * p_len_mm,
+                              s5_or_reason_t * p_reason)
+{
+    s5_or_length_t status = S5_OR_L_UNAVAILABLE;
+
+    *p_len_mm = 0;
+    *p_reason = S5_OR_R_NONE;
+    switch ((s5_pass_phase_t)p_pass->phase)
+    {
+        case S5_PASS_PASSED:
+        case S5_PASS_CLEARED:
+            status    = (0U != p_pass->partial) ? S5_OR_L_PARTIAL : S5_OR_L_MEASURED;
+            *p_len_mm = p_pass->depth_mm;
+            break;
+        case S5_PASS_SENSOR_FAULT:
+            *p_reason = S5_OR_R_SENSOR_FAULT;
+            break;
+        case S5_PASS_ALONGSIDE:
+        case S5_PASS_CAP:
+        case S5_PASS_TOO_CLOSE:
+            if (b_leg_over || (S5_PASS_ALONGSIDE != (s5_pass_phase_t)p_pass->phase))
+            {
+                *p_reason = S5_OR_R_REAR_NOT_SEEN;
+            }
+            else
+            {
+                status = S5_OR_L_MEASURING;
+            }
+            break;
+        case S5_PASS_SEEKING:
+        case S5_PASS_FALLBACK:
+        default:
+            if (!b_leg_over && (S5_PASS_SEEKING == (s5_pass_phase_t)p_pass->phase))
+            {
+                status = S5_OR_L_MEASURING;
+            }
+            else
+            {
+                *p_reason = b_any_reading ? S5_OR_R_NO_SIDE_ECHO : S5_OR_R_LOOK_FAILED;
+            }
+            break;
+    }
+    return status;
+}
+
 static int32_t pass_gap_mm(const s5_pass_t * p_pass, int32_t range_mm)
 {
     /* The nearest return in the cone comes from the ray closest to the
@@ -376,7 +431,8 @@ static void pass_note_echo(s5_pass_t * p_pass, int32_t travel_mm, int32_t range_
     {
         p_pass->min_gap_mm = gap_mm;
     }
-    if (gap_mm < (p_pass->geom.half_width_mm + S5_SIDE_GUARD_MM))
+    if ((0U == p_pass->observe) &&
+        (gap_mm < (p_pass->geom.half_width_mm + S5_SIDE_GUARD_MM)))
     {
         p_pass->phase = (uint8_t)S5_PASS_TOO_CLOSE;
     }
@@ -399,7 +455,15 @@ static void pass_rear_found(s5_pass_t * p_pass, int32_t travel_mm)
     {
         p_pass->depth_mm = 0;
     }
-    p_pass->partial   = (p_pass->first_mm <= S5_SIDE_PARTIAL_MM) ? 1U : 0U;
+    if (0U != p_pass->observe)
+    {
+        p_pass->partial = (p_pass->first_mm <= (p_pass->seen_from_mm + S5_SIDE_PARTIAL_MM))
+                              ? 1U : 0U;
+    }
+    else
+    {
+        p_pass->partial = (p_pass->first_mm <= S5_SIDE_PARTIAL_MM) ? 1U : 0U;
+    }
     p_pass->decided_mm = travel_mm;
     p_pass->target_mm = p_pass->rear_mm +
                         pass_clear_mm(&p_pass->geom, p_pass->min_gap_mm);
@@ -420,6 +484,10 @@ s5_pass_phase_t s5_pass_update(s5_pass_t * p_pass, int32_t travel_mm,
 
     if (b_fresh)
     {
+        if ((0U != p_pass->observe) && (p_pass->seen_from_mm < 0))
+        {
+            p_pass->seen_from_mm = travel_mm;
+        }
         p_pass->last_seq = p_reading->seq;
         b_fault = (S5_SIDE_ST_FAULT == p_reading->status);
         range_mm = p_reading->mm;
@@ -568,6 +636,13 @@ int32_t s5_plan_bypass(const s5_profile_t * p_profile, s5_step_t * p_plan,
         p_pass->look_deg   = (int8_t)(-sign * S5_SIDE_LOOK_DEG);
         p_pass->cap_mm     = (uint16_t)cap_mm;
         p_pass->request_mm = (uint16_t)((request > 65535) ? 65535 : request);
+    }
+#elif S5_LENGTH_OBSERVE
+    if (count > 0)
+    {
+        /* report only: same motion, distance and speed as before */
+        p_plan[count - 1].side_track = 2U;
+        p_plan[count - 1].look_deg   = (int8_t)(-sign * S5_SIDE_LOOK_DEG);
     }
 #endif
     count = add_step(p_plan, count, max, S5_MOVE_TURN,

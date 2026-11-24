@@ -42,6 +42,7 @@
 
 #include "../app.h"
 #include "s5_pack.h" /* 16-bit telemetry word */
+#include "s5_obst_report.h" /* obstacle size report and its MQTT frame */
 
 /* ---------------------------------------------------------------------
  *  Pins (design review section 2; claim them in TEAM.md section 2)
@@ -198,6 +199,12 @@ extern ER s5_get_status(s5_status_t * p_out);
    one 16-bit word (layout in s5_pack.h).  Safe from any task.
    Returns E_OK, or the error from s5_get_status (then *p_word = 0). */
 extern ER s5_get_status_packed(uint16_t * p_word);
+
+/* Obstacle size report of the newest encounter (s5_obst_report.h);
+   profile_id 0 = none since boot.  Safe from any task (locks a mutex,
+   at most 100 ms).  S1 polls it and publishes changes on MQTT, so S5
+   never waits for the network. */
+extern ER s5_get_obstacle_report(s5_obst_report_t * p_out);
 
 /* Hooks to other subsystems.  Defined __attribute__((weak)) in
    s5_ports.c; the owning subsystem overrides them with a real one. */
