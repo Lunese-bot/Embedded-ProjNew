@@ -265,7 +265,8 @@ static int32_t diagonal_distance_mm(int32_t lateral_mm, int32_t angle_deg)
 #if S5_SIDE_PASS
 void s5_geom_from_config(s5_geom_t * p_geom)
 {
-    p_geom->us_to_axle_mm   = S5_US_TO_AXLE_MM;
+    p_geom->servo_ahead_mm  = S5_SERVO_AHEAD_MM;
+    p_geom->arm_mm          = S5_SERVO_ARM_MM;
     p_geom->rear_mm         = S5_REAR_OVERHANG_MM;
     p_geom->front_mm        = S5_FRONT_OVERHANG_MM;
     p_geom->half_width_mm   = S5_ROBOT_HALF_WIDTH_MM;
@@ -316,6 +317,16 @@ int32_t s5_pivot_min_axle_mm(const s5_geom_t * p_geom, int32_t gap_mm)
     return need;
 }
 
+int32_t s5_sensor_along_mm(const s5_geom_t * p_geom, int32_t look_deg)
+{
+    return p_geom->servo_ahead_mm + (p_geom->arm_mm * s5_sin1000(90 - look_deg)) / 1000;
+}
+
+int32_t s5_sensor_lateral_mm(const s5_geom_t * p_geom, int32_t look_deg)
+{
+    return (p_geom->arm_mm * s5_sin1000(look_deg)) / 1000;
+}
+
 static int32_t pass_clear_mm(const s5_geom_t * p_geom, int32_t gap_mm)
 {
     int32_t body  = p_geom->rear_mm + p_geom->margin_mm;
@@ -328,7 +339,7 @@ int32_t s5_pass_tail_max_mm(const s5_geom_t * p_geom, int32_t look_deg)
 {
     int32_t reach = (s5_side_window_mm(look_deg) * s5_sin1000(90 - look_deg)) / 1000;
 
-    return p_geom->us_to_axle_mm + reach +
+    return s5_sensor_along_mm(p_geom, look_deg) + reach +
            pass_clear_mm(p_geom, p_geom->half_width_mm + S5_SIDE_GUARD_MM);
 }
 
@@ -350,7 +361,8 @@ static int32_t pass_gap_mm(const s5_pass_t * p_pass, int32_t range_mm)
        beam half-width from the HC-SR04 data sheet; bench step b checks it). */
     int32_t deg = p_pass->look_deg + S5_SIDE_BEAM_HALF_DEG;
 
-    return (range_mm * s5_sin1000((deg > 90) ? 90 : deg)) / 1000;
+    return s5_sensor_lateral_mm(&p_pass->geom, p_pass->look_deg) +
+           (range_mm * s5_sin1000((deg > 90) ? 90 : deg)) / 1000;
 }
 
 static void pass_note_echo(s5_pass_t * p_pass, int32_t travel_mm, int32_t range_mm)
@@ -373,14 +385,14 @@ static void pass_note_echo(s5_pass_t * p_pass, int32_t travel_mm, int32_t range_
 static void pass_rear_found(s5_pass_t * p_pass, int32_t travel_mm)
 {
     int32_t cosine = s5_sin1000(90 - p_pass->look_deg);
-    int32_t front  = p_pass->first_mm + p_pass->geom.us_to_axle_mm +
+    int32_t front  = p_pass->first_mm + s5_sensor_along_mm(&p_pass->geom, p_pass->look_deg) +
                      (p_pass->first_range_mm * cosine) / 1000;
 
     /* Beam reach: at a shallow look angle the echo ends before the sensor
        is level with the rear corner, by range x cos(angle).  last_mm is
        the travel at the last CONFIRMED echo, so the debounce delay after
        it only makes the decision later, never the corner earlier. */
-    p_pass->rear_mm = p_pass->last_mm + p_pass->geom.us_to_axle_mm +
+    p_pass->rear_mm = p_pass->last_mm + s5_sensor_along_mm(&p_pass->geom, p_pass->look_deg) +
                       (p_pass->last_range_mm * cosine) / 1000;
     p_pass->depth_mm = p_pass->rear_mm - front;
     if (p_pass->depth_mm < 0)

@@ -63,7 +63,8 @@ _Static_assert(S5_DETECT_MM >= S5_STOP_NEEDED_MM,
  *
  *  OFF by default.  It needs robot dimensions that only the owner can
  *  measure, so there are NO default values: to enable it define
- *  S5_SIDE_PASS 1 together with S5_US_TO_AXLE_MM, S5_REAR_OVERHANG_MM,
+ *  S5_SIDE_PASS 1 together with S5_SERVO_AHEAD_MM (axle to servo shaft),
+ *  S5_SERVO_ARM_MM (servo shaft to the sensor midpoint), S5_REAR_OVERHANG_MM,
  *  S5_FRONT_OVERHANG_MM (mm, each with its
  *  measurement date) and S5_SIDE_LOOK_DEG (<= the validated servo limit;
  *  checked at compile time in task_obstacle_scan.c). */
@@ -81,7 +82,8 @@ _Static_assert(S5_DETECT_MM >= S5_STOP_NEEDED_MM,
 _Static_assert((S5_PIVOT_MARGIN_MM >= 0) && (S5_PIVOT_MARGIN_MM <= 100),
                "S5_PIVOT_MARGIN_MM must be 0..100 mm");
 #if S5_SIDE_PASS
-#if !defined(S5_US_TO_AXLE_MM) || !defined(S5_REAR_OVERHANG_MM) || \
+#if !defined(S5_SERVO_AHEAD_MM) || !defined(S5_SERVO_ARM_MM) || \
+    !defined(S5_REAR_OVERHANG_MM) || \
     !defined(S5_FRONT_OVERHANG_MM) || \
     !defined(S5_SIDE_LOOK_DEG)
 #error "S5_SIDE_PASS needs the owner's measured robot dimensions (see obstacle_logic.h)"
@@ -102,7 +104,8 @@ _Static_assert((S5_PIVOT_MARGIN_MM >= 0) && (S5_PIVOT_MARGIN_MM <= 100),
    constants in firmware; host tests pass their own fixture values. */
 typedef struct
 {
-    int32_t us_to_axle_mm;   /* ultrasonic face ahead of the axle  */
+    int32_t servo_ahead_mm;  /* axle to the servo shaft, along the robot */
+    int32_t arm_mm;          /* servo shaft to the sensor midpoint       */
     int32_t rear_mm;         /* rear of the body behind the axle   */
     int32_t front_mm;        /* front of the body ahead of the axle */
     int32_t half_width_mm;
@@ -228,6 +231,11 @@ typedef struct
 #if S5_SIDE_PASS
 extern void s5_geom_from_config(s5_geom_t * p_geom); /* owner's constants */
 #endif
+
+/* Sensor position for a look angle: forward of the axle, and sideways of
+   the centre line towards the obstacle (sensor on the centre line, inferred). */
+extern int32_t s5_sensor_along_mm(const s5_geom_t * p_geom, int32_t look_deg);
+extern int32_t s5_sensor_lateral_mm(const s5_geom_t * p_geom, int32_t look_deg);
 
 /* Largest range accepted as "the obstacle side" for this look angle. */
 extern int32_t s5_side_window_mm(int32_t look_deg);

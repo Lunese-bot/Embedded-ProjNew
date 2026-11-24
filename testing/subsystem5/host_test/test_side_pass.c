@@ -16,7 +16,8 @@ typedef int ID;
 typedef int ER;
 
 #define S5_SIDE_PASS 1
-#define S5_US_TO_AXLE_MM 100     /* fixture */
+#define S5_SERVO_AHEAD_MM 70     /* fixture */
+#define S5_SERVO_ARM_MM 60       /* fixture */
 #define S5_REAR_OVERHANG_MM 100  /* fixture */
 #define S5_FRONT_OVERHANG_MM 100 /* fixture */
 #define S5_PIVOT_MARGIN_MM 30    /* fixture */
@@ -98,7 +99,7 @@ static void test_tracker(void)
     CHECK(feed(&p, &t, &q, 3, S5_SIDE_ST_NO_ECHO, 0) == S5_PASS_ALONGSIDE);
     /* ... but silence over S5_SIDE_LOST_MM is */
     CHECK(feed(&p, &t, &q, 10, S5_SIDE_ST_NO_ECHO, 0) == S5_PASS_PASSED);
-    CHECK(p.rear_mm == p.last_mm + 100 + (104 * 500) / 1000);
+    CHECK(p.rear_mm == p.last_mm + s5_sensor_along_mm(&g_geom, S5_SIDE_LOOK_DEG) + (104 * 500) / 1000);
     CHECK(p.target_mm > p.rear_mm && p.decided_mm > p.last_mm && p.partial == 1);
     /* PASSED -> CLEARED exactly at the target, once */
     s5_side_reading_t none = rd(0, 0, 0);
@@ -122,7 +123,7 @@ static void test_tracker(void)
 
     /* insufficient gap: closer than half-width + guard */
     new_pass(&p, 500, 1000); t = 0; q = 0;
-    uint16_t close = (uint16_t)(((S5_ROBOT_HALF_WIDTH_MM + S5_SIDE_GUARD_MM - 5) * 1000) / s5_sin1000(S5_SIDE_LOOK_DEG + S5_SIDE_BEAM_HALF_DEG));
+    uint16_t close = (uint16_t)(((S5_ROBOT_HALF_WIDTH_MM + S5_SIDE_GUARD_MM - 5 - s5_sensor_lateral_mm(&g_geom, S5_SIDE_LOOK_DEG)) * 1000) / s5_sin1000(S5_SIDE_LOOK_DEG + S5_SIDE_BEAM_HALF_DEG));
     CHECK(feed(&p, &t, &q, 3, S5_SIDE_ST_ECHO, close) == S5_PASS_TOO_CLOSE);
     new_pass(&p, 500, 1000); t = 0; q = 0;
     feed(&p, &t, &q, 6, S5_SIDE_ST_ECHO, good);
@@ -149,7 +150,9 @@ static int32_t iabs(int32_t v) { return v < 0 ? -v : v; }
    from forward towards +u. */
 static uint16_t sim_range(const box_t *b, int32_t axle_x)
 {
-    int32_t xs = axle_x + g_geom.us_to_axle_mm;
+    int32_t xs = axle_x + s5_sensor_along_mm(&g_geom, S5_SIDE_LOOK_DEG);
+    int32_t lat = s5_sensor_lateral_mm(&g_geom, S5_SIDE_LOOK_DEG);
+    int32_t face = b->gap - lat;
     int32_t best = 0;
     for (int d = -15; d <= 15; d += 5)
     {
@@ -157,10 +160,10 @@ static uint16_t sim_range(const box_t *b, int32_t axle_x)
         if (deg > 89) { deg = 89; }
         int32_t sn = s5_sin1000(deg), cs = s5_sin1000(90 - deg);
         /* ray hits u = gap at x = xs + gap * cos/sin */
-        int32_t xh = xs + (b->gap * cs) / sn;
+        int32_t xh = xs + (face * cs) / sn;
         if (xh >= 0 && xh <= b->depth)
         {
-            int32_t r = (b->gap * 1000) / sn;
+            int32_t r = (face * 1000) / sn;
             if (best == 0 || r < best) { best = r; }
         }
     }

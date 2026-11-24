@@ -29,7 +29,8 @@ typedef struct { uint32_t lo; } SYSTIM;
 #define TWF_BITCLR 2
 
 #define S5_SIDE_PASS 1
-#define S5_US_TO_AXLE_MM 100     /* fixture */
+#define S5_SERVO_AHEAD_MM 70     /* fixture */
+#define S5_SERVO_ARM_MM 60       /* fixture */
 #define S5_REAR_OVERHANG_MM 100  /* fixture */
 #define S5_FRONT_OVERHANG_MM 100 /* fixture */
 #define S5_PIVOT_MARGIN_MM 30    /* fixture */
@@ -107,16 +108,18 @@ bool s5_side_read(s5_side_reading_t *r)
 static uint16_t sim_range(void)
 {
     if (w.no_echo_world) { return 0; }
-    int32_t xs = w.axle_x + S5_US_TO_AXLE_MM, best = 0;
+    s5_geom_t g; s5_geom_from_config(&g);
+    int32_t xs = w.axle_x + s5_sensor_along_mm(&g, iabs(w.side_deg_seen)), best = 0;
+    int32_t face = w.box.gap - s5_sensor_lateral_mm(&g, iabs(w.side_deg_seen));
     for (int d = -15; d <= 15; d += 5)
     {
         int32_t deg = iabs(w.side_deg_seen) + d;
         if (deg > 89) { deg = 89; }
         int32_t sn = s5_sin1000(deg), cs = s5_sin1000(90 - deg);
-        int32_t xh = xs + (w.box.gap * cs) / sn;
+        int32_t xh = xs + (face * cs) / sn;
         if (xh >= 0 && xh <= w.box.depth)
         {
-            int32_t r = (w.box.gap * 1000) / sn;
+            int32_t r = (face * 1000) / sn;
             if (best == 0 || r < best) { best = r; }
         }
     }
