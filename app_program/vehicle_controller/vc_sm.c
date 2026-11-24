@@ -234,7 +234,7 @@ static void drop_pending(vc_sm_t * p_sm, vc_actions_t * p_out)
 static void enter_execute(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
 {
     (void)now_ms;
-    p_sm->exec_phase = 0u;
+    p_sm->exec_phase = VC_EXEC_TURN;
     p_sm->turn_gate  = 0u;
     switch (p_sm->pending_nav)
     {
@@ -244,7 +244,7 @@ static void enter_execute(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
             {
                 /* Put the axle over the crossing first; the turn follows
                    when S2 reports this move done (on_execute_action). */
-                p_sm->exec_phase = 1u;
+                p_sm->exec_phase = VC_EXEC_ADVANCE;
                 move(p_out, VC_MOVE_DRIVE_DIST, VC_JUNCTION_ADVANCE_MM);
             }
             else
@@ -256,7 +256,15 @@ static void enter_execute(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
             }
             break;
         case NAV_U_TURN:
+#if VC_UTURN_FULL_PIVOT
+            /* full 180 deg pivot; S2's MANOEUVRE_DONE ends it, then the
+               straight drive (on_execute_action).  turn_gate stays 0, so
+               no line reading can cut the pivot short. */
+            p_sm->exec_phase = VC_EXEC_UTURN;
+            move(p_out, VC_MOVE_U_TURN, 0);
+#else
             start_turn(p_sm, VC_MOVE_U_TURN, 0, VC_UTURN_GATE_DEG, p_out);
+#endif
             break;
         case NAV_STRAIGHT:
         case NAV_NONE:
@@ -922,16 +930,22 @@ static void on_execute_action(vc_sm_t * p_sm, const vc_event_t * p_event,
                               uint32_t now_ms, vc_actions_t * p_out)
 {
     (void)p_event;
-    if ((VC_EV_MANOEUVRE_DONE == type) && (0u != p_sm->exec_phase))
+    if ((VC_EV_MANOEUVRE_DONE == type) && (VC_EXEC_UTURN == p_sm->exec_phase))
+    {
+        /* the 180 deg pivot is done: now straight on before line following */
+        p_sm->exec_phase = VC_EXEC_UTURN_GO;
+        move(p_out, VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM);
+    }
+    else if ((VC_EV_MANOEUVRE_DONE == type) && (VC_EXEC_ADVANCE == p_sm->exec_phase))
     {
         /* the advance is done: the axle is over the crossing, now turn */
-        p_sm->exec_phase = 0u;
+        p_sm->exec_phase = VC_EXEC_TURN;
         start_turn(p_sm,
                    (NAV_LEFT == p_sm->pending_nav) ? VC_MOVE_TURN_LEFT
                                                    : VC_MOVE_TURN_RIGHT,
                    VC_TURN_CMD_DEG, VC_TURN_GATE_DEG, p_out);
     }
-    else if ((VC_EV_LINE_FOUND == type) && (0u == p_sm->exec_phase) &&
+    else if ((VC_EV_LINE_FOUND == type) && (VC_EXEC_TURN == p_sm->exec_phase) &&
              (0u != p_sm->turn_gate) &&
              ((p_sm->odo - p_sm->turn_odo0) >= p_sm->turn_gate))
     {

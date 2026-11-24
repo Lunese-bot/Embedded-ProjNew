@@ -398,20 +398,43 @@ static void test_turn_on_line(void)
           (0u == g_sm.turn_gate),
           "no line seen: turn ends at the max angle, follow as before");
 
-    /* U-turn: the side arm at ~90 deg must not end it */
+    /* U-turn (owner 2026-11-24): stop, full 180 deg pivot, straight, follow */
+    tally_clear();
     feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_U_TURN, 0);
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    CHECK("S6-H56", (VC_ST_JUNCTION_STOP == g_sm.st.state) &&
+          (0 == g_tally[VC_MOVE_U_TURN]),
+          "U-turn: the robot stops at the junction before it pivots");
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
-    CHECK("S6-H56", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          has_move(VC_MOVE_U_TURN, 0, 0) &&
-          (VC_PIVOT_COUNTS(VC_UTURN_GATE_DEG) == g_sm.turn_gate),
-          "U-turn watches with the 150 deg gate");
-    line_at(g_sm.turn_odo0 + VC_PIVOT_COUNTS(90));
-    CHECK("S6-H57", VC_ST_EXECUTE_ACTION == g_sm.st.state,
-          "U-turn: side arm at 90 deg ignored");
-    line_at(g_sm.turn_odo0 + VC_PIVOT_COUNTS(170));
-    CHECK("S6-H58", VC_ST_FOLLOW_LINE == g_sm.st.state,
-          "U-turn: line at 170 deg ends it");
+    CHECK("S6-H57", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+          has_move(VC_MOVE_U_TURN, 0, 0) && (1 == g_tally[VC_MOVE_U_TURN]) &&
+          (0 == g_tally[VC_MOVE_DRIVE_DIST]) && (0u == g_sm.turn_gate) &&
+          (VC_EXEC_UTURN == g_sm.exec_phase),
+          "U-turn: pivots in place first (no advance), no end-on-line watch");
+    {
+        uint32_t u0 = g_sm.odo; /* odometer as the pivot starts */
+
+        line_at(u0 + VC_PIVOT_COUNTS(90));
+        line_at(u0 + VC_PIVOT_COUNTS(170));
+    }
+    CHECK("S6-H58", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+          (VC_EXEC_UTURN == g_sm.exec_phase) && (NAV_U_TURN == g_sm.pending_nav),
+          "U-turn: lines seen at 90 and 170 deg do not end the pivot early");
+    tally_clear();
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    CHECK("S6-H58a", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+          has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1) &&
+          (0 == g_tally[VC_MOVE_FORWARD]) && (VC_EXEC_UTURN_GO == g_sm.exec_phase),
+          "U-turn: after the 180 deg pivot it drives straight, line follow not yet");
+    line_at(g_sm.odo + 5000u);
+    CHECK("S6-H58b", VC_EXEC_UTURN_GO == g_sm.exec_phase,
+          "U-turn: a line reading does not cut the straight drive");
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    CHECK("S6-H58c", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+          (NAV_NONE == g_sm.pending_nav) && (1 == g_tally[VC_MOVE_DRIVE_DIST]) &&
+          (0 == g_tally[VC_MOVE_U_TURN]) &&
+          has_move(VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS, 1),
+          "U-turn: straight drive done, line following resumes, one pivot only");
 
     /* STRAIGHT: no watch, LINE_FOUND does not cut the clearing drive */
     feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_STRAIGHT, 0);
@@ -860,7 +883,7 @@ static void junction_to_execute(void)
 {
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
-    if (0u != g_sm.exec_phase)
+    if (VC_EXEC_ADVANCE == g_sm.exec_phase)
     {
         feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* advance done */
     }
@@ -909,9 +932,12 @@ static void check_letter_maneuver(const char *id, const char *letter,
               "stops at the junction, then issues the maneuver exactly once");
     if (VC_MOVE_U_TURN == move)
     {
-        NAV_CHECK("c", has_move(VC_MOVE_U_TURN, 0, 0) &&
-                           (VC_PIVOT_COUNTS(VC_UTURN_GATE_DEG) == g_sm.turn_gate),
+        NAV_CHECK("c", has_move(VC_MOVE_U_TURN, 0, 0) && (0u == g_sm.turn_gate),
                   "U-turn request is VC_MOVE_U_TURN (bridge sends 180 deg: S6-U01)");
+        feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* pivot done */
+        NAV_CHECK("u", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+                           has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1),
+                  "then straight on before line following");
     }
     else if (VC_MOVE_DRIVE_DIST == move)
     {

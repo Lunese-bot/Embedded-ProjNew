@@ -42,7 +42,18 @@
 #define VC_TURN_END_ON_LINE 1
 #endif
 #define VC_TURN_GATE_DEG  60  /* LEFT / RIGHT: line ignored before this */
-#define VC_UTURN_GATE_DEG 150 /* U-turn: skips the side arm at 90 */
+#define VC_UTURN_GATE_DEG 150 /* U-turn: skips the side arm at 90 (only
+                                 with VC_UTURN_FULL_PIVOT 0) */
+/* U-turn (owner 2026-11-24): stop at the junction, pivot the body the full
+   180 deg in place (S2 ends it on its odometer; a line seen on the way
+   does NOT end it early), then drive VC_JUNCTION_CLEAR_MM straight, then
+   follow the line.  The pivot is about the axle, which stopped behind the
+   crossing on the line the robot came in on, so after 180 deg the sensor
+   faces back along that same line.  0 = the older U-turn that ended on the
+   first line reading after VC_UTURN_GATE_DEG. */
+#ifndef VC_UTURN_FULL_PIVOT
+#define VC_UTURN_FULL_PIVOT 1
+#endif
 #define VC_TURN_MAX_DEG   135 /* LEFT / RIGHT: turn ends here if no line */
 #if VC_TURN_END_ON_LINE
 #define VC_TURN_CMD_DEG VC_TURN_MAX_DEG
@@ -71,6 +82,11 @@
    in DECODE_BARCODE (slow, junctions ignored) for another VC_DECODE_MS.
    0 = one read, then report it and keep following (review 2026-11-10). */
 #define VC_BARCODE_MAX_RETRY 0     /* then give up, keep following */
+/* EXECUTE_ACTION sub-steps (exec_phase) */
+#define VC_EXEC_TURN       0u /* the action's own move (or the only one) */
+#define VC_EXEC_ADVANCE    1u /* LEFT / RIGHT: axle onto the crossing first */
+#define VC_EXEC_UTURN      2u /* U-turn: full 180 deg pivot */
+#define VC_EXEC_UTURN_GO   3u /* U-turn: straight drive after the pivot */
 #define VC_EXECUTE_MS        6000  /* EXECUTE_ACTION: advance + turn (was 4000) */
 #define VC_JUNCTION_STOP_MS  2000  /* wait for S2 to confirm zero speed */
 /* Stand still this long at a junction before the turn / drive-on, so the
@@ -153,7 +169,7 @@ typedef struct
     uint8_t              rejoin_steer_left; /* slow steering samples left after bypass */
     uint32_t             junction_stop_ms; /* JUNCTION_STOP: when S2 confirmed the stop */
     uint8_t              junction_stopped; /* JUNCTION_STOP: 1 = standing, holding */
-    uint8_t              exec_phase;       /* EXECUTE_ACTION: 1 = advancing before the turn */
+    uint8_t              exec_phase;       /* EXECUTE_ACTION: VC_EXEC_* */
     bool                 pause_stopped;
     uint32_t             pause_since_ms;
     uint32_t             odo;              /* last S2 odometer (L + R counts) seen in an event */

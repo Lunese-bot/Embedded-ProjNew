@@ -279,7 +279,7 @@ static void junction_to_execute(void)
 {
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
-    if (0u != g_sm.exec_phase)
+    if (VC_EXEC_ADVANCE == g_sm.exec_phase)
     {
         feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* axle advance */
     }
@@ -787,7 +787,8 @@ static void test_end_to_end(void)
     junction_to_execute();
     CHECK("E2E-09", (1 == g_tally[VC_MOVE_U_TURN]) && (1 == turns()),
           "Z = U-turn: the junction requests the 180 deg maneuver once");
-    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* pivot done */
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* straight drive done */
 
     /* misread: an A sheet read as T is reported as T */
     tally_clear();
@@ -892,6 +893,23 @@ static void test_junction_notes(void)
                        jx_is(1, VC_JX_DROPPED, 'Z', VC_BCW_UTURN) && (0 == turns()) &&
                        (NAV_NONE == g_sm.pending_nav),
           "obstacle at the junction: Z's U-turn is DROPPED, never executed");
+
+    /* U-turn: COMPLETED only after the pivot AND the straight drive */
+    start_mission();
+    tally_clear();
+    feed_s3_decode("Z");
+    tally_clear();
+    junction_to_execute();
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* 180 deg pivot done */
+    CHECK("JX-08", (0 == g_jx_n) && (1 == g_tally[VC_MOVE_U_TURN]) &&
+                       (1 == g_tally[VC_MOVE_DRIVE_DIST]) &&
+                       (VC_ST_EXECUTE_ACTION == g_sm.st.state),
+          "Z: pivot done, straight drive running: no COMPLETED yet");
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* straight done */
+    CHECK("JX-09", (1 == g_jx_n) && jx_is(0, VC_JX_COMPLETED, 'Z', VC_BCW_UTURN) &&
+                       (VC_ST_FOLLOW_LINE == g_sm.st.state),
+          "Z: straight drive done: COMPLETED Z U-turn, line following again");
+    feed(VC_SRC_COMMS, VC_EV_CMD_STOP, 0, 0);
 
     start_mission();
     tally_clear();
