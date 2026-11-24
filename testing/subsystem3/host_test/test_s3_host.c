@@ -1810,7 +1810,9 @@ typedef struct
     char     text[16]; /* all letters, in order */
     uint32_t elems;    /* elements of the last read */
     uint32_t edges;    /* level changes seen */
+    uint32_t shape;    /* letters given by the shape read */
 } sim_res_t;
+static bool g_sim_shape; /* sim_read also tries the shape read (as robot) */
 
 /* the glue: adaptive (b_adapt) or old fixed swing / floor */
 static void sim_read(bool b_adapt, int32_t swing, int32_t floor, sim_res_t * p_r)
@@ -1818,6 +1820,7 @@ static void sim_read(bool b_adapt, int32_t swing, int32_t floor, sim_res_t * p_r
     bc_edge_t e;
     uint32_t  wp[S3_BC_MAX_ELEMENTS];
     uint32_t  nw = 0u, total = 0u, i, rs_pos = 0u, rs_us = 0u, last_run_pos = 0u;
+    uint32_t  start_i = 0u;
     uint8_t   level = 0u;
     bool      b_read = false;
     code39_options_t o = { S3_BC_MIN_RATIO_X10, true, (uint8_t)S3_BC_MAX_CHARS };
@@ -1857,7 +1860,7 @@ static void sim_read(bool b_adapt, int32_t swing, int32_t floor, sim_res_t * p_r
             {
                 if ((0u == black) && (wus >= (uint32_t)S3_BC_START_WHITE_MS * 1000u))
                 {
-                    b_read = true; nw = 0u; total = 0u; p_r->starts++;
+                    b_read = true; nw = 0u; total = 0u; p_r->starts++; start_i = i;
                 }
             }
             else if ((0u != black) && (wus > (uint32_t)S3_BC_ELEMENT_MAX_MS * 1000u))
@@ -1889,6 +1892,35 @@ static void sim_read(bool b_adapt, int32_t swing, int32_t floor, sim_res_t * p_r
             {
                 p_r->letters++;
                 if ((strlen(p_r->text) + strlen(txt)) < (sizeof p_r->text - 1u)) { strcat(p_r->text, txt); }
+            }
+            else if (g_sim_shape && (nw >= S3_BC_GEOM_MIN_ELEMENTS))
+            {
+                /* task_barcode.c shape_read(): the trace from
+                   S3_BC_GEOM_LEAD records before the first bar */
+                static uint16_t sl[C39G_MAX_SAMPLES];
+                static uint8_t  sf[C39G_MAX_SAMPLES];
+                static int8_t   sy[C39G_MAX_SAMPLES];
+                uint32_t off = (start_i > S3_BC_GEOM_LEAD) ? (start_i - S3_BC_GEOM_LEAD) : 0u;
+                uint32_t k, cnt = 0u;
+                int32_t  dist = 0;
+                c39g_info_t inf;
+                if (((i + 1u) - off) > C39G_MAX_SAMPLES) { off = (i + 1u) - C39G_MAX_SAMPLES; }
+                for (k = off; k <= i; k++, cnt++)
+                {
+                    sl[cnt] = (uint16_t)((g_sv[k] < 0) ? 0 : g_sv[k]);
+                    sf[cnt] = (uint8_t)((k > 0u) ? (g_sp[k] - g_sp[k - 1u]) : 0u);
+                    sy[cnt] = 0;
+                    dist += sf[cnt];
+                }
+                if (C39G_OK == c39g_decode_hump(sl, sf, sy, cnt, dist >= (int32_t)S3_BC_DIST_MIN,
+                                                c39g_min_hump(b_adapt ? bc_edge_margin(&e) : 0),
+                                                NULL, &inf))
+                {
+                    p_r->letters++;
+                    p_r->shape++;
+                    txt[0] = inf.letter; txt[1] = 0;
+                    if ((strlen(p_r->text) + 1u) < (sizeof p_r->text - 1u)) { strcat(p_r->text, txt); }
+                }
             }
             b_read = false;
         }
@@ -2263,6 +2295,116 @@ static void test_geom_noise(void)
     }
 }
 
+/* ---- H-X: wrong-read guards, whole read path (element decoders, then the
+   shape read with the read's noise margin), faint print ------------------ */
+static void test_bc_guards(void)
+{
+    sim_opt_t o = g_venue;
+    sim_res_t r;
+    uint32_t  li, ri, s, total = 0u, ok = 0u, wrong = 0u, by_shape = 0u;
+    char      txt[2] = { 0, 0 };
+
+    g_sim_shape = true;
+    /* H-X01: every letter A-Z, faint, small print, 60 mm/s, both ways,
+       2 seeds: each pass reads its own letter or nothing, never another */
+    for (li = 0u; li < 26u; li++)
+    for (ri = 0u; ri < 2u; ri++)
+    for (s = 0u; s < 2u; s++)
+    {
+        double end;
+        txt[0] = (char)('A' + (int)li);
+        sim_new();
+        g_rng = 4001u + (li * 11u) + (ri * 5u) + s;
+        end = sim_lay(txt, 300.0, 3.0, 9.0, 0u != ri);
+        sim_drive(&o, 0.0, end + 150.0, 60.0, 0.0);
+        sim_read(true, 0, 0, &r);
+        total++;
+        by_shape += r.shape;
+        if ((1u == r.letters) && (txt[0] == r.text[0])) { ok++; }
+        else if (r.letters > 0u)
+        {
+            wrong++;
+            printf("        WRONG: printed %c rev %u seed %u read '%s'\n", txt[0], (unsigned)ri, (unsigned)s, r.text);
+        }
+    }
+    printf("        faint A-Z: %u of %u read (%u by shape), %u wrong\n", (unsigned)ok,
+           (unsigned)total, (unsigned)by_shape, (unsigned)wrong);
+    CHECK("H-X01", 0u == wrong, "guards: faint A-Z, both ways: never a wrong letter");
+
+    /* H-X02: incomplete faint barcodes: the sensor leaves the print after
+       30 %, 50 %, 70 % or 90 % of *A* / *Z* (the robot turns away): no letter */
+    {
+        double const part[4] = { 0.3, 0.5, 0.7, 0.9 };
+        uint32_t k, got = 0u;
+        for (li = 0u; li < 2u; li++)
+        for (k = 0u; k < 4u; k++)
+        {
+            double end, cut;
+            uint32_t b;
+            sim_new();
+            g_rng = 61u + k + (li * 4u);
+            end = sim_lay((0u == li) ? "A" : "Z", 300.0, 3.0, 9.0, false);
+            cut = 300.0 + ((end - 300.0) * part[k]);
+            for (b = 0u; b < g_nbar; b++)
+            {
+                if (g_bar0[b] >= cut) { g_bar0[b] = g_bar1[b] = 0.0; }
+                else if (g_bar1[b] > cut) { g_bar1[b] = cut; }
+            }
+            sim_drive(&o, 0.0, end + 150.0, 60.0, 0.0);
+            sim_read(true, 0, 0, &r);
+            got += r.letters;
+        }
+        CHECK("H-X02", 0u == got, "guards: a faint *A* / *Z* cut at 30-90 % gives no letter");
+    }
+
+    /* H-X03: the robot stops on the barcode for 1 s halfway (seen in the
+       21:41:13 log) and goes on: the letter is still read, or nothing */
+    {
+        uint32_t got_ok = 0u, got_wrong = 0u;
+        for (li = 0u; li < 2u; li++)
+        {
+            double end, mid;
+            char const * t = (0u == li) ? "A" : "Z";
+            sim_new();
+            g_rng = 91u + li;
+            end = sim_lay(t, 300.0, 3.0, 9.0, false);
+            mid = (300.0 + end) / 2.0;
+            sim_drive(&o, 0.0, mid, 60.0, 0.0);
+            sim_drive(&o, mid, mid, 0.0, 1.0);
+            sim_drive(&o, mid, end + 150.0, 60.0, 0.0);
+            sim_read(true, 0, 0, &r);
+            if ((1u == r.letters) && (t[0] == r.text[0])) { got_ok++; }
+            else if (r.letters > 0u) { got_wrong++; }
+        }
+        CHECK("H-X03", 0u == got_wrong, "guards: a 1 s stop on the barcode never gives a wrong letter");
+    }
+
+    /* H-X04: strong print (the 2026-11-11 kind, ink +2500 over white 200)
+       still reads A and Z through the adaptive path, both ways */
+    {
+        sim_opt_t st = o;
+        uint32_t  good = 0u, bad = 0u;
+        st.white = 200.0;
+        st.ink   = 2500.0;
+        st.noise = 8.0;
+        for (li = 0u; li < 2u; li++)
+        for (ri = 0u; ri < 2u; ri++)
+        {
+            double end;
+            char const * t = (0u == li) ? "A" : "Z";
+            sim_new();
+            g_rng = 123u + li + (ri * 2u);
+            end = sim_lay(t, 300.0, 5.5, 16.5, 0u != ri);
+            sim_drive(&st, 0.0, end + 150.0, 60.0, 0.0);
+            sim_read(true, 0, 0, &r);
+            if ((1u == r.letters) && (t[0] == r.text[0])) { good++; }
+            else if (r.letters > 0u) { bad++; }
+        }
+        CHECK("H-X04", (4u == good) && (0u == bad), "guards: strong A and Z still read through the adaptive path");
+    }
+    g_sim_shape = false;
+}
+
 int main(void)
 {
     test_code39();
@@ -2279,6 +2421,7 @@ int main(void)
     test_bc_lock_tracker();
     test_bc_adapt();
     test_geom_noise();
+    test_bc_guards();
     printf("[TEST] subsystem3-host SUMMARY %d passed, %d failed\n", g_pass, g_fail);
     return (0 == g_fail) ? 0 : 1;
 }
