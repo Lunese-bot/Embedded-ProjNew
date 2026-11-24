@@ -51,6 +51,7 @@ static int32_t        g_bc_edge_was_on = 1;
 #if S3_BC_EDGE && S3_BC_EDGE_ADAPT
 static uint32_t       g_bc_relearn_seen; /* last g_s3_bc_relearn_seq acted on */
 #endif
+volatile int32_t      g_s3_bc_margin; /* subsystem3.h */
 static uint32_t       g_bc_run_start_us;
 static uint32_t       g_bc_run_start_pos; /* wheel counts when the run began */
 
@@ -197,6 +198,7 @@ static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT],
         b_edge = bc_edge_step_adapt(&g_bc_edge, (int32_t)p_raw[S3_BC_SENSOR],
                                     t_us, pos, g_b_s3_bc_scanning, &edge_us,
                                     &edge_pos);
+        g_s3_bc_margin = bc_edge_margin(&g_bc_edge); /* for the shape read */
         if (0U != b_edge)
 #else
         /* weak print: with a small rise/fall, ask for several samples in

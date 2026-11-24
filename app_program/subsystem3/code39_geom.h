@@ -56,8 +56,19 @@
    own unit) when distance is used, samples (10 ms) when it is not. */
 #define C39G_FLOOR_COUNTS  200
 #define C39G_FLOOR_SAMPLES 40
-/* A hump must rise this far above the floor (raw ADC) to count at all */
+/* A hump must rise this far above the floor (raw ADC) to count at all.
+   c39g_decode() uses this; c39g_decode_hump() takes it from the caller
+   (2026-11-24: the read's own noise margin on low-contrast print, whose
+   ink reads only 35-100 above white). */
 #define C39G_MIN_HUMP 250
+/* With a noise margin m from the edge finder (bc_edge_margin, raw), a
+   hump must rise C39G_HUMP_NOISE_K x m instead (c39g_min_hump): twice
+   what starts a bar, so only clear bumps count.  Replay 2026-11-24: the
+   faint 21:41:13 pass reads A with K 1 or 2 at every bar margin tried
+   (3 sd + 8 and 15 others), no trace gives a wrong letter. */
+#ifndef C39G_HUMP_NOISE_K
+#define C39G_HUMP_NOISE_K 2
+#endif
 /* Second try when the half-height humps give no letter: humps above
    this many 1/1000 of the darkest point (0 = no second try).  On the
    2026-11-12 robot passes the thin white gaps only came back to about
@@ -112,5 +123,17 @@ typedef struct
 c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
                           const int8_t * p_yaw, uint32_t n, bool b_use_dist,
                           void (*p_yield)(void), c39g_info_t * p_info);
+
+/* Smallest hump for c39g_decode_hump(): C39G_HUMP_NOISE_K x the read's
+   noise margin, or C39G_MIN_HUMP when there is none (margin <= 0). */
+int32_t c39g_min_hump(int32_t noise_margin);
+
+/* Same, with the smallest hump (raw above the floor) given by the caller
+   instead of C39G_MIN_HUMP, in the first search and in the second try
+   alike.  min_hump below 1 gives C39G_ARG. */
+c39g_result_t c39g_decode_hump(const uint16_t * p_l, const uint8_t * p_fwd,
+                               const int8_t * p_yaw, uint32_t n,
+                               bool b_use_dist, int32_t min_hump,
+                               void (*p_yield)(void), c39g_info_t * p_info);
 
 #endif /* CODE39_GEOM_H */

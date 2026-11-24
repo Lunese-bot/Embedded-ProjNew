@@ -2103,6 +2103,166 @@ static void test_bc_adapt(void)
     }
 }
 
+/* ---- H-G10..H-G15: shape read with the read's own noise margin -------
+   (c39g_decode_hump / c39g_min_hump, task_barcode.c shape_read) */
+static uint16_t g_gl[C39G_MAX_SAMPLES];
+static uint8_t  g_gf[C39G_MAX_SAMPLES];
+static int8_t   g_gy[C39G_MAX_SAMPLES];
+
+/* the simulated pass as a frozen trace (fwd = 2 x left steps, yaw 0) */
+static uint32_t sim_to_trace(void)
+{
+    uint32_t i, n = (g_sn < C39G_MAX_SAMPLES) ? g_sn : C39G_MAX_SAMPLES;
+    for (i = 0u; i < n; i++)
+    {
+        g_gl[i] = (uint16_t)((g_sv[i] < 0) ? 0 : g_sv[i]);
+        g_gf[i] = (uint8_t)((0u == i) ? 0u : (g_sp[i] - g_sp[i - 1u]));
+        g_gy[i] = 0;
+    }
+    return n;
+}
+
+/* learned margin of the edge finder over the simulated pass's start */
+static int32_t sim_margin(void)
+{
+    bc_edge_t e;
+    uint32_t  i, eu = 0u, ep = 0u;
+    bc_edge_reset_pos(&e, g_sv[0], 0u, g_sp[0]);
+    for (i = 0u; (i < 100u) && (i < g_sn); i++)
+    {
+        (void)bc_edge_step_adapt(&e, g_sv[i], i * 10000u, g_sp[i], false, &eu, &ep);
+    }
+    return bc_edge_margin(&e);
+}
+
+static void test_geom_noise(void)
+{
+    static char const * const letter[2] = { "A", "Z" };
+    c39g_info_t info;
+    uint32_t    n, li, ri, s, total = 0u, ok = 0u, wrong = 0u, few = 0u;
+    sim_opt_t   o = g_venue;
+
+    CHECK("H-G10", (C39G_MIN_HUMP == c39g_min_hump(0)) &&
+                   ((C39G_HUMP_NOISE_K * 14) == c39g_min_hump(14)),
+          "shape: smallest hump = K x noise margin, C39G_MIN_HUMP without one");
+
+    /* H-G11: with C39G_MIN_HUMP it is the old reader (existing fixture) */
+    {
+        uint32_t k, same = 1u;
+        for (k = 0u; k < (sizeof g_trace_a / sizeof g_trace_a[0]); k++) { g_gl[k] = g_trace_a[k]; }
+        n = k;
+        {
+            c39g_info_t a, b;
+            c39g_result_t ra = c39g_decode(g_gl, NULL, NULL, n, false, NULL, &a);
+            c39g_result_t rb = c39g_decode_hump(g_gl, NULL, NULL, n, false, C39G_MIN_HUMP, NULL, &b);
+            same = (ra == rb) && (a.letter == b.letter) && (a.best == b.best) &&
+                   (a.err_x100 == b.err_x100) && (a.margin_x100 == b.margin_x100);
+        }
+        CHECK("H-G11", 0u != same, "shape: c39g_decode_hump with C39G_MIN_HUMP = c39g_decode");
+        CHECK("H-G12", C39G_ARG == c39g_decode_hump(g_gl, NULL, NULL, n, false, 0, NULL, &info),
+              "shape: a smallest hump below 1 is refused");
+    }
+
+    /* H-G13 / H-G14: faint A and Z (white 145, ink +100), small print,
+       60 mm/s, both ways, 4 seeds: the fixed 250 finds too few humps;
+       with the read's margin every pass is read, none wrongly */
+    for (li = 0u; li < 2u; li++)
+    for (ri = 0u; ri < 2u; ri++)
+    for (s = 0u; s < 4u; s++)
+    {
+        double  end;
+        int32_t m;
+        sim_new();
+        g_rng = 501u + (s * 17u) + (li * 3u) + ri;
+        end = sim_lay(letter[li], 150.0, 3.0, 9.0, 0u != ri);
+        sim_drive(&o, 0.0, end + 60.0, 60.0, 0.0);
+        m = sim_margin();
+        n = sim_to_trace();
+        total++;
+        if (C39G_FEW == c39g_decode(g_gl, g_gf, g_gy, n, true, NULL, &info)) { few++; }
+        if (C39G_OK == c39g_decode_hump(g_gl, g_gf, g_gy, n, true, c39g_min_hump(m), NULL, &info))
+        {
+            if ((info.letter == letter[li][0]) && (info.b_reversed == (0u != ri))) { ok++; }
+            else { wrong++; }
+        }
+    }
+    printf("        faint shape read: fixed 250 too few humps %u of %u; with margin %u read, %u wrong\n",
+           (unsigned)few, (unsigned)total, (unsigned)ok, (unsigned)wrong);
+    CHECK("H-G13", few == total, "shape: fixed 250 finds too few humps on every faint pass (baseline)");
+    CHECK("H-G14", (ok == total) && (0u == wrong),
+          "shape: with the read's noise margin every faint A / Z pass is read, none wrongly");
+
+    /* H-G15: faint look-alikes and junk give (almost) no letter: random
+       faint bar patterns, white only, one tape crossing */
+    {
+        uint32_t t, j, got = 0u;
+        for (t = 0u; t < 1000u; t++)
+        {
+            int black = 0;
+            uint32_t next;
+            g_rng = 7000u + t;
+            next = 5u + (uint32_t)(sim_rand() * 40.0);
+            for (j = 0u; j < 400u; j++)
+            {
+                if (j >= next)
+                {
+                    black = !black;
+                    next  = j + 2u + (uint32_t)(sim_rand() * (double)(black ? (3u + (t % 25u)) : (3u + (t % 17u))));
+                }
+                g_gl[j] = (uint16_t)(145.0 + (black ? 90.0 : 0.0) + (2.0 * sim_gauss()));
+                g_gf[j] = 5u;
+                g_gy[j] = 0;
+            }
+            if (C39G_OK == c39g_decode_hump(g_gl, g_gf, g_gy, 400u, true, c39g_min_hump(14), NULL, &info)) { got++; }
+        }
+        printf("[INFO] shape: %u of 1000 faint random bar patterns gave a letter\n", (unsigned)got);
+        CHECK("H-G15", got <= 1u, "shape: faint random bars give a letter at most 0.1 % of the time");
+        g_rng = 99u;
+        for (j = 0u; j < 400u; j++) { g_gl[j] = (uint16_t)(145.0 + (2.0 * sim_gauss())); g_gf[j] = 5u; g_gy[j] = 0; }
+        {
+            c39g_result_t r = c39g_decode_hump(g_gl, g_gf, g_gy, 400u, true, c39g_min_hump(14), NULL, &info);
+            sim_opt_t t2 = o;
+            c39g_result_t r2;
+            t2.ink = 2700.0;
+            sim_new();
+            g_rng = 5u;
+            sim_tape(100.0, 18.0);
+            sim_drive(&t2, 0.0, 250.0, 60.0, 0.0);
+            n = sim_to_trace();
+            r2 = c39g_decode_hump(g_gl, g_gf, g_gy, n, true, c39g_min_hump(14), NULL, &info);
+            CHECK("H-G16", (C39G_OK != r) && (C39G_OK != r2),
+                  "shape: white only and one tape crossing give no letter with the noise margin");
+        }
+    }
+
+    /* H-G17: the real faint pass 2026-11-18 21:41:13 (L trace from the
+       dashboard, *A* backwards, inferred): its 29 elements reach the shape
+       reader; 250 finds too few humps, the read's margin reads A reversed */
+    {
+        FILE *  fp = fopen("../replay/traces/20261118T134113.txt", "r");
+        int     a, b, c;
+        uint32_t k = 0u, off = 760u - S3_BC_GEOM_LEAD, end = 1240u;
+        static uint16_t l[2000]; static uint8_t f[2000]; static int8_t y[2000];
+        c39g_result_t r250 = C39G_ARG, rm = C39G_ARG;
+        if (NULL != fp)
+        {
+            while ((k < 2000u) && (3 == fscanf(fp, "%d %d %d", &a, &b, &c)))
+            {
+                l[k] = (uint16_t)a; f[k] = (uint8_t)b; y[k] = (int8_t)c; k++;
+            }
+            fclose(fp);
+        }
+        if (k >= end)
+        {
+            r250 = c39g_decode(&l[off], &f[off], &y[off], end - off, true, NULL, &info);
+            /* the margin the edge finder learned on this pass (replay: 12) */
+            rm = c39g_decode_hump(&l[off], &f[off], &y[off], end - off, true, c39g_min_hump(12), NULL, &info);
+        }
+        CHECK("H-G17", (C39G_FEW == r250) && (C39G_OK == rm) && ('A' == info.letter) && info.b_reversed,
+              "shape: real faint 21:41:13 pass: 250 too few humps, noise margin reads A reversed");
+    }
+}
+
 int main(void)
 {
     test_code39();
@@ -2118,6 +2278,7 @@ int main(void)
     test_bc_lock();
     test_bc_lock_tracker();
     test_bc_adapt();
+    test_geom_noise();
     printf("[TEST] subsystem3-host SUMMARY %d passed, %d failed\n", g_pass, g_fail);
     return (0 == g_fail) ? 0 : 1;
 }

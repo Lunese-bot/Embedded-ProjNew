@@ -317,10 +317,13 @@ static bool shape_read(uint8_t * p_text, uint32_t text_size,
 #endif
     /* Casts: the frozen copy is written only by this task, so reading it
        as plain (non-volatile) memory during the call is safe. */
-    r = c39g_decode((const uint16_t *)&g_s3_ltrace_frz[off],
-                    (const uint8_t *)&g_s3_ltrace_frz_fwd[off],
-                    (const int8_t *)&g_s3_ltrace_frz_yaw[off], count - off,
-                    b_dist, geom_yield, &info);
+    /* smallest hump from this read's noise margin (frozen while the read
+       was open; 0 = none, then C39G_MIN_HUMP) */
+    r = c39g_decode_hump((const uint16_t *)&g_s3_ltrace_frz[off],
+                         (const uint8_t *)&g_s3_ltrace_frz_fwd[off],
+                         (const int8_t *)&g_s3_ltrace_frz_yaw[off],
+                         count - off, b_dist, c39g_min_hump(g_s3_bc_margin),
+                         geom_yield, &info);
     (void)tk_chg_pri(TSK_SELF, S3_PRI_BARCODE);
     tk_get_tim(&t1);
     /* Cast: well under a minute */

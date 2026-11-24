@@ -411,9 +411,10 @@ static void fill_floor(const uint16_t * p_l, uint32_t n, int32_t fr16)
 }
 
 /* Steps 2-7 on g_sig / g_pos.  hi_permille 0: humps at half the 6th
-   highest; otherwise at hi_permille / 1000 of the darkest point. */
+   highest; otherwise at hi_permille / 1000 of the darkest point.
+   min_hump: how far (raw) a hump must rise above the floor at all. */
 static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
-                                  void (*p_yield)(void),
+                                  int32_t min_hump, void (*p_yield)(void),
                                   c39g_info_t * p_info)
 {
     int32_t  top6[N_WIDE];
@@ -448,18 +449,18 @@ static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
     p_info->fit_x100    = 0u;
 
     /* 2. humps: threshold at half the 6th highest */
-    if (find_humps(n, 2 * C39G_MIN_HUMP, NULL, 0u, top6) < N_WIDE)
+    if (find_humps(n, 2 * min_hump, NULL, 0u, top6) < N_WIDE)
     {
-        /* blurred: thin gaps stay above C39G_MIN_HUMP and the bars run
+        /* blurred: thin gaps stay above min_hump and the bars run
            together.  Try again at half the darkest hump. */
-        if ((top6[0] <= (2 * C39G_MIN_HUMP)) ||
+        if ((top6[0] <= (2 * min_hump)) ||
             (find_humps(n, top6[0], NULL, 0u, top6) < N_WIDE))
         {
             return C39G_FEW;
         }
     }
-    thr2 = (top6[N_WIDE - 1u] > (2 * C39G_MIN_HUMP)) ? top6[N_WIDE - 1u]
-                                                      : (2 * C39G_MIN_HUMP);
+    thr2 = (top6[N_WIDE - 1u] > (2 * min_hump)) ? top6[N_WIDE - 1u]
+                                                      : (2 * min_hump);
     if (hi_permille > 0)
     {
         /* Strong blur: thin gaps never come back near white, so the bars
@@ -474,7 +475,7 @@ static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
             }
         }
         thr2 = (2 * top * hi_permille) / 1000;
-        if (thr2 < (2 * C39G_MIN_HUMP))
+        if (thr2 < (2 * min_hump))
         {
             return C39G_FEW2;
         }
@@ -820,9 +821,24 @@ static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
     return C39G_OK;
 }
 
+int32_t c39g_min_hump(int32_t noise_margin)
+{
+    return (noise_margin > 0) ? (C39G_HUMP_NOISE_K * noise_margin)
+                              : C39G_MIN_HUMP;
+}
+
 c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
                           const int8_t * p_yaw, uint32_t n, bool b_use_dist,
                           void (*p_yield)(void), c39g_info_t * p_info)
+{
+    return c39g_decode_hump(p_l, p_fwd, p_yaw, n, b_use_dist, C39G_MIN_HUMP,
+                            p_yield, p_info);
+}
+
+c39g_result_t c39g_decode_hump(const uint16_t * p_l, const uint8_t * p_fwd,
+                               const int8_t * p_yaw, uint32_t n,
+                               bool b_use_dist, int32_t min_hump,
+                               void (*p_yield)(void), c39g_info_t * p_info)
 {
     uint32_t      i;
     c39g_result_t res;
@@ -835,7 +851,8 @@ c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
     p_info->try_n      = 0u;
     p_info->first_res  = (uint8_t)C39G_ARG;
     p_info->first_best = 0;
-    if ((NULL == p_l) || (n < MIN_MODEL_N) || (n > C39G_MAX_SAMPLES))
+    if ((NULL == p_l) || (n < MIN_MODEL_N) || (n > C39G_MAX_SAMPLES) ||
+        (min_hump < 1))
     {
         return C39G_ARG;
     }
@@ -863,7 +880,7 @@ c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
     /* 2-7 at half height, then (if humps were found but no letter read)
        once more near the top.  The first try's details are kept unless
        the second one reads a letter. */
-    res = decode_humps(n, 0, p_yield, p_info);
+    res = decode_humps(n, 0, min_hump, p_yield, p_info);
     /* Casts: c39g_result_t values fit 8 bits */
     p_info->try_n      = 1u;
     p_info->first_res  = (uint8_t)res;
@@ -872,7 +889,8 @@ c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
     if ((C39G_OK != res) && (C39G_FEW != res))
     {
         c39g_info_t   hi;
-        c39g_result_t res_hi = decode_humps(n, C39G_HI_PERMILLE, p_yield, &hi);
+        c39g_result_t res_hi =
+            decode_humps(n, C39G_HI_PERMILLE, min_hump, p_yield, &hi);
         /* stricter: near the top the humps say less about the thin
            bars, so the model must explain more of the trace */
         if ((C39G_OK == res_hi) && (hi.fit_x100 >= C39G_HI_MIN_FIT_X100))

@@ -45,6 +45,7 @@ static int      g_n;
 static int      g_verbose;
 static int      g_prime; /* -prime: see prime() */
 static int      g_primed_n; /* records added in front */
+static int32_t  g_margin;   /* bc_edge_margin() now (adaptive path) */
 static const char * g_name;
 
 typedef struct
@@ -144,8 +145,9 @@ static void decode(int idx, const char * why)
             c39g_result_t r;
             for (k = off; k < cnt; k++) { dist += (int32_t)g_f[k] - (int32_t)g_y[k]; }
             memset(&info, 0, sizeof info);
-            r = c39g_decode(&g_l[off], &g_f[off], &g_y[off], (uint32_t)(cnt - off),
-                            dist >= (int32_t)S3_BC_DIST_MIN, NULL, &info);
+            r = c39g_decode_hump(&g_l[off], &g_f[off], &g_y[off], (uint32_t)(cnt - off),
+                                 dist >= (int32_t)S3_BC_DIST_MIN,
+                                 c39g_min_hump(g_margin), NULL, &info);
             if (C39G_OK == r)
             {
                 text[0] = info.letter; text[1] = 0; rev = info.b_reversed;
@@ -257,8 +259,10 @@ static void replay(void)
         /* task_line.c barcode_runs_step() */
 #if S3_BC_EDGE_ADAPT
         e.hold = (uint8_t)S3_BC_ADAPT_HOLD;
-        if (0U != bc_edge_step_adapt(&e, (int32_t)g_l[i], t, pos, (1 == st_read),
-                                     &eu, &ep))
+        uint8_t b_edge = bc_edge_step_adapt(&e, (int32_t)g_l[i], t, pos, (1 == st_read),
+                                            &eu, &ep);
+        g_margin = bc_edge_margin(&e);
+        if (0U != b_edge)
 #else
         e.hold = (S3_BC_EDGE_SWING <= S3_BC_WEAK_SWING_MAX) ? (uint8_t)S3_BC_WEAK_HOLD : 0U;
         if (0U != bc_edge_step_pos(&e, (int32_t)g_l[i], t, pos, S3_BC_EDGE_SWING,
