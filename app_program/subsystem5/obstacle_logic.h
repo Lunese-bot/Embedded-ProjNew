@@ -81,6 +81,40 @@ _Static_assert(S5_DETECT_MM >= S5_STOP_NEEDED_MM,
 #endif
 _Static_assert((S5_PIVOT_MARGIN_MM >= 0) && (S5_PIVOT_MARGIN_MM <= 100),
                "S5_PIVOT_MARGIN_MM must be 0..100 mm");
+/* Robot dimensions for the measured pass, in mm, from the owner.  Measure
+   again and edit here if the robot is rebuilt.
+   S5_SERVO_AHEAD_MM   110  axle centre to servo shaft centre, owner 2026-11-24
+   S5_SERVO_ARM_MM      30  servo shaft to sensor midpoint, owner 2026-11-24
+   S5_REAR_OVERHANG_MM  50  axle centre to frame rear edge, measured 2026-11-24
+                            (ruler re-check to +-5 mm still requested)
+   S5_FRONT_OVERHANG_MM 140 axle centre to frontmost point with bracket:
+                            PHOTO ESTIMATE 2026-11-24, ruler check pending
+   S5_SIDE_LOOK_DEG     60  the servo's validated limit; angle still to be
+                            confirmed by the probe test (S5M-01)
+   Half-width stays S5_ROBOT_HALF_WIDTH_MM (80); 65 mm (tyres) only if the
+   body and bracket are not wider (owner to check). */
+#ifndef S5_SERVO_AHEAD_MM
+#define S5_SERVO_AHEAD_MM 110
+#endif
+#ifndef S5_SERVO_ARM_MM
+#define S5_SERVO_ARM_MM 30
+#endif
+#ifndef S5_REAR_OVERHANG_MM
+#define S5_REAR_OVERHANG_MM 50
+#endif
+#ifndef S5_FRONT_OVERHANG_MM
+#define S5_FRONT_OVERHANG_MM 140
+#endif
+#ifndef S5_SIDE_LOOK_DEG
+#define S5_SIDE_LOOK_DEG 60
+#endif
+_Static_assert((S5_SERVO_AHEAD_MM > 0) && (S5_SERVO_AHEAD_MM <= 250) &&
+               (S5_SERVO_ARM_MM >= 0) && (S5_SERVO_ARM_MM <= 100) &&
+               (S5_REAR_OVERHANG_MM > 0) && (S5_REAR_OVERHANG_MM <= 250) &&
+               (S5_FRONT_OVERHANG_MM > 0) && (S5_FRONT_OVERHANG_MM <= 300) &&
+               (S5_SIDE_LOOK_DEG > 0) && (S5_SIDE_LOOK_DEG <= 90),
+               "robot dimension outside its plausible range (mm)");
+
 #if S5_SIDE_PASS
 #if !defined(S5_SERVO_AHEAD_MM) || !defined(S5_SERVO_ARM_MM) || \
     !defined(S5_REAR_OVERHANG_MM) || \

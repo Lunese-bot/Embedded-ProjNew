@@ -29,11 +29,13 @@ typedef struct { uint32_t lo; } SYSTIM;
 #define TWF_BITCLR 2
 
 #define S5_SIDE_PASS 1
+#ifndef S5_USE_CONFIG_DIMS /* default: fixture dims; -DS5_USE_CONFIG_DIMS uses obstacle_logic.h */
 #define S5_SERVO_AHEAD_MM 70     /* fixture */
 #define S5_SERVO_ARM_MM 60       /* fixture */
 #define S5_REAR_OVERHANG_MM 100  /* fixture */
 #define S5_FRONT_OVERHANG_MM 100 /* fixture */
 #define S5_PIVOT_MARGIN_MM 30    /* fixture */
+#endif
 #define S5_SIDE_LOOK_DEG 60
 #include "../../../app_program/subsystem5/s5_local.h"
 
