@@ -734,6 +734,47 @@ static void test_lift(void)
     feed_lift();
     CHECK("VC-S04", VC_ST_FAULT == g_sm.st.state,
           "lift again during the new self check -> FAULT 0x4005");
+    /* Start in IDLE clears S2's latch first (lift while idle, 2026-11-24) */
+    g_now_ms = 0u;
+    vc_sm_init(&g_sm, g_now_ms);
+    feed_lift(); /* robot picked up and placed on the track while idle */
+    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    {
+        int32_t reset_at = -1;
+        int32_t check_at = -1;
+
+        for (int32_t idx = 0; idx < g_actions.n; idx++)
+        {
+            if ((VC_ACT_MOVE == g_actions.a[idx].kind) &&
+                (g_actions.a[idx].p1 == (int32_t)VC_MOVE_RESET) && (reset_at < 0))
+            {
+                reset_at = idx;
+            }
+            if ((VC_ACT_REQUEST == g_actions.a[idx].kind) &&
+                (g_actions.a[idx].p1 == (int32_t)VC_REQ_SELF_CHECK))
+            {
+                check_at = idx;
+            }
+        }
+        CHECK("VC-S06",
+              (VC_ST_MISSION_START == g_sm.st.state) && (reset_at >= 0) &&
+                  (check_at > reset_at),
+              "Start in IDLE: S2 latch reset is sent before the self check");
+    }
+    feed(VC_SRC_MOTION, VC_EV_READY, 0, 0);
+    feed(VC_SRC_LINE, VC_EV_READY, 0, 0);
+    advance(VC_SELF_CHECK_MS);
+    CHECK("VC-S07", VC_ST_FOLLOW_LINE == g_sm.st.state,
+          "Start in IDLE after an idle lift: mission runs once S2 is ready");
+    g_now_ms = 0u;
+    vc_sm_init(&g_sm, g_now_ms);
+    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    advance(VC_SELF_CHECK_MS + 100u);
+    CHECK("VC-S08",
+          (VC_ST_FAULT == g_sm.st.state) &&
+              (VC_FC_SELF_CHECK == g_sm.st.last_fault_code),
+          "S2 still not ready after Start (robot still lifted): FAULT 0x0002 as before");
+
     /* overturn FAULT stays Reset-first */
     start_mission();
     feed(VC_SRC_IMU, VC_EV_FAULT, VC_FAULT_CRITICAL, 0x4005);

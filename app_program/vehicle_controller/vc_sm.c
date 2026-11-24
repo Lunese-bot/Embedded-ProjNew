@@ -1056,6 +1056,14 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
             case VC_ST_IDLE:
                 if (VC_EV_CMD_START == type)
                 {
+                    /* Start acts as Reset then Start, as it already does
+                       after MISSION_COMPLETE: a lift while idle (e.g.
+                       placing the robot on the track) leaves S2 latched in
+                       SAFE_STOP, and without this reset S2 never reports
+                       READY (self check 0x0002).  S2 refuses the reset
+                       while S4's lift / overturn interlock is still set,
+                       so a robot that is still lifted stays stopped. */
+                    move(p_out, VC_MOVE_RESET, 0);
                     enter(p_sm, VC_ST_MISSION_START, now_ms, p_out);
                 }
                 else if (VC_EV_CMD_RESET == type)
