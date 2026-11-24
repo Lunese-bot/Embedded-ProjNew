@@ -39,7 +39,8 @@ typedef struct { uint32_t lo; } SYSTIM;
 #define TA_HLNG 0
 #define TA_STA 0
 enum { VC_SRC_COMMS, VC_EV_CMD_START, VC_EV_CMD_STOP, VC_EV_CMD_RESET,
-       VC_EV_CMD_PAUSE, VC_EV_CMD_RESUME, VC_EV_WIFI_UP, VC_EV_WIFI_DOWN };
+       VC_EV_CMD_PAUSE, VC_EV_CMD_RESUME, VC_EV_WIFI_UP, VC_EV_WIFI_DOWN,
+       VC_EV_CMD_CONFIG };
 
 ID tk_cre_mbf(T_CMBF * p_cmbf);
 ER tk_snd_mbf(ID id, const void * p_data, int len, int timeout);

@@ -2,13 +2,15 @@
  * vc_barcode_rules.c
  *
  * Barcode text -> navigation command.  The entire decoded string is matched,
- * not just its first character.  The letter meanings live in
- * vc_barcode_config.h (the file the team edits); this file only looks them
- * up.  Unknown or empty text returns NAV_NONE and the robot continues
+ * not just its first character.  A single letter A to Z is resolved against
+ * the robot's ACTIVE map (vc_barcode_map.c): the dashboard's saved map, or
+ * the factory map from vc_barcode_config.h when nothing was saved.  Unknown,
+ * empty or multi-character text returns NAV_NONE and the robot continues
  * straight at the next junction.
  */
 #include "vc_barcode_rules.h"
 #include "vc_barcode_config.h"
+#include "vc_barcode_map.h"
 
 
 typedef struct
@@ -52,6 +54,11 @@ navigation_command_t vc_barcode_lookup(const char *text)
     if ((0 == text) || ('\0' == text[0]))
     {
         return NAV_NONE;
+    }
+    if ('\0' == text[1])
+    {
+        /* exactly one character: the active map decides (A-Z only) */
+        return vc_bcmap_lookup_letter(text[0]);
     }
 
     for (i = 0u; (i < (uint32_t)(sizeof(g_rules) / sizeof(g_rules[0]))) &&

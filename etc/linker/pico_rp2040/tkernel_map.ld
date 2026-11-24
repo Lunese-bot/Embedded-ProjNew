@@ -1,9 +1,15 @@
 ENTRY(Reset_Handler)
 
+/* The last 8 KB of the 2 MB flash hold the two barcode map slots
+   (app_program/vehicle_controller/vc_bcmap_flash.h).  The image must end
+   before them: a bigger program now fails to link instead of erasing a
+   saved map. */
 MEMORY {
-	ROM (rx)	: ORIGIN = 0x10000000, LENGTH = 2048K
+	ROM (rx)	: ORIGIN = 0x10000000, LENGTH = 2040K
 	RAM (xrw)	: ORIGIN = 0x20000000, LENGTH = 256K
 }
+
+__bcmap_flash_start = ORIGIN(ROM) + LENGTH(ROM);
 
 SECTIONS {
 	boot2 : {
@@ -53,11 +59,18 @@ SECTIONS {
 	} >RAM
 	.data : AT(__data_org) {
 		__data_start = .;
+		/* code that must run from RAM while flash is being written
+		   (__attribute__((section(".ramfunc.*")))): copied with .data */
+		*(.ramfunc*)
 		*(.data)
 		*(.data.*)
 		. = ALIGN(4);
 		__data_end = .;
 	} >RAM
+	/* .data's flash copy is placed by AT(), which the ROM length does not
+	   check, so check it here too. */
+	ASSERT(__data_org + SIZEOF(.data) <= __bcmap_flash_start,
+		"ERROR: program image overlaps the barcode map flash slots")
 	.bss ALIGN(4) (NOLOAD) : {
 		__bss_start = .;
 		PROVIDE (__noinit_start = .);

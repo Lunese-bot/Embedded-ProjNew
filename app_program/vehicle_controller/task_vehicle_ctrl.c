@@ -24,6 +24,9 @@
 #include "vc_bridge.h"
 #include "../subsystem2/subsystem2.h" /* g_s2_odo_ticks for TICK p2 */
 #include "../subsystem1/s1_bridge.h"
+#include "../subsystem1/s1_cfg.h"
+#include "vc_barcode_map.h"
+#include "vc_bcmap_flash.h"
 
 static vc_sm_t      g_vc_sm; /* the live controller */
 static vc_actions_t g_vc_actions;
@@ -33,6 +36,23 @@ static uint32_t now_ms(void)
     SYSTIM sys_time;
     tk_get_tim(&sys_time);
     return sys_time.lo;
+}
+
+/* VC_ACT_CONFIG: the controller has checked its own state (b_allowed =
+   no mission running).  Validate, store and activate the pending map, or
+   refuse it, then answer the dashboard.  The flash write (if any) happens
+   here, in this task, only while the robot is not on a mission. */
+static void run_config(bool b_allowed)
+{
+    uint16_t          request_id = 0u;
+    vc_bcmap_result_t result     = VC_BCMAP_BUSY;
+
+    if (vc_bcmap_service(b_allowed, &request_id, &result))
+    {
+        tm_printf((uint8_t *)"vc: barcode map write id %u -> result %d\n",
+                  (unsigned)request_id, (int)result);
+        s1_bridge_config_reply(S1_CFG_OP_WRITE, request_id, (uint8_t)result);
+    }
 }
 
 static void run_actions(const vc_actions_t * p_acts)
@@ -66,6 +86,9 @@ static void run_actions(const vc_actions_t * p_acts)
                           vc_state_name((vc_state_t)p_action->p2),
                           vc_state_name((vc_state_t)p_action->p1));
                 break;
+            case VC_ACT_CONFIG:
+                run_config(0 != p_action->p1);
+                break;
             default:
                 break;
         }
@@ -87,6 +110,9 @@ static void publish_status(bool b_state_changed)
         g_vc_status_shared = g_vc_sm.st;
         tk_unl_mtx(g_mtx_vc_status);
     }
+
+    /* S1 reports this with every map read; edits are refused while true */
+    vc_bcmap_set_mission_active(vc_sm_is_active(g_vc_sm.st.state));
 
     if (b_state_changed)
     {
@@ -149,6 +175,19 @@ void vehicle_ctrl_task(int32_t stacd, void * p_exinf)
 
     (void)stacd;
     (void)p_exinf;
+
+    /* The robot's barcode map: the saved one, else vc_barcode_config.h */
+    vc_bcmap_init(vc_bcmap_flash_store());
+    {
+        vc_bcmap_snapshot_t snap;
+        if (vc_bcmap_get(&snap))
+        {
+            tm_printf((uint8_t *)"vc: barcode map gen %u (%s)\n",
+                      (unsigned)snap.gen,
+                      (0u != (snap.flags & VC_BCMAP_FLAG_SAVED)) ? "saved"
+                                                                 : "factory");
+        }
+    }
 
     now = now_ms();
     vc_sm_init(&g_vc_sm, now);

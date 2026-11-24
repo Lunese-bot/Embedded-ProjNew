@@ -53,14 +53,14 @@ typedef char mqtt_utk_hb_echo_fits[(MQTT_UTK_HB_MAX <= MQTT_UTK_RX_DATA_MAX) ? 1
 typedef char mqtt_utk_hb_len_fits[(MQTT_UTK_HB_MAX <= 0xFFFF) ? 1 : -1];
 
 /* lwIP limits (lwipopts.h) against S1's real sizes (s1_bridge.h):
- * - S1 may hold S1_TLM_INFLIGHT_MAX telemetry requests; keep at least 4
- *   more for events, the heartbeat and the SUBSCRIBEs at connect.
+ * - S1 may hold S1_TLM_INFLIGHT_MAX telemetry requests; keep at least 5
+ *   more for events, the heartbeat and the three SUBSCRIBEs at connect.
  * - mqtt_create_request() walks the slots with a u8_t index.
  * - the ring must hold two of the longest S1 publishes, and the longest
  *   heartbeat, with at least one byte to spare (see ring_refuses()).
  * - the ring uses u16_t put/get indexes. */
 typedef char mqtt_utk_req_slots_fit[
-	(MQTT_REQ_MAX_IN_FLIGHT >= S1_TLM_INFLIGHT_MAX + 4) ? 1 : -1];
+	(MQTT_REQ_MAX_IN_FLIGHT >= S1_TLM_INFLIGHT_MAX + 5) ? 1 : -1];
 typedef char mqtt_utk_req_index_fits[(MQTT_REQ_MAX_IN_FLIGHT <= 255) ? 1 : -1];
 typedef char mqtt_utk_ring_fits_two_s1[
 	(MQTT_OUTPUT_RINGBUF_SIZE > 2U * S1_BRIDGE_PUBLISH_MAX) ? 1 : -1];
@@ -131,6 +131,11 @@ static void incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
 			s1_bridge_on_command((const uint8_t *)rx_data,
 					     (rx_truncated || rx_len != rx_expected_len)
 					     ? -1 : (int32_t)rx_len);
+		} else if(!rx_topic_truncated && topic_is(rx_topic, S1_TOPIC_CFG)) {
+			/* barcode map read / replace (s1_cfg.h) */
+			s1_bridge_on_config((const uint8_t *)rx_data,
+					    (rx_truncated || rx_len != rx_expected_len)
+					    ? -1 : (int32_t)rx_len);
 		}
 	}
 }
@@ -302,6 +307,13 @@ static void connection_cb(mqtt_client_t *c, void *arg, mqtt_connection_status_t 
 				     subscribe_done_cb, NULL);
 		if(err != ERR_OK) {
 			tm_printf((UB*)"mqtt: subscribe " S1_TOPIC_CMD " failed, err=%d\n",
+				  (int)err);
+		}
+		/* barcode map read / replace (subsystem 1, s1_cfg.h) */
+		err = mqtt_subscribe(client, S1_TOPIC_CFG, 0 /* qos */,
+				     subscribe_done_cb, NULL);
+		if(err != ERR_OK) {
+			tm_printf((UB*)"mqtt: subscribe " S1_TOPIC_CFG " failed, err=%d\n",
 				  (int)err);
 		}
 		s1_bridge_set_connected(1);

@@ -112,6 +112,11 @@ typedef enum
     /* S6 internal */
     VC_EV_TICK, /* periodic, drives state timeouts */
 
+    /* S1 (added last so no existing event number changes) */
+    VC_EV_CMD_CONFIG, /* a barcode map write is pending (vc_barcode_map.h);
+                         p1 = request id.  Applied only when no mission is
+                         active, decided by the controller itself. */
+
     VC_EV_COUNT
 } vc_event_type_t;
 

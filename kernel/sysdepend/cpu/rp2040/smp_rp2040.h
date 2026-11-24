@@ -32,6 +32,8 @@
 #define KNL_IPI_PING		(1U << 1)	/* bring-up: request a PONG */
 #define KNL_IPI_PONG		(1U << 2)	/* bring-up: PING acknowledged */
 #define KNL_IPI_TIME_HANDLER	(1U << 3)	/* run queued cyclic/alarm callbacks */
+#define KNL_IPI_FLASH_PARK	(1U << 4)	/* spin in RAM, IRQs off, while the
+						   other core writes flash */
 
 /* Core 1 stack.  SRAM4 and SRAM5 are two 4 KiB banks above the striped main
    SRAM, outside the linker's RAM region, so nothing else is placed there.

@@ -46,7 +46,7 @@ static const char * const g_event_names[VC_EV_COUNT] = {
     "LINE_FOUND",    "JUNCTION",       "BARCODE_START",  "BARCODE_DECODED",
     "BARCODE_FAILED", "END_OF_COURSE", "HUMP_START",     "HUMP_CLEARED",
     "LIFTED",        "OBSTACLE",       "AVOID_DONE",     "AVOID_FAILED",
-    "TICK"
+    "TICK",          "CMD_CONFIG"
 };
 
 const char * vc_state_name(vc_state_t state)
@@ -569,6 +569,14 @@ static bool handle_common(vc_sm_t * p_sm, const vc_event_t * p_event,
         case VC_EV_WIFI_UP:
             p_sm->st.wifi_up = true;
             b_handled        = true;
+            break;
+
+        case VC_EV_CMD_CONFIG:
+            /* Barcode map edits only while no mission is running (also
+               paused: still active).  The state does not change. */
+            emit(p_out, VC_ACT_CONFIG, VC_SRC_COMMS, b_active ? 0 : 1,
+                 p_event->p1);
+            b_handled = true;
             break;
 
         default:

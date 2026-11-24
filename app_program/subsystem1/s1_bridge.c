@@ -7,7 +7,9 @@
 #include "subsystem1.h"
 #include "s1_codec.h"
 #include "s1_txq.h"
+#include "s1_cfg.h"
 #include "../vehicle_controller/vehicle_controller.h"
+#include "../vehicle_controller/vc_barcode_map.h"
 
 /* Callback tags: bits 0-2 hold kind - S1_KIND_TLM + 1, that is 1..5 (never
    0, so a tag is never NULL), bits 3.. the connection generation. */
@@ -189,6 +191,62 @@ void s1_bridge_on_command(const uint8_t * p_payload, int32_t len)
     else
     {
         post_ack(S1_ACK_QUEUED, s1_cmd_seq(command_byte));
+    }
+}
+
+/* ---- barcode map read / replace (s1_cfg.h) -------------------------- */
+
+void s1_bridge_config_reply(uint8_t op, uint16_t request_id, uint8_t result)
+{
+    vc_bcmap_snapshot_t snap;
+    uint8_t             reply[S1_CFG_REPLY_LEN];
+
+    if (!vc_bcmap_get(&snap))
+    {
+        /* the map was being replaced during the copy: say BUSY, no map */
+        uint8_t none[S1_CFG_MAP_BYTES] = { 0 };
+
+        (void)s1_cfg_encode_reply(op, request_id, (uint8_t)VC_BCMAP_BUSY, 0u,
+                                  0u, none, reply);
+    }
+    else
+    {
+        (void)s1_cfg_encode_reply(op, request_id, result, (uint16_t)snap.gen,
+                                  snap.flags, snap.packed, reply);
+    }
+    app_check(s1_post(S1_TOPIC_CFG_REPLY, reply, (int32_t)sizeof(reply)),
+              "s1 config reply");
+}
+
+void s1_bridge_on_config(const uint8_t * p_payload, int32_t len)
+{
+    S1_CFG_REQ req;
+
+    g_s1_stat.commands++;
+    if (0 != s1_cfg_decode_request(p_payload, (int)len, &req))
+    {
+        s1_bridge_config_reply(req.op, req.request_id,
+                               (uint8_t)VC_BCMAP_REJ_MALFORMED);
+        return;
+    }
+    if (S1_CFG_OP_READ == req.op)
+    {
+        s1_bridge_config_reply(req.op, req.request_id, (uint8_t)VC_BCMAP_OK);
+        return;
+    }
+    /* WRITE: the Vehicle Controller applies it, so the "no mission is
+       running" check and the change happen in the same task, in order with
+       Start.  It replies through s1_bridge_config_reply(). */
+    if (!vc_bcmap_post_write(req.request_id, req.expected_gen, req.map))
+    {
+        s1_bridge_config_reply(req.op, req.request_id, (uint8_t)VC_BCMAP_BUSY);
+        return;
+    }
+    if (vc_post_event(VC_SRC_COMMS, VC_EV_CMD_CONFIG, (int32_t)req.request_id,
+                      0, TMO_POL) < E_OK)
+    {
+        vc_bcmap_cancel_write();
+        s1_bridge_config_reply(req.op, req.request_id, (uint8_t)VC_BCMAP_BUSY);
     }
 }
 

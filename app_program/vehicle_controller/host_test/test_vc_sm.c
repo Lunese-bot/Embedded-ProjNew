@@ -13,6 +13,7 @@
 #include "../vc_sm.h"
 #include "../vc_barcode_rules.h"
 #include "../vc_barcode_config.h"
+#include "../vc_barcode_map.h"
 
 static vc_sm_t      g_sm;
 static vc_actions_t g_actions;
@@ -817,7 +818,10 @@ static void test_letter_config(void)
     for (uint32_t i = 0u; i < VC_BARCODE_LETTER_COUNT; i++)
     {
         text[0] = (char)('A' + (int)i);
-        if (vc_barcode_lookup(text) != expect[i])
+        /* the active map holds the four actions: a NONE row reads STRAIGHT */
+        if ((vc_bcmap_wire_from_nav(vc_barcode_lookup(text)) !=
+             vc_bcmap_wire_from_nav(expect[i])) ||
+            (NAV_NONE == vc_barcode_lookup(text)))
         {
             all_match = 0;
         }
@@ -827,11 +831,12 @@ static void test_letter_config(void)
         }
     }
     CHECK("VC-C01", all_match,
-          "every letter A..Z returns the value set in vc_barcode_config.h");
+          "factory map: every letter A..Z returns the action set in "
+          "vc_barcode_config.h (NAV_NONE rows as STRAIGHT)");
     CHECK("VC-C02",
           (NAV_LEFT == vc_barcode_lookup("H")) &&
               (NAV_RIGHT == vc_barcode_lookup("Z")) && (2 == not_none),
-          "as shipped: H = LEFT, Z = RIGHT, every other letter NONE "
+          "as shipped: H = LEFT, Z = RIGHT, every other letter NONE (straight) "
           "(when the team changes a row, update this check with it)");
     CHECK("VC-C03",
           (NAV_NONE == vc_barcode_lookup("")) &&
@@ -943,14 +948,15 @@ static void test_letter_navigation(void)
     check_letter_maneuver("NAV-04", "TESTSTRAIGHT", NAV_STRAIGHT,
                           VC_MOVE_DRIVE_DIST, "STRAIGHT");
 
-    /* A: successful decode, goes straight through its NAV_NONE fallback */
+    /* A: successful decode, its factory row (NONE) is the action STRAIGHT */
     start_mission();
     tally_clear();
     feed_barcode("A");
     CHECK("NAV-05a", (1u == g_sm.st.barcodes_read) &&
                          (0 == strcmp("A", g_sm.st.last_barcode)) &&
-                         (NAV_NONE == g_sm.pending_nav),
-          "A is recorded as a successful decode (count 1, last = A)");
+                         (NAV_STRAIGHT == g_sm.pending_nav),
+          "A is recorded as a successful decode (count 1, last = A) and "
+          "its assigned action is STRAIGHT");
     junction_to_execute();
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
     CHECK("NAV-05b", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&

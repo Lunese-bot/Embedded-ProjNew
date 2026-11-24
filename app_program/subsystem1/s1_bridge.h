@@ -17,6 +17,9 @@
 #define S1_TOPIC_TLM        "t"
 #define S1_TOPIC_ACK        "ack"
 #define S1_TOPIC_BARCODE    "barcode"
+/* barcode letter map read / replace (s1_cfg.h); requests are never retained */
+#define S1_TOPIC_CFG        S1_TOPIC_ROOT "cfg"
+#define S1_TOPIC_CFG_REPLY  "cfgr"
 #define S1_BRIDGE_LINE_MAX  192
 #define S1_BRIDGE_TOPIC_MAX 48
 #define S1_BRIDGE_FULL_TOPIC_MAX \
@@ -50,6 +53,13 @@ int32_t s1_bridge_pop(char * p_topic, int32_t topic_max, uint8_t * p_payload,
 /* Commands are one byte or a two-byte extension; acknowledgements are one byte. */
 void s1_bridge_on_command(const uint8_t * p_payload, int32_t len);
 void s1_bridge_command_result(uint8_t seq, int32_t accepted);
+
+/* robot/g10/cfg: read the barcode map (answered at once) or hand a whole
+   map write to the Vehicle Controller (answered after it was applied or
+   refused).  len -1 = truncated message. */
+void s1_bridge_on_config(const uint8_t * p_payload, int32_t len);
+/* Vehicle Controller: publish the reply to a config request. */
+void s1_bridge_config_reply(uint8_t op, uint16_t request_id, uint8_t result);
 
 /* Broker connection state, from mqtt_utk.c's connection callback.  Every
    change of state starts a new connection generation: publishes still

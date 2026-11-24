@@ -102,7 +102,9 @@ typedef enum
                         arg */
     VC_ACT_REPORT,   /* target = source of fault, p1 = severity, p2 = code -> S1
                       */
-    VC_ACT_STATE     /* p1 = new vc_state_t, p2 = old vc_state_t */
+    VC_ACT_STATE,    /* p1 = new vc_state_t, p2 = old vc_state_t */
+    VC_ACT_CONFIG    /* p1 = 1 apply the pending barcode map write, 0 refuse
+                        it (mission active); p2 = request id */
 } vc_action_kind_t;
 
 typedef struct

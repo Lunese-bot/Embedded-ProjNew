@@ -266,6 +266,98 @@ EXPORT UW knl_ipi_take( void )
 
 /* ------------------------------------------------------------------------ */
 /*
+ * Flash lockout.
+ *
+ * While one core erases or programs the QSPI flash, XIP is off: neither
+ * core may fetch an instruction or constant from flash.  The writer
+ * (app_program/vehicle_controller/vc_bcmap_flash.c, with its own
+ * interrupts off) asks the other core to park: that core takes the IPI,
+ * masks its interrupts and spins in a RAM-resident loop until released.
+ * The IPI runs at the lowest priority, so the other core parks only
+ * outside kernel critical sections and outside every other handler.
+ */
+#define TIMER_RAWL	(*(_UW*)0x40054028)	/* 1 MHz free-running count */
+
+LOCAL volatile UW knl_flash_park_req;
+LOCAL volatile UW knl_flash_parked[TK_MAX_CORE];
+
+/* In RAM (linker: .ramfunc* is copied with .data); touches only RAM. */
+LOCAL void __attribute__((section(".ramfunc.knl_flash_park"), noinline,
+			  long_call)) knl_flash_park_spin( void )
+{
+	while ( knl_flash_park_req != 0 ) {
+		__asm__ volatile ("" ::: "memory");
+	}
+}
+
+LOCAL void knl_smp_flash_park( void )
+{
+	UW	primask;
+	UINT	self = knl_current_core();
+
+	__asm__ volatile ("mrs %0, primask\n\tcpsid i" : "=r"(primask) :: "memory");
+	knl_smp_barrier();
+	if ( knl_flash_park_req != 0 ) {
+		knl_flash_parked[self] = 1;
+		knl_smp_barrier();
+		knl_flash_park_spin();
+		knl_smp_barrier();
+		knl_flash_parked[self] = 0;
+		knl_smp_barrier();
+	}
+	__asm__ volatile ("msr primask, %0" :: "r"(primask) : "memory");
+}
+
+/*
+ * Call with this core's interrupts disabled.  Returns 1 when the other core
+ * is parked in RAM (or is still in the boot ROM), 0 when it did not park in
+ * timeout_us: then nothing must touch the flash, and the request is
+ * withdrawn.
+ */
+EXPORT INT knl_smp_flash_lockout_begin( UW timeout_us )
+{
+	UINT	other = 1U - knl_current_core();
+	UW	t0;
+
+	if ( (knl_smp_online_mask & (1U << other)) == 0 ) {
+		/* Never launched: core 1 waits in the boot ROM, which is safe.
+		   Launched but never online: it may run flash code. */
+		return ( knl_smp_launch_seq < 6 )? 1: 0;
+	}
+	knl_flash_parked[other] = 0;
+	knl_flash_park_req = 1;
+	knl_smp_barrier();
+	knl_ipi_send(other, KNL_IPI_FLASH_PARK);
+	t0 = TIMER_RAWL;
+	while ( (UW)(TIMER_RAWL - t0) < timeout_us ) {
+		knl_smp_barrier();
+		if ( knl_flash_parked[other] != 0 ) return 1;
+	}
+	knl_flash_park_req = 0;			/* too late: withdraw */
+	knl_smp_barrier();
+	knl_smp_sev();
+	return 0;
+}
+
+/* Release the parked core (XIP must already be back on). */
+EXPORT void knl_smp_flash_lockout_end( void )
+{
+	UINT	other = 1U - knl_current_core();
+	UW	t0;
+
+	knl_smp_barrier();
+	knl_flash_park_req = 0;
+	knl_smp_barrier();
+	knl_smp_sev();
+	/* let it leave the loop before a later lockout can start */
+	t0 = TIMER_RAWL;
+	while ( knl_flash_parked[other] != 0 && (UW)(TIMER_RAWL - t0) < 1000U ) {
+		knl_smp_barrier();
+	}
+}
+
+/* ------------------------------------------------------------------------ */
+/*
  * Core 0's IPI handler: services PONG replies from core 1.
  */
 LOCAL void knl_smp_core0_ipi( UINT intno )
@@ -277,6 +369,9 @@ LOCAL void knl_smp_core0_ipi( UINT intno )
 	reasons = knl_ipi_take();
 	if ( (reasons & KNL_IPI_PONG) != 0 ) {
 		knl_smp_pong_recv++;
+	}
+	if ( (reasons & KNL_IPI_FLASH_PARK) != 0 ) {
+		knl_smp_flash_park();
 	}
 	if ( (reasons & KNL_IPI_RESCHEDULE) != 0 ) {
 		knl_dispatch();
@@ -310,6 +405,9 @@ LOCAL void knl_smp_core1_ipi( UINT intno )
 		knl_smp_shared_word = knl_smp_ping_recv;
 		knl_smp_barrier();
 		knl_ipi_send(0, KNL_IPI_PONG);
+	}
+	if ( (reasons & KNL_IPI_FLASH_PARK) != 0 ) {
+		knl_smp_flash_park();
 	}
 	if ( (reasons & KNL_IPI_RESCHEDULE) != 0 ) {
 		knl_dispatch();		/* pend PendSV on this core */
@@ -483,6 +581,19 @@ EXPORT BOOL knl_smp_launch_core1( void )
 		}
 	}
 	return FALSE;
+}
+
+#else /* !TK_SUPPORT_SMP */
+
+/* Single core: core 1 never leaves the boot ROM, nothing to park. */
+EXPORT INT knl_smp_flash_lockout_begin( UW timeout_us )
+{
+	(void)timeout_us;
+	return 1;
+}
+
+EXPORT void knl_smp_flash_lockout_end( void )
+{
 }
 
 #endif /* TK_SUPPORT_SMP */
