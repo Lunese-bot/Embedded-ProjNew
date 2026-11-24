@@ -336,7 +336,7 @@ const DashCore = (() => {
 
   /* Letter -> action, copied from vc_barcode_config.h.  The dashboard check
      compares this with the firmware table, so the two cannot drift apart. */
-  const BARCODE_RULES = { Z: "Right" };
+  const BARCODE_RULES = { H: "Left", Z: "Right" };
 
   function staleAfterMs(source) {
     /* 1 s, or two periods of a slower source (USB prints once a second) */
