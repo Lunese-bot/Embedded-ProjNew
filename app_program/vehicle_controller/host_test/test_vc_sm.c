@@ -933,7 +933,7 @@ static void check_letter_maneuver(const char *id, const char *letter,
     if (VC_MOVE_U_TURN == move)
     {
         NAV_CHECK("c", has_move(VC_MOVE_U_TURN, 0, 0) && (0u == g_sm.turn_gate),
-                  "U-turn request is VC_MOVE_U_TURN (bridge sends 180 deg: S6-U01)");
+                  "U-turn request is VC_MOVE_U_TURN (bridge sends VC_UTURN_CMD_DEG: S6-U01)");
         feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* pivot done */
         NAV_CHECK("u", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
                            has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1),

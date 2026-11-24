@@ -114,10 +114,12 @@ int main(void)
     assert(!vc_bridge_s2_next(&event)); /* aborted self-check stays cancelled */
 
     /* encoder-based turn requests: the bridge passes the angle to S2 */
-    assert(vc_bridge_s2_move(VC_MOVE_U_TURN, 0) == E_OK && last_turn_angle == 180);
+    assert(vc_bridge_s2_move(VC_MOVE_U_TURN, 0) == E_OK &&
+           last_turn_angle == VC_UTURN_CMD_DEG);
+    assert(VC_UTURN_CMD_DEG == 151); /* owner's 215 deg run: 180 x 180 / 215 */
     assert(vc_bridge_s2_move(VC_MOVE_TURN_LEFT, 90) == E_OK && last_turn_angle == 90);
     assert(vc_bridge_s2_move(VC_MOVE_TURN_RIGHT, 90) == E_OK && last_turn_angle == -90);
-    puts("[TEST] S6-U01 PASS  U-turn asks S2 for 180 deg; left +90, right -90");
+    puts("[TEST] S6-U01 PASS  U-turn asks S2 for VC_UTURN_CMD_DEG (151, tuned from 215 deg measured); left +90, right -90 unchanged");
 
     puts("[TEST] S6-SAFE03 PASS  motion readiness follows applied stop and reset");
 

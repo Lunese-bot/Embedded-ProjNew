@@ -13,7 +13,7 @@
  *        SET_SPEED v   remembered; re-sent at once while driving
  *        TURN_LEFT a   s2_cmd_turn(turn speed, +a)   (+ = left in S2)
  *        TURN_RIGHT a  s2_cmd_turn(turn speed, -a)
- *        U_TURN        s2_cmd_turn(turn speed, 180)
+ *        U_TURN        s2_cmd_turn(turn speed, VC_UTURN_CMD_DEG)
  *        DRIVE_DIST d  s2_cmd_drive_dist(speed, +d)
  *        REVERSE d     s2_cmd_drive_dist(speed, -d)
  *        SAFE_STOP     s2_emergency_stop()  (latched in S2)
@@ -51,7 +51,6 @@ _Static_assert(S2_FC_SAFE_STOP == VC_FC_S2_SAFE_STOP,
 #define S2_FC_FAULT_BASE    0x2000U /* | motion_fault_t in the low byte */
 #define S2_FC_FAULT_MASK    0xFFU
 #define VC_STEER_FULL_SCALE 1000 /* S3 steering request -1000..+1000 */
-#define VC_U_TURN_DEG       180
 
 #define S2_EVENT_BITS (MFLG_CMD_DONE | MFLG_STOPPED | MFLG_FAULT | MFLG_CMD_TIMEOUT)
 
@@ -199,7 +198,7 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
             break;
         case VC_MOVE_U_TURN:
             g_b_driving = false;
-            ercd        = s2_cmd_turn(sent_turn_speed(), VC_U_TURN_DEG);
+            ercd        = s2_cmd_turn(sent_turn_speed(), VC_UTURN_CMD_DEG);
             break;
         case VC_MOVE_DRIVE_DIST:
             g_b_driving = false;
