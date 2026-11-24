@@ -22,6 +22,8 @@ static const vc_barcode_rule_t g_rules[] = {
     /* Host-test-only mappings; never enabled in the firmware build. */
     { "TESTLEFT", NAV_LEFT },
     { "TESTRIGHT", NAV_RIGHT },
+    { "TESTUTURN", NAV_U_TURN },
+    { "TESTSTRAIGHT", NAV_STRAIGHT },
 #endif
     /* One line per letter, generated from vc_barcode_config.h */
 #define VC_RULE_LINE(letter, nav) { #letter, nav },

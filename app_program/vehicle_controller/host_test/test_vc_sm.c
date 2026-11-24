@@ -36,6 +36,26 @@ static int32_t      g_failed;
         }                                                                \
     } while (0)
 
+/* Counts every MOVE action issued since tally_clear(), by move type. */
+static int32_t g_tally[32];
+
+static void tally_clear(void)
+{
+    memset(g_tally, 0, sizeof(g_tally));
+}
+
+static void tally_add(void)
+{
+    for (int32_t idx = 0; idx < g_actions.n; idx++)
+    {
+        if ((VC_ACT_MOVE == g_actions.a[idx].kind) &&
+            (g_actions.a[idx].p1 >= 0) && (g_actions.a[idx].p1 < 32))
+        {
+            g_tally[g_actions.a[idx].p1]++;
+        }
+    }
+}
+
 static void feed(vc_source_t src, vc_event_type_t type, int32_t param1,
                  int32_t param2)
 {
@@ -46,6 +66,7 @@ static void feed(vc_source_t src, vc_event_type_t type, int32_t param1,
     event.p1   = param1;
     event.p2   = param2;
     vc_sm_handle(&g_sm, &event, g_now_ms, &g_actions);
+    tally_add();
 }
 
 static void feed_barcode(const char *text)
@@ -61,6 +82,7 @@ static void feed_barcode(const char *text)
     }
     event.barcode_text[i] = '\0';
     vc_sm_handle(&g_sm, &event, g_now_ms, &g_actions);
+    tally_add();
 }
 
 #define HOST_TICK_MS 20U /* simulated controller tick */
@@ -765,7 +787,8 @@ static void test_letter_config(void)
           "every letter A..Z returns the value set in vc_barcode_config.h");
     CHECK("VC-C02",
           (NAV_RIGHT == vc_barcode_lookup("Z")) && (1 == not_none),
-          "as shipped: Z = RIGHT, every other letter NONE");
+          "as shipped: Z = RIGHT, every other letter NONE "
+          "(when the team changes a row, update this check with it)");
     CHECK("VC-C03",
           (NAV_NONE == vc_barcode_lookup("")) &&
               (NAV_NONE == vc_barcode_lookup("z")) &&
@@ -778,6 +801,270 @@ static void test_letter_config(void)
     feed_barcode("Z");
     CHECK("VC-C04", NAV_RIGHT == g_sm.pending_nav,
           "decoded Z becomes a pending RIGHT turn");
+}
+
+/* ---- barcode letter -> junction navigation, end to end ---------------- */
+
+/* A junction: S3 reports it, S2 confirms the stop, the axle advance (if any)
+   completes.  Returns with the controller in EXECUTE_ACTION. */
+static void junction_to_execute(void)
+{
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    if (0u != g_sm.exec_phase)
+    {
+        feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* advance done */
+    }
+}
+
+static int32_t turns_issued(void)
+{
+    return g_tally[VC_MOVE_TURN_LEFT] + g_tally[VC_MOVE_TURN_RIGHT] +
+           g_tally[VC_MOVE_U_TURN];
+}
+
+/* One decoded letter, then one junction.  The letter alone must start no
+   motion; the junction issues `move` exactly once; S2's completion clears the
+   instruction; a second junction without a new barcode does not repeat it. */
+static void check_letter_maneuver(const char *id, const char *letter,
+                                  navigation_command_t nav, vc_move_t move,
+                                  const char *what)
+{
+    char name[16];
+    char desc[112];
+
+#define NAV_CHECK(sfx, cond, text)                                     \
+    do                                                                 \
+    {                                                                  \
+        snprintf(name, sizeof(name), "%s%s", id, sfx);                 \
+        snprintf(desc, sizeof(desc), "%s: %s", what, text);            \
+        CHECK(name, cond, desc);                                       \
+    } while (0)
+
+    start_mission();
+    tally_clear();
+    feed_barcode(letter);
+    NAV_CHECK("a", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                       (nav == g_sm.pending_nav) && (0 == turns_issued()) &&
+                       (0 == g_tally[VC_MOVE_DRIVE_DIST]) &&
+                       (0 == g_tally[VC_MOVE_STOP_CONFIRM]),
+              "decoding alone stores the instruction and starts no motion");
+
+    tally_clear();
+    junction_to_execute();
+    NAV_CHECK("b", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+                       (1 == g_tally[VC_MOVE_STOP_CONFIRM]) &&
+                       (1 == g_tally[move]) &&
+                       ((VC_MOVE_DRIVE_DIST == move) ? (0 == turns_issued())
+                                                     : (1 == turns_issued())),
+              "stops at the junction, then issues the maneuver exactly once");
+    if (VC_MOVE_U_TURN == move)
+    {
+        NAV_CHECK("c", has_move(VC_MOVE_U_TURN, 0, 0) &&
+                           (VC_PIVOT_COUNTS(VC_UTURN_GATE_DEG) == g_sm.turn_gate),
+                  "U-turn request is VC_MOVE_U_TURN (bridge sends 180 deg: S6-U01)");
+    }
+    else if (VC_MOVE_DRIVE_DIST == move)
+    {
+        NAV_CHECK("c", has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1),
+                  "straight drives the clearing distance");
+    }
+    else
+    {
+        NAV_CHECK("c", has_move(move, VC_TURN_CMD_DEG, 1),
+                  "turn request carries the encoder turn angle");
+    }
+
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    NAV_CHECK("d", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                       (NAV_NONE == g_sm.pending_nav) &&
+                       ('\0' == g_sm.pending_barcode[0]),
+              "completion clears the instruction and resumes line following");
+
+    tally_clear();
+    junction_to_execute();
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    NAV_CHECK("e", (VC_ST_FOLLOW_LINE == g_sm.st.state) && (0 == turns_issued()),
+              "second junction without a new barcode makes no turn");
+#undef NAV_CHECK
+}
+
+static void test_letter_navigation(void)
+{
+    /* Z is the production default (right). Left, U-turn and straight use the
+       test-only mappings so the team's production table stays as set. */
+    check_letter_maneuver("NAV-01", "TESTLEFT", NAV_LEFT, VC_MOVE_TURN_LEFT, "LEFT");
+    check_letter_maneuver("NAV-02", "Z", NAV_RIGHT, VC_MOVE_TURN_RIGHT, "Z = RIGHT");
+    check_letter_maneuver("NAV-03", "TESTUTURN", NAV_U_TURN, VC_MOVE_U_TURN, "U_TURN");
+    check_letter_maneuver("NAV-04", "TESTSTRAIGHT", NAV_STRAIGHT,
+                          VC_MOVE_DRIVE_DIST, "STRAIGHT");
+
+    /* A: successful decode, goes straight through its NAV_NONE fallback */
+    start_mission();
+    tally_clear();
+    feed_barcode("A");
+    CHECK("NAV-05a", (1u == g_sm.st.barcodes_read) &&
+                         (0 == strcmp("A", g_sm.st.last_barcode)) &&
+                         (NAV_NONE == g_sm.pending_nav),
+          "A is recorded as a successful decode (count 1, last = A)");
+    junction_to_execute();
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    CHECK("NAV-05b", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                         (0 == turns_issued()) && (1 == g_tally[VC_MOVE_DRIVE_DIST]) &&
+                         (0 == strcmp("A", g_sm.st.last_barcode)),
+          "A drives straight over the junction, no turn, still recorded as A");
+
+    /* a missed read and a wrong letter are distinguishable from A */
+    start_mission();
+    feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
+    feed(VC_SRC_LINE, VC_EV_BARCODE_FAILED, 0, 0);
+    CHECK("NAV-06a", (0u == g_sm.st.barcodes_read) &&
+                         ('\0' == g_sm.st.last_barcode[0]) &&
+                         (NAV_NONE == g_sm.pending_nav) &&
+                         (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                         (VC_FC_BARCODE == g_sm.st.last_fault_code) &&
+                         (VC_FAULT_NON_CRITICAL == g_sm.st.last_fault_sev),
+          "a missed read records no letter (count 0) and reports VC_FC_BARCODE, "
+          "non-critical; the run goes on");
+    start_mission();
+    feed_barcode("T"); /* T is what a backwards Z looks like */
+    CHECK("NAV-06b", (1u == g_sm.st.barcodes_read) &&
+                         (0 == strcmp("T", g_sm.st.last_barcode)) &&
+                         (0 != strcmp("A", g_sm.st.last_barcode)) &&
+                         (0 != strcmp("Z", g_sm.st.last_barcode)),
+          "a wrong letter (T) is recorded as T, not as A or Z");
+
+    /* Z followed by two junctions: only the first turns */
+    start_mission();
+    tally_clear();
+    feed_barcode("Z");
+    junction_to_execute();
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    junction_to_execute();
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    CHECK("NAV-07", (1 == g_tally[VC_MOVE_TURN_RIGHT]) && (1 == turns_issued()) &&
+                        (VC_ST_FOLLOW_LINE == g_sm.st.state),
+          "Z then two junctions: exactly one right turn, the second goes straight");
+
+    /* Z, then an operator stop (FAULT), Reset, Start: no stale right turn */
+    start_mission();
+    feed_barcode("Z");
+    feed(VC_SRC_COMMS, VC_EV_CMD_STOP, 0, 0);
+    feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
+    CHECK("NAV-08a", (VC_ST_IDLE == g_sm.st.state) &&
+                         (NAV_NONE == g_sm.pending_nav) &&
+                         ('\0' == g_sm.pending_barcode[0]),
+          "Z then stop then Reset: pending instruction cleared");
+    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_READY, 0, 0);
+    feed(VC_SRC_LINE, VC_EV_READY, 0, 0);
+    feed(VC_SRC_IMU, VC_EV_READY, 0, 0);
+    feed(VC_SRC_OBST, VC_EV_READY, 0, 0);
+    tally_clear();
+    junction_to_execute();
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    CHECK("NAV-08b", (VC_ST_FOLLOW_LINE == g_sm.st.state) && (0 == turns_issued()),
+          "after Reset and Start the first junction goes straight");
+
+    /* Z, then overturn (critical fault), Reset: same */
+    start_mission();
+    feed_barcode("Z");
+    feed(VC_SRC_IMU, VC_EV_FAULT, VC_FAULT_CRITICAL, 0x4005);
+    feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
+    CHECK("NAV-09", (VC_ST_IDLE == g_sm.st.state) && (NAV_NONE == g_sm.pending_nav),
+          "Z then overturn fault then Reset: pending instruction cleared");
+
+    /* Z, then lift (end of run): no turn, instruction cleared */
+    start_mission();
+    feed_barcode("Z");
+    feed_lift();
+    CHECK("NAV-10", (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
+                        (NAV_NONE == g_sm.pending_nav),
+          "Z then lift: run ends, pending instruction cleared");
+
+    /* lift at the junction wins over the pending turn, no turn issued */
+    start_mission();
+    feed_barcode("Z");
+    tally_clear();
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    feed_lift();
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    CHECK("NAV-11", (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
+                        (0 == turns_issued()),
+          "lift between junction and turn: stop wins, no turn is issued");
+
+    /* Z, lift (run ends), then Start without Reset: Start goes via IDLE,
+       so the old Z must not turn at the first junction of the new run */
+    start_mission();
+    feed_barcode("Z");
+    feed_lift();
+    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_READY, 0, 0);
+    feed(VC_SRC_LINE, VC_EV_READY, 0, 0);
+    feed(VC_SRC_IMU, VC_EV_READY, 0, 0);
+    feed(VC_SRC_OBST, VC_EV_READY, 0, 0);
+    tally_clear();
+    junction_to_execute();
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    CHECK("NAV-12", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                        (0 == turns_issued()) &&
+                        (1 == g_tally[VC_MOVE_DRIVE_DIST]),
+          "Z, lift, Start: the first junction of the new run goes straight");
+
+    /* Reset while the run is still going is ignored (Reset only acts in
+       IDLE, FAULT and MISSION_COMPLETE), so the pending Z still turns */
+    start_mission();
+    feed_barcode("Z");
+    feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
+    CHECK("NAV-13", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                        (NAV_RIGHT == g_sm.pending_nav),
+          "Reset during a running mission changes nothing (existing rule)");
+
+    /* The letter decides, not S3's legacy nav byte (S3_BC_CHAR_* are all
+       off, but a stale p1 must not override the table either) */
+    {
+        vc_event_t event = { 0 };
+
+        start_mission();
+        event.src  = VC_SRC_LINE;
+        event.type = VC_EV_BARCODE_DECODED;
+        event.p1   = (int32_t)NAV_LEFT;
+        event.barcode_text[0] = 'Z';
+        vc_sm_handle(&g_sm, &event, g_now_ms, &g_actions);
+        CHECK("NAV-14", (NAV_RIGHT == g_sm.pending_nav) &&
+                            (0 == strcmp("Z", g_sm.st.last_barcode)),
+              "decoded text Z with legacy p1 = LEFT: the table (RIGHT) wins");
+    }
+
+#if VC_TURN_END_ON_LINE
+    /* Z ends on the new arm (LINE_FOUND past the gate) instead of S2's
+       MANOEUVRE_DONE.  S2's late DONE then arrives in FOLLOW_LINE: it must
+       not start anything, and the next junction goes straight. */
+    {
+        const uint32_t odo0 = 200000u;
+
+        start_mission();
+        feed(VC_SRC_VC, VC_EV_TICK, 0, (int32_t)odo0);
+        feed_barcode("Z");
+        tally_clear();
+        junction_to_execute();
+        line_at(g_sm.turn_odo0 + g_sm.turn_gate + 5u);
+        CHECK("NAV-15a", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                             (NAV_NONE == g_sm.pending_nav) &&
+                             (1 == g_tally[VC_MOVE_TURN_RIGHT]),
+              "Z turn ended on the line: instruction cleared, following");
+        tally_clear();
+        feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+        CHECK("NAV-15b", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                             (0 == g_actions.n),
+              "late S2 MANOEUVRE_DONE after a line-ended turn does nothing");
+        junction_to_execute();
+        feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+        CHECK("NAV-15c", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                             (0 == turns_issued()),
+              "next junction after a line-ended Z goes straight");
+    }
+#endif
 }
 
 /* line search pattern and ownership */
@@ -879,6 +1166,7 @@ int main(void)
     test_faults();
     test_lift();
     test_letter_config();
+    test_letter_navigation();
     test_line_search();
     test_pause_resume();
 
