@@ -795,6 +795,16 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
     white   = p_e->w_x16 / 16;
     changed = bc_edge_core(p_e, raw, t_us, pos, m, white + m, white + (m / 2),
                            p_edge_us, p_edge_pos);
+    if ((0U == p_e->level) && (0U == p_e->b_prev) && (raw <= (white + (m / 2))))
+    {
+        /* no bar since white was learned: the gap's halfway point is its
+           lowest sample + m / 2, which stays at the floor's level if L has
+           moved onto a surface that reads a little higher (the paper
+           sheet).  L at white here is still on the white side, so the
+           next bar starts after this sample, not back at the floor. */
+        p_e->mid_t_us = t_us;
+        p_e->mid_pos  = pos;
+    }
 
     if ((0U == p_e->level) && !b_freeze)
     {
@@ -828,6 +838,27 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
             /* above white but not a bar: leave the estimate alone */
         }
     }
+    if ((0U != p_e->level) && !b_freeze && (0U == changed) &&
+        ((uint32_t)(pos - p_e->bar_pos) >= S3_BC_FIRST_BAR_MAX_COUNTS))
+    {
+        /* wider than any printed bar and no read open: L has moved onto a
+           surface that reads higher (the paper sheet), so that level is
+           the new white.  End the "bar" here (its width shows it was no
+           bar) and look for bars above the new level.  Cast: wrapping
+           difference of an up-counter. */
+        p_e->w_x16    = raw * 16;
+        p_e->w_high   = 0U;
+        p_e->level    = 0U;
+        p_e->hold_cnt = 0U;
+        p_e->b_prev   = 0U;
+        p_e->ext      = raw;
+        p_e->prev     = raw;
+        *p_edge_us    = t_us;
+        *p_edge_pos   = pos;
+        p_e->mid_t_us = t_us;
+        p_e->mid_pos  = pos;
+        changed       = 1U;
+    }
     if ((0U != p_e->level) && !b_freeze)
     {
         if (p_e->w_high < 0xFFFFU)
@@ -848,6 +879,53 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
     return changed;
 }
 
+bool bc_first_bar_ok(uint32_t width_pos, uint32_t width_us)
+{
+    if (width_pos >= BC_DIST_LIVE_MIN)
+    {
+        return (width_pos < S3_BC_FIRST_BAR_MAX_COUNTS);
+    }
+    /* wheels not turning: only the time limit of any black run */
+    return (width_us <= ((uint32_t)S3_BC_ELEMENT_MAX_MS * 1000U));
+}
+
+void bc_start_reset(bc_start_t * p_s)
+{
+    p_s->b_pend       = false;
+    p_s->b_after_wide = false;
+}
+
+uint8_t bc_start_step(bc_start_t * p_s, bool b_black, uint32_t width_us,
+                      uint32_t width_pos)
+{
+    uint8_t out = BC_START_NONE;
+
+    if (!b_black)
+    {
+        p_s->b_pend = p_s->b_after_wide ||
+                      (width_us >= ((uint32_t)S3_BC_START_WHITE_MS * 1000U));
+        p_s->b_after_wide = false;
+        out = p_s->b_pend ? BC_START_ARMED : BC_START_NONE;
+    }
+    else
+    {
+        if (p_s->b_pend && bc_first_bar_ok(width_pos, width_us))
+        {
+            out = BC_START_READ;
+        }
+        else if (p_s->b_pend && (width_pos >= BC_DIST_LIVE_MIN))
+        {
+            p_s->b_after_wide = true; /* too wide while moving */
+        }
+        else
+        {
+            /* not armed, or too long standing still */
+        }
+        p_s->b_pend = false;
+    }
+    return out;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Barcode lock (see line_algo.h)                                     */
 /* ------------------------------------------------------------------ */
@@ -861,6 +939,7 @@ void bc_lock_reset(bc_lock_t * p_l)
     p_l->start_pos   = 0U;
     p_l->read_pos    = 0U;
     p_l->end_pos     = 0U;
+    p_l->free_why    = 0U;
 }
 
 bool bc_lock_step(bc_lock_t * p_l, bool b_scan, bool b_bars, uint32_t pos,
@@ -895,6 +974,7 @@ bool bc_lock_step(bc_lock_t * p_l, bool b_scan, bool b_bars, uint32_t pos,
                 ((uint32_t)(pos - p_l->read_pos) >= first_max))
             {
                 b_free = true; /* one long black: not a barcode */
+                p_l->free_why = BC_LOCK_FREE_FIRST;
             }
         }
         else
@@ -908,11 +988,14 @@ bool bc_lock_step(bc_lock_t * p_l, bool b_scan, bool b_bars, uint32_t pos,
                 ((uint32_t)(pos - p_l->end_pos) >= after))
             {
                 b_free = true;
+                p_l->free_why = p_l->b_confirmed ? BC_LOCK_FREE_AFTER
+                                                 : BC_LOCK_FREE_UNCONF;
             }
         }
         if ((uint32_t)(pos - p_l->start_pos) >= max_counts)
         {
             b_free = true;
+            p_l->free_why = BC_LOCK_FREE_MAX;
         }
         if (b_free)
         {

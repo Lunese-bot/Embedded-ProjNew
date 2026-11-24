@@ -132,6 +132,7 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
             g_steer     = 0;
             g_b_driving = true;
             ercd        = s2_cmd_drive(sent_speed(), 0);
+            g_s3_bc_speed_now = (int16_t)sent_speed(); /* Cast: mm/s */
             break;
         case VC_MOVE_STEER:
 #if S2_WEBDEBUG
@@ -166,11 +167,16 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
                 g_steer     = -((value * fwd) / VC_STEER_FULL_SCALE);
                 g_b_driving = true;
                 ercd        = s2_cmd_drive(fwd, g_steer);
+                g_s3_bc_speed_now = (int16_t)fwd; /* barcode record; Cast: mm/s */
             }
             break;
         case VC_MOVE_SET_SPEED:
             g_speed = value;
             ercd    = g_b_driving ? s2_cmd_drive(sent_speed(), g_steer) : E_OK;
+            if (g_b_driving)
+            {
+                g_s3_bc_speed_now = (int16_t)sent_speed(); /* Cast: mm/s */
+            }
             break;
         case VC_MOVE_TURN_LEFT:
             g_b_driving = false;

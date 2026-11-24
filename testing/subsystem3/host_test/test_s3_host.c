@@ -1781,6 +1781,14 @@ static double sim_cover(double x, double sd)
     return (c > 1.0) ? 1.0 : c;
 }
 /* drive from x_from to x_to mm at v mm/s (v 0: stand still for t_s s) */
+/* a paper sheet from g_paper_x0 mm on, reading g_paper_d above the floor's
+   white (0 = no step); seen through the same spot */
+static double g_paper_x0 = 1e9, g_paper_d = 0.0;
+static double sim_paper(double x, double sd)
+{
+    if (0.0 == g_paper_d) { return 0.0; }
+    return g_paper_d * 0.5 * (1.0 + erf((x - g_paper_x0) / (sd * 1.41421356)));
+}
 static void sim_drive(sim_opt_t const * o, double x_from, double x_to, double v, double t_s)
 {
     double x = x_from;
@@ -1793,7 +1801,7 @@ static void sim_drive(sim_opt_t const * o, double x_from, double x_to, double v,
         for (j = 0; j < 5; j++) /* five 2 ms samples, each at its own place */
         {
             double xs = x + (v * 0.002 * (double)j);
-            s += o->white + (o->ink * sim_cover(xs, o->spot_mm));
+            s += o->white + sim_paper(xs, o->spot_mm) + (o->ink * sim_cover(xs, o->spot_mm));
         }
         x += v * 0.010;
         s = (s / 5.0) + (o->noise * sim_gauss());
@@ -1811,7 +1819,21 @@ typedef struct
     uint32_t elems;    /* elements of the last read */
     uint32_t edges;    /* level changes seen */
     uint32_t shape;    /* letters given by the shape read */
+    uint32_t nrd;      /* reads recorded below (first 8) */
+    double   rd_x0[8], rd_x1[8]; /* where each read started / ended (mm) */
+    char     rd_out[8];          /* letter, or '-' failed, 'a' aborted */
 } sim_res_t;
+/* per record: a read is open / it has bar + space (task_barcode.c
+   g_b_s3_bc_scanning / g_b_s3_bc_bars), for the lock model */
+static uint8_t g_s_scan[SIM_MAX], g_s_bars[SIM_MAX];
+static void sim_rd_end(sim_res_t * p_r, uint32_t i, char out)
+{
+    if ((p_r->nrd > 0u) && (p_r->nrd <= 8u))
+    {
+        p_r->rd_x1[p_r->nrd - 1u]  = (double)g_sp[i] * SIM_MM_PER_C;
+        p_r->rd_out[p_r->nrd - 1u] = out;
+    }
+}
 static bool g_sim_shape; /* sim_read also tries the shape read (as robot) */
 
 /* the glue: adaptive (b_adapt) or old fixed swing / floor */
@@ -1823,9 +1845,12 @@ static void sim_read(bool b_adapt, int32_t swing, int32_t floor, sim_res_t * p_r
     uint32_t  start_i = 0u;
     uint8_t   level = 0u;
     bool      b_read = false;
+    uint32_t  pend_i = 0u;
+    bc_start_t bst;
     code39_options_t o = { S3_BC_MIN_RATIO_X10, true, (uint8_t)S3_BC_MAX_CHARS };
 
     memset(p_r, 0, sizeof *p_r);
+    bc_start_reset(&bst);
     bc_edge_reset_pos(&e, g_sv[0], 0u, g_sp[0]);
     rs_pos = g_sp[0];
     for (i = 0u; i < g_sn; i++)
@@ -1859,14 +1884,21 @@ static void sim_read(bool b_adapt, int32_t swing, int32_t floor, sim_res_t * p_r
             last_run_pos = g_sp[i];
             if (!b_read)
             {
-                if ((0u == black) && (wus >= (uint32_t)S3_BC_START_WHITE_MS * 1000u))
+                /* task_barcode.c on_run IDLE (bc_start_step) */
+                uint8_t st = bc_start_step(&bst, 0u != black, wus, wpos);
+                if (BC_START_ARMED == st) { pend_i = i; }
+                else if (BC_START_READ == st)
                 {
-                    b_read = true; nw = 0u; total = 0u; p_r->starts++; start_i = i;
+                    b_read = true; p_r->starts++; start_i = pend_i;
+                    if (p_r->nrd < 8u) { p_r->rd_x0[p_r->nrd] = (double)(ep - wpos) * SIM_MM_PER_C; p_r->rd_out[p_r->nrd] = '?'; }
+                    p_r->nrd++;
+                    wt[0] = wus; wp[0] = wpos; nw = 1u; total = wpos;
                 }
             }
             else if ((0u != black) && (wus > (uint32_t)S3_BC_ELEMENT_MAX_MS * 1000u))
             {
                 b_read = false; /* abort */
+                sim_rd_end(p_r, i, 'a');
             }
             else if ((0u == black) && (nw > 0u) && (wpos >= S3_BC_QUIET_COUNTS))
             {
@@ -1882,12 +1914,19 @@ static void sim_read(bool b_adapt, int32_t swing, int32_t floor, sim_res_t * p_r
                 wp[nw++] = wpos; total += wpos;
             }
         }
+        else if (b_read && (0u == (nw % 2u)) && (0u != level) &&
+                 ((t - rs_us) >= ((uint32_t)S3_BC_ELEMENT_MAX_MS * 1000u)))
+        {
+            b_read = false; /* task_barcode.c: no run for that long on black */
+            sim_rd_end(p_r, i, 'a');
+        }
         else if (b_read && (1u == (nw % 2u)) && ((g_sp[i] - last_run_pos) >= S3_BC_QUIET_COUNTS))
         {
             b_dec = true; /* white long enough by distance */
         }
         if (b_dec)
         {
+            uint32_t let0 = p_r->letters;
             char txt[S3_BC_TEXT_MAX + 2] = { 0 };
             bool rv = false;
             p_r->elems = nw;
@@ -1933,8 +1972,11 @@ static void sim_read(bool b_adapt, int32_t swing, int32_t floor, sim_res_t * p_r
                     if ((strlen(p_r->text) + 1u) < (sizeof p_r->text - 1u)) { strcat(p_r->text, txt); }
                 }
             }
+            sim_rd_end(p_r, i, (p_r->letters > let0) ? p_r->text[strlen(p_r->text) - 1u] : '-');
             b_read = false;
         }
+        g_s_scan[i] = b_read ? 1u : 0u;
+        g_s_bars[i] = (b_read && (nw >= 2u)) ? 1u : 0u;
     }
 }
 
@@ -2025,7 +2067,8 @@ static void test_bc_adapt(void)
     }
 
     /* H-W04: one black tape crossing (18 mm, ~2800 raw) and a 50 mm wide
-       junction arm: a bar each, no letter */
+       junction arm: a bar each, no letter.  Since S3_BC_FIRST_BAR_MAX_COUNTS
+       (26 mm) the arm opens no read; the crossing still does */
     {
         sim_opt_t t = o;
         t.ink = 2700.0;
@@ -2035,8 +2078,8 @@ static void test_bc_adapt(void)
         sim_tape(700.0, 50.0);
         sim_drive(&t, 0.0, 1000.0, 120.0, 0.0);
         sim_read(true, 0, 0, &r);
-        CHECK("H-W04", (2u == r.starts) && (0u == r.letters) && (4u == r.edges),
-              "adaptive: a tape crossing and a junction arm: one bar each, no letter");
+        CHECK("H-W04", (1u == r.starts) && (0u == r.letters) && (4u == r.edges),
+              "adaptive: a tape crossing and a junction arm: one bar each, no letter; the arm (wider than any printed bar) opens no read");
     }
 
     /* H-W05: start standing on the thick bar of a *Z* (white is learned on
@@ -2104,7 +2147,8 @@ static void test_bc_adapt(void)
         for (i = 0u; i < 40u; i++, t += 10000u) { (void)bc_edge_step_adapt(&e, 145, t, i, false, &eu, &ep); }
         for (i = 0u; i < (S3_BC_WHITE_RELEARN_SAMPLES + 2u); i++, t += 10000u)
         {
-            edges += bc_edge_step_adapt(&e, 2800, t, i, false, &eu, &ep);
+            /* standing still (wheel position fixed at 40): the time rule */
+            edges += bc_edge_step_adapt(&e, 2800, t, 40u, false, &eu, &ep);
         }
         CHECK("H-W10", (2u == edges) && (0u == e.w_valid),
               "adaptive: 1.5 s of black outside a read ends the bar and learns white again");
@@ -2358,6 +2402,191 @@ static void test_geom_noise(void)
     }
 }
 
+/* ---- H-S: paper (sheet) boundary before the symbol (owner 2026-11-24: on the A4
+   sheet the robot slowed, went back to cruise and read only the end of
+   the barcode).  The sheet reads g_paper_d above the floor's white; the
+   symbol starts `lead` mm into the sheet. ------------------------------ */
+static void test_bc_paper(void)
+{
+    double const step[4] = { 0.0, 12.0, 20.0, 40.0 };
+    double const lead[2] = { 40.0, 80.0 };
+    double const vel[2]  = { 36.0, 72.0 };
+    sim_opt_t o = g_venue;
+    sim_res_t r;
+    uint32_t  si, li, sz, vi, k;
+    uint32_t  total = 0u, one_read = 0u, at_bar = 0u, right = 0u, wrong = 0u, capped = 0u;
+    uint32_t  false_ok = 0u, n_false = 0u;
+    bool      b_shape = g_sim_shape;
+
+    g_sim_shape = true;
+    for (si = 0u; si < 4u; si++)
+    for (li = 0u; li < 2u; li++)
+    for (sz = 0u; sz < 2u; sz++)
+    for (vi = 0u; vi < 2u; vi++)
+    for (k = 0u; k < 2u; k++)
+    {
+        char const * t   = (0u == k) ? "A" : "Z";
+        double const nar = (0u == sz) ? 3.0 : 6.0;
+        double const wid = (0u == sz) ? 9.0 : 17.5;
+        double       x0  = 200.0 + lead[li], end;
+        bc_lock_t    lk;
+        uint32_t     i, held = 1u;
+        sim_new();
+        g_rng = 701u + (si * 16u) + (li * 8u) + (sz * 4u) + (vi * 2u) + k;
+        g_paper_x0 = 200.0; g_paper_d = step[si];
+        end = sim_lay(t, x0, nar, wid, false);
+        sim_drive(&o, 0.0, end + 150.0, vel[vi], 0.0);
+        sim_read(true, 0, 0, &r);
+        /* the speed cap of a real read: lock (task_line.c) from its start
+           to its natural end */
+        bc_lock_reset(&lk);
+        for (i = 0u; i < g_sn; i++)
+        {
+            bool b_lk = bc_lock_step(&lk, 0u != g_s_scan[i], 0u != g_s_bars[i], g_sp[i],
+                                     S3_BC_LOCK_FIRST_COUNTS, S3_BC_LOCK_AFTER_COUNTS,
+                                     S3_BC_LOCK_MAX_COUNTS);
+            if ((0u != g_s_scan[i]) && ((double)g_sp[i] * SIM_MM_PER_C > x0) && !b_lk) { held = 0u; }
+        }
+        total++;
+        if (1u == r.nrd) { one_read++; }
+        {
+            /* the read that gives the letter starts at the 1st printed
+               bar; any other read ended before the symbol, within one
+               widest first bar + the quiet zone of where it began */
+            uint32_t q, b_at = 0u, b_fok = 1u;
+            double   bound = ((double)(S3_BC_FIRST_BAR_MAX_COUNTS + S3_BC_QUIET_COUNTS) * SIM_MM_PER_C) + 5.0;
+            for (q = 0u; (q < r.nrd) && (q < 8u); q++)
+            {
+                if ((t[0] == r.rd_out[q]) && (r.rd_x0[q] > (x0 - 4.0)) && (r.rd_x0[q] < (x0 + 4.0))) { b_at = 1u; }
+                else
+                {
+                    n_false++;
+                    if ((r.rd_x1[q] >= x0) || ((r.rd_x1[q] - r.rd_x0[q]) > bound)) { b_fok = 0u; }
+                }
+            }
+            at_bar += b_at;
+            false_ok += b_fok;
+        }
+        if ((1u == r.letters) && (t[0] == r.text[0])) { right++; }
+        else if (r.letters > 0u) { wrong++; }
+        capped += held;
+        if ((1u != r.nrd) || (1u != r.letters) || (t[0] != r.text[0]) || (0u == held))
+        {
+            uint32_t q;
+            printf("        paper +%.0f lead %.0f %s print %.0f mm/s %s: %u reads", step[si], lead[li],
+                   (0u == sz) ? "small" : "big", vel[vi], t, (unsigned)r.nrd);
+            for (q = 0u; (q < r.nrd) && (q < 8u); q++)
+            {
+                printf(" [%.0f-%.0f mm %c]", r.rd_x0[q] - x0, r.rd_x1[q] - x0, r.rd_out[q]);
+            }
+            printf(" letters '%s' lock held %u (mm from first bar)\n", r.text, (unsigned)held);
+        }
+    }
+    g_paper_x0 = 1e9; g_paper_d = 0.0;
+
+    /* H-S04: no barcode, the robot turns: L crosses the line tape slowly
+       (18 mm at 20 mm/s) and drags along a junction arm (60 mm): no
+       letter; any read that opens ends, and the speed cap lets go,
+       within one widest first bar + the quiet zone + the after-hold */
+    {
+        sim_opt_t tp = o;
+        uint32_t  bad = 0u, q, i;
+        double    bound = ((double)(S3_BC_FIRST_BAR_MAX_COUNTS + S3_BC_QUIET_COUNTS + S3_BC_LOCK_AFTER_COUNTS) *
+                           SIM_MM_PER_C) + 5.0;
+        tp.ink = 2700.0;
+        sim_new();
+        g_rng = 811u;
+        sim_tape(300.0, 18.0);
+        sim_tape(600.0, 60.0);
+        sim_drive(&tp, 0.0, 900.0, 20.0, 0.0);
+        sim_read(true, 0, 0, &r);
+        {
+            bc_lock_t lk;
+            double    lock_x = -1.0, lock_end = -1.0;
+            bc_lock_reset(&lk);
+            for (i = 0u; i < g_sn; i++)
+            {
+                bool b_lk = bc_lock_step(&lk, 0u != g_s_scan[i], 0u != g_s_bars[i], g_sp[i],
+                                         S3_BC_LOCK_FIRST_COUNTS, S3_BC_LOCK_AFTER_COUNTS,
+                                         S3_BC_LOCK_MAX_COUNTS);
+                double x = (double)g_sp[i] * SIM_MM_PER_C;
+                if (b_lk && (lock_x < 0.0)) { lock_x = x; }
+                if (!b_lk && (lock_x >= 0.0) && (lock_end < 0.0)) { lock_end = x; }
+            }
+            if ((lock_x >= 0.0) && ((lock_end < 0.0) || ((lock_end - lock_x) > bound))) { bad++; }
+            printf("        no-barcode turn: %u reads, letters '%s', lock %.0f..%.0f mm\n", (unsigned)r.nrd,
+                   r.text, lock_x, lock_end);
+        }
+        for (q = 0u; (q < r.nrd) && (q < 8u); q++)
+        {
+            if ((r.rd_x1[q] - r.rd_x0[q]) > bound) { bad++; }
+        }
+        CHECK("H-S04", (0u == r.letters) && (0u == bad),
+              "paper: no-barcode turn (slow tape crossing, 60 mm arm): no letter, a read and the speed cap end within a bounded distance");
+    }
+
+    /* H-S05: bc_start_step(): white >= S3_BC_START_WHITE_MS arms; a bar
+       narrower than S3_BC_FIRST_BAR_MAX_COUNTS starts; a wider one while
+       moving does not, and the white after it arms whatever its length;
+       standing still only the time limit applies */
+    {
+        bc_start_t st;
+        uint32_t   ok = 1u;
+        uint32_t   wl = (uint32_t)S3_BC_START_WHITE_MS * 1000u;
+        bc_start_reset(&st);
+        ok &= (BC_START_NONE  == bc_start_step(&st, false, wl - 1u, 100u)) ? 1u : 0u;
+        ok &= (BC_START_NONE  == bc_start_step(&st, true, 50000u, 40u)) ? 1u : 0u;
+        ok &= (BC_START_ARMED == bc_start_step(&st, false, wl, 100u)) ? 1u : 0u;
+        ok &= (BC_START_READ  == bc_start_step(&st, true, 50000u, S3_BC_FIRST_BAR_MAX_COUNTS - 1u)) ? 1u : 0u;
+        ok &= (BC_START_ARMED == bc_start_step(&st, false, wl, 100u)) ? 1u : 0u;
+        ok &= (BC_START_NONE  == bc_start_step(&st, true, 400000u, S3_BC_FIRST_BAR_MAX_COUNTS)) ? 1u : 0u;
+        ok &= (BC_START_ARMED == bc_start_step(&st, false, 10000u, 5u)) ? 1u : 0u;
+        ok &= (BC_START_READ  == bc_start_step(&st, true, 40000u, 40u)) ? 1u : 0u;
+        ok &= (BC_START_ARMED == bc_start_step(&st, false, wl, 100u)) ? 1u : 0u;
+        ok &= (BC_START_READ  == bc_start_step(&st, true, 1400000u, 0u)) ? 1u : 0u;
+        ok &= (BC_START_ARMED == bc_start_step(&st, false, wl, 100u)) ? 1u : 0u;
+        ok &= (BC_START_NONE  == bc_start_step(&st, true, 1600000u, 0u)) ? 1u : 0u;
+        ok &= (BC_START_NONE  == bc_start_step(&st, false, 10000u, 5u)) ? 1u : 0u;
+        CHECK("H-S05", 0u != ok,
+              "start rule: long white arms; a printed-width first bar starts; a too-wide one (paper) re-arms on the next white; standing still: time limit");
+    }
+
+    /* H-S06: the lock says why it let go (per-read record) */
+    {
+        bc_lock_t lk;
+        uint32_t  p = 0u, ok = 1u;
+        bc_lock_reset(&lk);
+        (void)bc_lock_step(&lk, true, false, p, 250u, 270u, 3000u);
+        for (p = 1u; p < 260u; p++) { (void)bc_lock_step(&lk, true, false, p, 250u, 270u, 3000u); }
+        ok &= (!lk.b_lock && (BC_LOCK_FREE_FIRST == lk.free_why)) ? 1u : 0u;
+        bc_lock_reset(&lk);
+        (void)bc_lock_step(&lk, true, false, 0u, 250u, 270u, 3000u);
+        (void)bc_lock_step(&lk, false, false, 10u, 250u, 270u, 3000u);
+        ok &= (!lk.b_lock && (BC_LOCK_FREE_UNCONF == lk.free_why)) ? 1u : 0u;
+        bc_lock_reset(&lk);
+        (void)bc_lock_step(&lk, true, true, 0u, 250u, 270u, 3000u);
+        (void)bc_lock_step(&lk, false, false, 100u, 250u, 270u, 3000u);
+        ok &= (lk.b_lock) ? 1u : 0u;
+        (void)bc_lock_step(&lk, false, false, 370u, 250u, 270u, 3000u);
+        ok &= (!lk.b_lock && (BC_LOCK_FREE_AFTER == lk.free_why)) ? 1u : 0u;
+        bc_lock_reset(&lk);
+        (void)bc_lock_step(&lk, true, true, 0u, 250u, 270u, 3000u);
+        (void)bc_lock_step(&lk, true, true, 3000u, 250u, 270u, 3000u);
+        ok &= (!lk.b_lock && (BC_LOCK_FREE_MAX == lk.free_why)) ? 1u : 0u;
+        CHECK("H-S06", 0u != ok, "lock: records why it let go (no 2nd bar, ended unconfirmed, after-hold, max distance)");
+    }
+    g_sim_shape = b_shape;
+    printf("        paper boundary: %u passes, one read %u, letter read from the 1st bar %u, right letter %u, wrong %u, capped through the read %u, false starts %u (all ended before the symbol: %s)\n",
+           (unsigned)total, (unsigned)one_read, (unsigned)at_bar, (unsigned)right, (unsigned)wrong, (unsigned)capped,
+           (unsigned)n_false, (false_ok == total) ? "yes" : "NO");
+    CHECK("H-S01", (at_bar == total) && (false_ok == total) && (n_false <= (total / 16u)),
+          "paper: the letter's read starts at the 1st printed bar; a sheet edge opens at most a rare short false read that ends before the symbol");
+    CHECK("H-S02", (right == total) && (0u == wrong),
+          "paper: faint A / Z, both sizes, 36 and 72 mm/s, sheet +0..+40 over the floor: right letter, never wrong");
+    CHECK("H-S03", capped == total,
+          "paper: the speed cap (lock) holds from the 1st bar to the read's natural end");
+}
+
 /* ---- H-X: wrong-read guards, whole read path (element decoders, then the
    shape read with the read's noise margin), faint print ------------------ */
 static void test_bc_guards(void)
@@ -2487,6 +2716,7 @@ int main(void)
     test_bc_adapt();
     test_geom_noise();
     test_bc_guards();
+    test_bc_paper();
     printf("[TEST] subsystem3-host SUMMARY %d passed, %d failed\n", g_pass, g_fail);
     return (0 == g_fail) ? 0 : 1;
 }

@@ -26,6 +26,7 @@
 #include "subsystem3.h"
 #include "code39.h"
 #include "code39_geom.h"
+#include "line_algo.h" /* bc_start_step, bc_first_bar_ok */
 
 #if S3_BC_GEOM && (C39G_MAX_SAMPLES < S3_LTRACE_N)
 #error "C39G_MAX_SAMPLES must be at least S3_LTRACE_N (shape_read passes the whole frozen trace)"
@@ -63,7 +64,9 @@ volatile uint16_t g_s3_bc_geom_ms;
 volatile uint8_t  g_s3_bc_geom_try;
 volatile char     g_s3_bc_geom_first_best;
 volatile uint32_t g_s3_bc_geom_tie_ovr;
-static uint32_t   g_read_start_idx; /* g_s3_ltrace_idx at BARCODE_START */
+static uint32_t   g_read_start_idx; /* g_s3_ltrace_idx at the first bar */
+static bc_start_t g_start;          /* which run starts a read */
+static uint32_t   g_pend_idx;       /* g_s3_ltrace_idx when it was armed */
 static uint32_t   g_frz_idx;        /* g_s3_ltrace_idx when frozen */
 static uint32_t        g_n_widths;
 static uint32_t        g_widest_us;
@@ -82,6 +85,7 @@ static void set_state(barcode_state_t next)
 
 static void go_idle(void)
 {
+    bc_start_reset(&g_start);
     g_n_widths         = 0;
     g_widest_us        = 0;
     g_total_pos        = 0;
@@ -90,12 +94,70 @@ static void go_idle(void)
     set_state(BARCODE_STATE_IDLE);
 }
 
+/* ---- per-read record (subsystem3.h s3_bc_rec_t) ---- */
+volatile s3_bc_rec_t g_s3_bc_rec[S3_BC_REC_N];
+volatile uint32_t    g_s3_bc_rec_seq;
+volatile uint32_t    g_s3_bc_rec_gen;
+volatile int16_t     g_s3_bc_speed_now;
+static bool          g_b_rec_open; /* the newest record's read is open */
+
+static void rec_start(void)
+{
+    SYSTIM now;
+    uint32_t seq = g_s3_bc_rec_seq + 1U;
+    volatile s3_bc_rec_t * p = &g_s3_bc_rec[seq % S3_BC_REC_N];
+
+    tk_get_tim(&now);
+    p->seq      = seq;
+    p->t_ms     = now.lo;
+    p->pos      = s3_bc_pos();
+    p->len      = 0U;
+    /* Casts: raw levels and margins fit 16 bits */
+    p->white    = (int16_t)g_s3_bc_white;
+    p->margin   = (int16_t)g_s3_bc_margin;
+    p->n        = 0U;
+    p->end      = S3_BC_END_OPEN;
+    p->path     = 0U;
+    p->letter   = 0;
+    p->lock_why = 0U;
+    p->lock_len = 0U;
+    p->v_start  = g_s3_bc_speed_now;
+    p->v_min    = g_s3_bc_speed_now;
+    p->v_end    = 0;
+    p->v_up     = 0;
+    p->up_len   = 0U;
+    g_s3_bc_rec_seq = seq;
+    g_b_rec_open    = true;
+    g_s3_bc_rec_gen++;
+}
+
+static void rec_end(uint8_t why, uint8_t path, char letter)
+{
+    volatile s3_bc_rec_t * p = &g_s3_bc_rec[g_s3_bc_rec_seq % S3_BC_REC_N];
+
+    if (!g_b_rec_open)
+    {
+        return;
+    }
+    g_b_rec_open = false;
+    p->len    = s3_bc_pos() - p->pos;
+    /* Cast: at most S3_BC_MAX_ELEMENTS */
+    p->n      = (uint8_t)g_n_widths;
+    p->end    = why;
+    p->path   = path;
+    p->letter = letter;
+    p->v_end  = g_s3_bc_speed_now;
+    g_s3_bc_rec_gen++;
+}
+
 /* A read that had started (BARCODE_START was sent) is given up: tell the
    controller, or it waits in DECODE_BARCODE for its whole time limit
    (slow speed, for seconds) for a result that never comes. */
-static void abort_read(void)
+static void abort_read(uint8_t why)
 {
     s3_event_t evt = { 0 };
+
+    rec_end(why, 0U, 0);
 
     evt.type = S3_EVT_BARCODE_FAILED;
     evt.code = (uint8_t)CODE39_ERR_LENGTH; /* Cast: fits 8 bits */
@@ -115,6 +177,7 @@ static void handle_requests(void)
     if (0U != (ptn & S3_REQ_BC_DISABLE))
     {
         g_b_enabled = false;
+        rec_end(S3_BC_END_DISABLE, 0U, 0);
         go_idle();
     }
     if (0U != (ptn & S3_REQ_BC_ENABLE))
@@ -126,6 +189,7 @@ static void handle_requests(void)
     {
         g_retries = 0;
         g_s3_bc_relearn_seq++; /* line_task learns L's white again */
+        rec_end(S3_BC_END_REARM, 0U, 0);
         go_idle();
     }
 }
@@ -354,15 +418,22 @@ static bool shape_read(uint8_t * p_text, uint32_t text_size,
 }
 #endif
 
-static void decode(void)
+static void decode(uint8_t why)
 {
     s3_event_t      evt = { 0 };
     code39_result_t res;
     bool            b_reversed = false;
     uint32_t        unit       = 0U;
+    uint32_t        partial0   = g_s3_bc_partial;
+    uint8_t         path       = 0U;
 
     set_state(BARCODE_STATE_DECODE);
     res = try_decode(evt.text, sizeof(evt.text), &b_reversed, &unit);
+    if (CODE39_OK == res)
+    {
+        path = (partial0 != g_s3_bc_partial) ? ((0U != unit) ? 3U : 4U)
+                                             : ((0U != unit) ? 1U : 2U);
+    }
 
     {
         uint32_t k;
@@ -398,10 +469,13 @@ static void decode(void)
         {
             res              = CODE39_OK;
             g_s3_bc_dbg_unit = 2U; /* shape read */
+            path             = 5U;
         }
 #endif
         g_s3_bc_dbg_seq++;
     }
+    /* Cast: the text is 'A'..'Z' (letters only) */
+    rec_end(why, path, (CODE39_OK == res) ? (char)evt.text[0] : 0);
 
     tk_loc_mtx(g_mtx_s3_status, TMO_FEVR);
     /* Cast: element count is at most S3_BC_MAX_ELEMENTS, result fits 8 bits */
@@ -467,20 +541,38 @@ static void on_run(const s3_bc_run_t * p_run)
     switch (g_state)
     {
         case BARCODE_STATE_IDLE:
-            /* A white run ended, so a bar has just begun.  It starts a
-               barcode only after a long white gap (the quiet zone). */
-            if ((0U == p_run->black) &&
-                (p_run->width_us >=
-                 ((uint32_t)S3_BC_START_WHITE_MS * S3_US_PER_MS)))
+            /* A white run ended, so a bar has just begun.  It may start a
+               barcode only after a long white gap (the quiet zone), and
+               only once it has ended as a believable bar: a paper sheet
+               boundary or the line is far wider than any printed bar and
+               must not slow the robot or open a read (owner 2026-11-24). */
             {
-                set_state(BARCODE_STATE_DETECT);
-                g_b_s3_bc_scanning = true;
-                g_read_start_idx   = g_s3_ltrace_idx;
-                g_n_widths         = 0;
-                g_widest_us        = 0;
-                evt.type           = S3_EVT_BARCODE_START;
-                s3_send_event(&evt);
-                set_state(BARCODE_STATE_READ);
+                uint8_t st = bc_start_step(&g_start, 0U != p_run->black,
+                                           p_run->width_us, p_run->width_pos);
+                if (BC_START_ARMED == st)
+                {
+                    g_pend_idx = g_s3_ltrace_idx;
+                }
+                else if (BC_START_READ == st)
+                {
+                    set_state(BARCODE_STATE_DETECT);
+                    g_b_s3_bc_scanning = true;
+                    g_read_start_idx   = g_pend_idx;
+                    evt.type           = S3_EVT_BARCODE_START;
+                    s3_send_event(&evt);
+                    set_state(BARCODE_STATE_READ);
+                    rec_start();
+                    /* this bar is the first element */
+                    g_widths[0]     = p_run->width_us;
+                    g_widths_pos[0] = p_run->width_pos;
+                    g_total_pos     = p_run->width_pos;
+                    g_widest_us     = p_run->width_us;
+                    g_n_widths      = 1U;
+                }
+                else
+                {
+                    /* not a start */
+                }
             }
             break;
 
@@ -489,14 +581,14 @@ static void on_run(const s3_bc_run_t * p_run)
                 (p_run->width_us >
                  ((uint32_t)S3_BC_ELEMENT_MAX_MS * S3_US_PER_MS)))
             {
-                abort_read(); /* not a barcode bar */
+                abort_read(S3_BC_END_LONG_BLACK); /* not a barcode bar */
             }
             else if ((0U == p_run->black) && (g_n_widths > 0U) &&
                      (dist_live()
                           ? (p_run->width_pos >= S3_BC_QUIET_COUNTS)
                           : (p_run->width_us >= quiet_us())))
             {
-                decode(); /* trailing quiet zone */
+                decode(S3_BC_END_QUIET_RUN); /* trailing quiet zone */
             }
             else if (g_n_widths < S3_BC_MAX_ELEMENTS)
             {
@@ -522,11 +614,11 @@ static void on_run(const s3_bc_run_t * p_run)
                 }
                 if (g_n_widths >= S3_BC_MAX_ELEMENTS)
                 {
-                    decode();
+                    decode(S3_BC_END_MAX_ELEMS);
                 }
                 else if (early_end_ok())
                 {
-                    decode(); /* stop '*' seen: no need to wait */
+                    decode(S3_BC_END_EARLY); /* stop '*' seen: no need to wait */
                 }
                 else
                 {
@@ -566,19 +658,26 @@ void barcode_task(int32_t stacd, void * p_exinf)
                     /* white: has it gone on far enough (or has the robot
                        stood still long enough) to be the end? */
                     g_white_ms += DIST_POLL_MS;
-                    if (((pos_now() - g_last_run_pos) >= S3_BC_QUIET_COUNTS) ||
-                        (g_white_ms >= (uint32_t)S3_BC_QUIET_STOP_MS))
+                    if ((pos_now() - g_last_run_pos) >= S3_BC_QUIET_COUNTS)
                     {
-                        decode();
+                        decode(S3_BC_END_QUIET_DIST);
+                    }
+                    else if (g_white_ms >= (uint32_t)S3_BC_QUIET_STOP_MS)
+                    {
+                        decode(S3_BC_END_STOPPED);
+                    }
+                    else
+                    {
+                        /* keep waiting */
                     }
                 }
                 else if (1U == (g_n_widths % 2U))
                 {
-                    decode(); /* quiet zone reached */
+                    decode(S3_BC_END_QUIET_TIME); /* quiet zone reached */
                 }
                 else
                 {
-                    abort_read(); /* black too long */
+                    abort_read(S3_BC_END_BLACK_WAIT); /* black too long */
                 }
             }
         }

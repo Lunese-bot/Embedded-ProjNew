@@ -74,6 +74,9 @@ static uint32_t W[S3_BC_MAX_ELEMENTS], WP[S3_BC_MAX_ELEMENTS];
 static uint32_t nw, widest, total_pos, last_run_pos, last_run_t, white_ms;
 static int      st_read; /* 0 idle, 1 read */
 static int      read_start;
+static bc_start_t g_bst; /* on_run IDLE */
+static int      g_pend_idx;
+static uint32_t g_pend_pos;
 static int      n_starts, n_letters, n_fail, n_open;
 static char     letters[64];
 
@@ -86,7 +89,7 @@ static uint32_t quiet_us(void)
 static int dist_live(void) { return total_pos >= 10u; }
 static void go_idle(void)
 {
-    nw = 0; widest = 0; total_pos = 0; st_read = 0;
+    nw = 0; widest = 0; total_pos = 0; st_read = 0; bc_start_reset(&g_bst);
 }
 
 /* task_barcode.c try_decode(); *p_path: what gave the result */
@@ -215,10 +218,14 @@ static void on_run(const run_t * r, int idx)
 {
     if (0 == st_read)
     {
-        if (!r->black && (r->width_us >= (uint32_t)S3_BC_START_WHITE_MS * 1000u))
+        /* task_barcode.c on_run IDLE (bc_start_step) */
+        uint8_t st = bc_start_step(&g_bst, 0U != r->black, r->width_us, r->width_pos);
+        if (BC_START_ARMED == st) { g_pend_idx = idx; g_pend_pos = g_pos; }
+        else if (BC_START_READ == st)
         {
-            st_read = 1; read_start = idx; nw = 0; widest = 0; total_pos = 0;
-            g_start_pos = g_pos;
+            st_read = 1; read_start = g_pend_idx; g_start_pos = g_pend_pos;
+            W[0] = r->width_us; WP[0] = r->width_pos; nw = 1;
+            widest = r->width_us; total_pos = r->width_pos;
             n_starts++;
         }
         return;

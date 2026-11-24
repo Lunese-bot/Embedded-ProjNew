@@ -179,6 +179,13 @@
 /* black this many samples in a row outside a read (longer than any bar,
    S3_BC_ELEMENT_MAX_MS): not a bar, learn white again */
 #define S3_BC_WHITE_RELEARN_SAMPLES 150u
+/* Paper boundary (owner 2026-11-24): a "bar" longer than any printed bar
+   is a change of white (the A4 sheet reads above the floor), not a bar.
+   Widest printed bar 17.5 mm; x 1.5 = ~26 mm = 180 counts (~0.148 mm).
+   Outside a read the edge finder takes such a level as its new white at
+   once, and barcode_task starts a read only on a first bar no wider than
+   this (task_barcode.c on_run, bc_first_bar_ok). */
+#define S3_BC_FIRST_BAR_MAX_COUNTS 180u
 /* samples in a row a change of level must last (1 = at once); the
    margin is already several noise sd */
 #ifndef S3_BC_ADAPT_HOLD

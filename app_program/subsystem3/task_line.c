@@ -52,6 +52,7 @@ static int32_t        g_bc_edge_was_on = 1;
 static uint32_t       g_bc_relearn_seen; /* last g_s3_bc_relearn_seq acted on */
 #endif
 volatile int32_t      g_s3_bc_margin; /* subsystem3.h */
+volatile int32_t      g_s3_bc_white = -1; /* subsystem3.h */
 static uint32_t       g_bc_run_start_us;
 static uint32_t       g_bc_run_start_pos; /* wheel counts when the run began */
 
@@ -184,6 +185,7 @@ static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT],
     if (0 == BC_EDGE_ON)
     {
         g_s3_bc_margin = 0; /* fixed cut-off: the shape read uses 250 */
+        g_s3_bc_white  = -1;
     }
 #endif
     if (0 != BC_EDGE_ON)
@@ -205,6 +207,7 @@ static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT],
                                     t_us, pos, g_b_s3_bc_scanning, &edge_us,
                                     &edge_pos);
         g_s3_bc_margin = bc_edge_margin(&g_bc_edge); /* for the shape read */
+        g_s3_bc_white  = (0U != g_bc_edge.w_valid) ? (g_bc_edge.w_x16 / 16) : -1;
         if (0U != b_edge)
 #else
         /* weak print: with a small rise/fall, ask for several samples in
@@ -415,9 +418,44 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us,
                 bc_lock_ctl_reset(&ctl);
                 b_init = true;
             }
+            bool b_was = g_b_s3_bc_lock;
             g_b_s3_bc_lock = bc_lock_apply(&ctl, &cfg, &g_tracker,
                                            g_b_s3_bc_scanning, b_scan,
                                            s3_bc_pos());
+            {
+                /* per-read record (subsystem3.h): when the lock let go,
+                   and when the requested speed first rose again */
+                volatile s3_bc_rec_t * p_rec =
+                    &g_s3_bc_rec[g_s3_bc_rec_seq % S3_BC_REC_N];
+                int16_t v = g_s3_bc_speed_now;
+                if ((0U != g_s3_bc_rec_seq) && (0U == p_rec->up_len))
+                {
+                    if (b_was && !g_b_s3_bc_lock && (0U == p_rec->lock_why))
+                    {
+                        p_rec->lock_why = ctl.lock.free_why;
+                        p_rec->lock_len = s3_bc_pos() - p_rec->pos;
+                        g_s3_bc_rec_gen++;
+                    }
+                    if (v < p_rec->v_min)
+                    {
+                        p_rec->v_min = v;
+                    }
+                    else if (v > (p_rec->v_min + 5))
+                    {
+                        p_rec->v_up   = v;
+                        p_rec->up_len = s3_bc_pos() - p_rec->pos;
+                        if (0U == p_rec->up_len)
+                        {
+                            p_rec->up_len = 1U;
+                        }
+                        g_s3_bc_rec_gen++;
+                    }
+                    else
+                    {
+                        /* no change */
+                    }
+                }
+            }
         }
 #endif
     }

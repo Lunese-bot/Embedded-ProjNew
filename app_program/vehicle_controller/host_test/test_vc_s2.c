@@ -20,6 +20,7 @@ typedef int ER;
 ID g_flg_motion = 1;
 volatile uint32_t g_s2_imu_stop;
 volatile bool g_b_s3_bc_lock = false; /* barcode lock flag read by vc_bridge_s2.c */
+volatile int16_t g_s3_bc_speed_now; /* barcode read record, written by vc_bridge_s2.c */
 volatile int32_t g_lt_speed_pct, g_lt_steer_inv, g_lt_curve;
 static motion_status_t status;
 static uint32_t stop_epoch;

@@ -543,6 +543,8 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
         n = kv(p_out, n, out_max, "bc", (int32_t)l.bc_state);
         n = kv(p_out, n, out_max, "bcOk", (int32_t)l.bc_ok);
         n = kv(p_out, n, out_max, "bcFail", (int32_t)l.bc_fail);
+        /* Cast: shown, not computed (per-read records changed) */
+        n = kv(p_out, n, out_max, "bcR", (int32_t)g_s3_bc_rec_gen);
         n = put_str(p_out, n, out_max, "\"bcTxt\":\"");
         n = put_str(p_out, n, out_max, g_lt_bc_text); /* A-Z, '?' or '-' */
         n = put_str(p_out, n, out_max, "\",\"bcHist\":\"");
@@ -753,6 +755,29 @@ int32_t web_debug_barcode(char * p_out, int32_t out_max)
         if ((k + 1U) < cnt)
         {
             n = put_str(p_out, n, out_max, ",");
+        }
+    }
+    /* rec: the last S3_BC_REC_N per-read records (subsystem3.h
+       s3_bc_rec_t): seq, t_ms, pos, len, white, margin, n, end, path,
+       letter (char code, 0 none), lock_why, lock_len, v_start, v_min,
+       v_end, v_up, up_len.  Casts: shown, not computed. */
+    n = put_str(p_out, n, out_max, "],\"rec\":[");
+    for (k = 0U; k < S3_BC_REC_N; k++)
+    {
+        volatile s3_bc_rec_t const * p = &g_s3_bc_rec[k];
+        int32_t const f[17] = {
+            (int32_t)p->seq, (int32_t)p->t_ms, (int32_t)p->pos,
+            (int32_t)p->len, (int32_t)p->white, (int32_t)p->margin,
+            (int32_t)p->n, (int32_t)p->end, (int32_t)p->path,
+            (int32_t)p->letter, (int32_t)p->lock_why, (int32_t)p->lock_len,
+            (int32_t)p->v_start, (int32_t)p->v_min, (int32_t)p->v_end,
+            (int32_t)p->v_up, (int32_t)p->up_len };
+        uint32_t j;
+        n = put_str(p_out, n, out_max, (0U == k) ? "[" : ",[");
+        for (j = 0U; j < 17U; j++)
+        {
+            n = put_int(p_out, n, out_max, f[j]);
+            n = put_str(p_out, n, out_max, (j < 16U) ? "," : "]");
         }
     }
     n = put_str(p_out, n, out_max, "]}");

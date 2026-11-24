@@ -199,6 +199,31 @@ void bc_edge_relearn(bc_edge_t * p_e);
 /* m above (raw); 0 while white is not learned */
 int32_t bc_edge_margin(bc_edge_t const * p_e);
 
+/* The first bar of a read (task_barcode.c on_run): true if it can be a
+   printed bar.  By distance (no wider than S3_BC_FIRST_BAR_MAX_COUNTS)
+   when the wheels turned (width_pos >= BC_DIST_LIVE_MIN), else by time
+   (no longer than S3_BC_ELEMENT_MAX_MS).  A wider first "bar" is a paper
+   boundary or the line: no read starts, the speed is not changed. */
+#define BC_DIST_LIVE_MIN 10U
+bool bc_first_bar_ok(uint32_t width_pos, uint32_t width_us);
+
+/* barcode_task's IDLE state (task_barcode.c on_run): which run starts a
+   read.  A white run of S3_BC_START_WHITE_MS or more arms it; the next
+   black run starts the read if bc_first_bar_ok().  A black run that is
+   too wide while moving was a change of white (paper sheet), so the white
+   after it arms the start whatever its length. */
+typedef struct
+{
+    bool b_pend;       /* armed: the bar now starting may start a read */
+    bool b_after_wide; /* the last black run was a too-wide one */
+} bc_start_t;
+#define BC_START_NONE  0U /* nothing */
+#define BC_START_ARMED 1U /* this white run armed it (bar begins now) */
+#define BC_START_READ  2U /* this black run is the read's first bar */
+void    bc_start_reset(bc_start_t * p_s);
+uint8_t bc_start_step(bc_start_t * p_s, bool b_black, uint32_t width_us,
+                      uint32_t width_pos);
+
 /*
  * Barcode lock (S3_BC_LOCK, MY 2026-11-12): from the first bar of a
  * barcode until the robot is past it, drive straight at one slow speed
@@ -220,7 +245,12 @@ typedef struct
     uint32_t start_pos;   /* where this lock began                      */
     uint32_t read_pos;    /* where the current read began               */
     uint32_t end_pos;     /* where the last read ended                  */
+    uint8_t  free_why;    /* why it last let go (BC_LOCK_FREE_*)        */
 } bc_lock_t;
+#define BC_LOCK_FREE_FIRST 1U /* no bar + space within first_max     */
+#define BC_LOCK_FREE_UNCONF 2U /* read ended before bar + space       */
+#define BC_LOCK_FREE_AFTER 3U /* `after` counts past a confirmed read */
+#define BC_LOCK_FREE_MAX   4U /* max_counts in one go                 */
 
 void bc_lock_reset(bc_lock_t * p_l);
 /* One 10 ms step; returns p_l->b_lock */

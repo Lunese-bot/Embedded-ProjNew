@@ -95,6 +95,53 @@ extern volatile uint16_t g_s3_bc_geom_ms; /* how long it took */
 extern volatile uint8_t  g_s3_bc_geom_try;
 extern volatile char     g_s3_bc_geom_first_best;
 extern volatile uint32_t g_s3_bc_geom_tie_ovr;
+/* Per-read record (dashboard "Download read records"): one compact entry
+   per read that started, written by barcode_task at the start and end,
+   and by line_task when the barcode lock lets go and when the requested
+   speed rises again.  g_s3_bc_rec_gen goes up after every change. */
+#define S3_BC_REC_N 8U
+/* why a read ended */
+#define S3_BC_END_OPEN        0U /* still open */
+#define S3_BC_END_QUIET_RUN   1U /* white run >= quiet zone */
+#define S3_BC_END_MAX_ELEMS   2U
+#define S3_BC_END_EARLY       3U /* stop '*' decoded early */
+#define S3_BC_END_QUIET_DIST  4U /* white went on S3_BC_QUIET_COUNTS (poll) */
+#define S3_BC_END_STOPPED     5U /* robot stood on white S3_BC_QUIET_STOP_MS */
+#define S3_BC_END_QUIET_TIME  6U /* quiet zone by time (wheels not used) */
+#define S3_BC_END_LONG_BLACK  7U /* abort: a black run over ELEMENT_MAX */
+#define S3_BC_END_BLACK_WAIT  8U /* abort: on black ELEMENT_MAX, no run */
+#define S3_BC_END_REARM       9U
+#define S3_BC_END_DISABLE    10U
+/* decoder path: 0 none, 1 full/dist, 2 full/time, 3 partial/dist,
+   4 partial/time, 5 shape */
+typedef struct
+{
+    uint32_t seq;      /* 1, 2, ... */
+    uint32_t t_ms;     /* read start, ms since boot */
+    uint32_t pos;      /* wheel counts at the start (first bar's end) */
+    uint32_t len;      /* counts from the start to the end */
+    int16_t  white;    /* learned white at the start (raw) */
+    int16_t  margin;   /* edge margin at the start (raw) */
+    uint8_t  n;        /* elements */
+    uint8_t  end;      /* S3_BC_END_* */
+    uint8_t  path;
+    char     letter;   /* 0 = none */
+    uint8_t  lock_why; /* BC_LOCK_FREE_* (line_algo.h), 0 = not yet */
+    uint32_t lock_len; /* counts from the start to the lock letting go */
+    int16_t  v_start;  /* speed requested from S2 at the start (mm/s) */
+    int16_t  v_min;    /* lowest one since the start */
+    int16_t  v_end;    /* at the end */
+    int16_t  v_up;     /* first one back above v_min (+5) */
+    uint32_t up_len;   /* counts from the start to that rise, 0 = not yet */
+} s3_bc_rec_t;
+extern volatile s3_bc_rec_t g_s3_bc_rec[S3_BC_REC_N];
+extern volatile uint32_t    g_s3_bc_rec_seq; /* seq of the newest record */
+extern volatile uint32_t    g_s3_bc_rec_gen;
+/* written by the VC's S2 bridge: the forward speed last asked of S2 */
+extern volatile int16_t     g_s3_bc_speed_now;
+/* the edge finder's learned white now (task_line.c, raw; -1 = none) */
+extern volatile int32_t     g_s3_bc_white;
+
 /* Wheel position used for barcode widths (S3_BC_DIST_WHEEL), in counts of
    about 0.15 mm; 0 when S3_BC_USE_DIST is off.  task_line.c */
 extern uint32_t s3_bc_pos(void);
