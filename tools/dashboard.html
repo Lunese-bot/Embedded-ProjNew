@@ -5,340 +5,1006 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Robot Dashboard</title>
 <!--
-  Group 10 robot dashboard.  Open this file in Chrome or Edge (desktop).
-  - "Connect USB" reads the Pico's USB serial console (Web Serial, 115200).
-    Shows [TEST] results, the telemetry JSON (printed once a second by
-    subsystem 1 when MQTT is not connected) and the subsystem log lines.
-  - "Open log file" replays a saved console log.
-  - "Connect MQTT" subscribes to robot/g10/# over a WebSocket broker
-    (MQTT build), e.g. ws://<laptop-ip>:9001 for mosquitto with a
-    websockets listener. Telemetry and start / stop / reset use binary payloads.
+  Group 10 robot dashboard: one file, opened directly from disk.
+  - MQTT (Connect, robot/g10/# and +/heartbeat over a WebSocket broker such as
+    ws://<laptop-ip>:9001) carries telemetry, faults, barcodes, acks and
+    the Start / Stop / Reset / Pause / Resume commands.
+  - USB (Web Serial, Chrome or Edge on a computer) is read-only: console,
+    [TEST] results and the once-a-second JSON printed while MQTT is down.
+  - "Open log file" replays a saved console log or a log saved here.
+  History kept in this browser (localStorage key robot.dash.v1): newest 300
+  events, 200 barcode reads and 100 faults, at most 300 kB, written at most
+  every 2 s.  The broker address is kept separately and Clear history
+  does not touch it.  Telemetry rows for the CSV stay in memory only (newest
+  18000 rows, one hour at 5 Hz).
 -->
 <style>
+/* Colour literals live only in the two theme blocks below.  Five meanings:
+   idle = grey (idle, disconnected, no data), work = blue (normal work,
+   primary actions), attn = amber (attention, recovery, pause, stale, missed
+   ack), fault = red (faults and Stop only), good = green (connected,
+   mission complete, passed tests).  Contrast pairs are checked by
+   testing/subsystem1/dashboard_test. */
 :root {
-  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085;
-  --line: #e3e6eb; --accent: #2f6fde; --ok: #1a8a4a; --bad: #c8322f;
-  --warn: #b7791f; --chip: #eef2f7; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #596273;
+  --line: #e3e6eb; --edge: #7b8494; --chip: #eef2f7; --focus: #1d4fb8;
+  --idle: #4b5563; --idle-bg: #eceff3; --idle-solid: #4b5563; --on-idle: #ffffff;
+  --work: #1d4fb8; --work-bg: #e7eefb; --work-solid: #2457c5; --on-work: #ffffff;
+  --attn: #8a5300; --attn-bg: #fcf1d8; --attn-solid: #8a5300; --on-attn: #ffffff;
+  --fault: #b42318; --fault-bg: #fdeceb; --fault-solid: #c0262d; --on-fault: #ffffff;
+  --good: #146c3a; --good-bg: #e4f3e9; --good-solid: #1a7f46; --on-good: #ffffff;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #12151b; --panel: #1b2029; --text: #e7eaf0; --muted: #98a2b3;
-    --line: #2b313c; --accent: #6a9cff; --ok: #4cc583; --bad: #ff6b66;
-    --warn: #f0b44c; --chip: #252b36;
+    --bg: #12151b; --panel: #1b2029; --text: #e7eaf0; --muted: #a2abba;
+    --line: #2b313c; --edge: #6e7789; --chip: #252b36; --focus: #8cb4ff;
+    --idle: #b6bdc9; --idle-bg: #262c36; --idle-solid: #687183; --on-idle: #ffffff;
+    --work: #8cb4ff; --work-bg: #1a2945; --work-solid: #3567d4; --on-work: #ffffff;
+    --attn: #f3c15c; --attn-bg: #3a2d12; --attn-solid: #f0b44c; --on-attn: #1b1305;
+    --fault: #ff8f89; --fault-bg: #3f1b1b; --fault-solid: #d0302c; --on-fault: #ffffff;
+    --good: #6fd69a; --good-bg: #15301f; --good-solid: #39a865; --on-good: #06140c;
   }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
-  font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-  padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
-  position: sticky; top: 0; z-index: 2; }
-header h1 { font-size: 16px; margin: 0 12px 0 0; }
-button, input { font: inherit; }
-button { border: 1px solid var(--line); background: var(--chip); color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow-wrap: anywhere; }
+button, input, select, summary { font: inherit; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+button { border: 1px solid var(--edge); background: var(--chip); color: var(--text);
   padding: 6px 12px; border-radius: 6px; cursor: pointer; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-button:disabled { opacity: .5; cursor: default; }
-input[type=text] { border: 1px solid var(--line); background: var(--panel); color: var(--text);
+button.primary { background: var(--work-solid); border-color: var(--work-solid); color: var(--on-work); }
+button[aria-disabled="true"], button:disabled { opacity: .55; cursor: not-allowed; }
+input[type=text] { border: 1px solid var(--edge); background: var(--panel); color: var(--text);
   padding: 6px 8px; border-radius: 6px; min-width: 0; }
-#status { margin-left: auto; color: var(--muted); }
-.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-  background: var(--muted); margin-right: 6px; vertical-align: middle; }
-.dot.on { background: var(--ok); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---- top: status and commands, always visible ---- */
+.top { position: sticky; top: 0; z-index: 3; background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px; }
+.toprow { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; max-width: 1400px; margin: 0 auto; }
+.top h1 { font-size: 16px; margin: 0; }
+.banner { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-radius: 8px; min-width: 0; flex: 1 1 320px; }
+.banner .ico { font-size: 18px; line-height: 1; }
+.banner .word { font-size: 20px; font-weight: 700; }
+.banner .bsub { font-size: 13px; }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; padding: 3px 9px; border-radius: 12px; border: 1px solid currentColor; white-space: nowrap; }
+.tone-idle { color: var(--idle); background: var(--idle-bg); }
+.tone-work { color: var(--work); background: var(--work-bg); }
+.tone-attn { color: var(--attn); background: var(--attn-bg); }
+.tone-fault { color: var(--fault); background: var(--fault-bg); }
+.tone-good { color: var(--good); background: var(--good-bg); }
+.cmdrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; max-width: 1400px; margin: 8px auto 0; }
+.cmd { min-width: 84px; padding: 8px 14px; font-weight: 600; }
+.cmd.stop { background: var(--fault-solid); border-color: var(--fault-solid); color: var(--on-fault); min-width: 128px; font-size: 16px; }
+.cmd.go { background: var(--work-solid); border-color: var(--work-solid); color: var(--on-work); }
+.why { max-width: 1400px; margin: 6px auto 0; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.why:empty { display: none; }
+.cmdlog { max-width: 1400px; margin: 6px auto 0; font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
+.cmdlog div { padding: 1px 8px; border-radius: 4px; width: fit-content; max-width: 100%; }
+
 main { padding: 16px; display: grid; gap: 16px; max-width: 1400px; margin: 0 auto; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
-.panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+.panel h2, .panel > summary { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
   color: var(--muted); margin: 0 0 10px; font-weight: 600; }
-.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-.tile { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.panel > summary { cursor: pointer; margin: 0; }
+details[open].panel > summary { margin-bottom: 10px; }
+.outcome { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+@media (max-width: 900px) { .outcome { grid-template-columns: 1fr; } }
+.card { border-radius: 8px; padding: 10px 12px; border: 1px solid var(--line); min-width: 0; }
+.card .t { font-weight: 700; font-size: 16px; }
+.card .d, .card .a { font-size: 13px; color: var(--text); margin-top: 4px; }
+.card .m { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.conn { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.conn input[type=text] { flex: 1 1 220px; }
+.note { color: var(--muted); font-size: 13px; }
+.groups { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.group h3 { font-size: 12px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0; }
 .tile .k { color: var(--muted); font-size: 12px; }
-.tile .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tile .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tile .v.small { font-size: 14px; font-weight: 600; }
 .tile .u { font-size: 12px; color: var(--muted); font-weight: 400; }
-.state { font-size: 20px; font-weight: 700; }
-.state.fault { color: var(--bad); } .state.run { color: var(--ok); }
-.linebar { position: relative; height: 10px; background: var(--chip); border-radius: 5px; margin-top: 10px; }
-.linebar i { position: absolute; top: -3px; width: 4px; height: 16px; background: var(--accent);
-  border-radius: 2px; left: 50%; transform: translateX(-50%); }
+.linebar { position: relative; height: 10px; background: var(--chip); border: 1px solid var(--edge); border-radius: 5px; margin-top: 8px; }
+.linebar i { position: absolute; top: -4px; width: 4px; height: 16px; background: var(--work); border-radius: 2px; left: 50%; transform: translateX(-50%); }
 .linebar b { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--muted); }
 .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
 .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.chart .k { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
+.chart .k { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; gap: 8px; }
 canvas { width: 100%; height: 90px; display: block; }
+.list { font-size: 13px; max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.list .item { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.list .item .h { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.list .item .h strong { font-size: 14px; }
+.list summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 4px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.tag { font-size: 12px; padding: 0 6px; border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.tablewrap { max-height: 320px; overflow: auto; }
+.tl { font: 12px/1.5 var(--mono); max-height: 320px; overflow: auto; }
+.tl div { white-space: pre-wrap; word-break: break-word; }
 .subs { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
 .sub { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
-.sub .h { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 6px; }
-.badge { font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--chip); color: var(--muted); }
-.badge.ok { color: var(--ok); } .badge.bad { color: var(--bad); }
-.tl { font: 12px/1.5 var(--mono); max-height: 160px; overflow: auto; }
-.tl div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pass { color: var(--ok); } .fail { color: var(--bad); font-weight: 600; }
+.sub .h { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 6px; gap: 6px; }
+.badge { font-size: 12px; padding: 1px 8px; border-radius: 10px; }
+.pass { color: var(--good); } .fail { color: var(--fault); font-weight: 600; }
 #log { font: 12px/1.5 var(--mono); height: 320px; overflow: auto; background: var(--bg);
   border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; }
-#log .vc { color: var(--accent); } #log .err { color: var(--bad); } #log .tst { color: var(--muted); }
+#log .vc { color: var(--work); } #log .err { color: var(--fault); } #log .tst { color: var(--muted); }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 .muted { color: var(--muted); }
-.note { color: var(--muted); font-size: 13px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size: 13px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; }
+.fabstop { display: none; }
+@media (max-width: 600px) {
+  /* phone: the top block scrolls away; a fixed Stop bar takes over */
+  .top { padding: 8px 12px; position: static; }
+  .fabstop.show { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 4; gap: 8px; align-items: center;
+    padding: 8px 12px; background: var(--panel); border-top: 1px solid var(--edge); }
+  .fabstop .cmd.stop { flex: 0 0 auto; width: auto; min-width: 120px; }
+  .fabstop .st { flex: 1; min-width: 0; font-weight: 700; }
+  body { padding-bottom: 64px; }
+  .banner .word { font-size: 18px; }
+  .cmd { flex: 1 1 calc(33% - 8px); min-width: 0; padding: 8px 6px; }
+  .cmd.stop { flex: 1 1 100%; font-size: 17px; padding: 10px; }
+  main { padding: 12px; }
+  .kv { grid-template-columns: 1fr; }
+  #bcTable thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  #bcTable tr, #bcTable td { display: block; }
+  #bcTable tr { border-bottom: 1px solid var(--line); padding: 4px 0; }
+  #bcTable td { border: 0; padding: 1px 0; }
+  #bcTable td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); font-size: 12px; }
+}
 </style>
 </head>
 <body>
-<header>
-  <h1>Robot Dashboard</h1>
-  <button id="btnSerial" class="primary">Connect USB</button>
-  <button id="btnFile">Open log file</button>
-  <input id="fileIn" type="file" accept=".txt,.log,text/plain" hidden>
-  <input id="mqttUrl" type="text" placeholder="ws://192.168.1.10:9001" size="22">
-  <button id="btnMqtt">Connect MQTT</button>
-  <button class="cmd" data-cmd="start" disabled>Start</button>
-  <button class="cmd" data-cmd="stop" disabled>Stop</button>
-  <button class="cmd" data-cmd="reset" disabled>Reset</button>
-  <button class="cmd" data-cmd="pause" disabled>Pause</button>
-  <button class="cmd" data-cmd="resume" disabled>Resume</button>
-  <span id="status"><span class="dot" id="dot"></span><span id="statusText">Not connected</span></span>
-</header>
+<div class="top" id="top">
+  <div class="toprow">
+    <h1>Robot Dashboard</h1>
+    <div id="banner" class="banner tone-idle">
+      <span class="ico" id="bIco" aria-hidden="true">○</span>
+      <div><div class="word" id="bWord">Not connected</div><div class="bsub" id="bSub">Connect MQTT or USB below.</div></div>
+    </div>
+    <div class="pills" aria-label="Connections and data">
+      <span class="pill tone-idle" id="pUsb">USB: off</span>
+      <span class="pill tone-idle" id="pMqtt">MQTT: off</span>
+      <span class="pill tone-idle" id="pAge">Data: none</span>
+      <span class="pill tone-idle" id="pLoss" title="Frames missing / (received + missing), last 60 s, from the telemetry sequence">Loss 60 s: no data</span>
+    </div>
+  </div>
+  <div class="cmdrow" role="group" aria-label="Robot commands" aria-describedby="why">
+    <button class="cmd stop" data-cmd="stop" aria-describedby="why_stop">■ Stop</button>
+    <button class="cmd go" data-cmd="start" aria-describedby="why_start">▶ Start</button>
+    <button class="cmd" data-cmd="reset" aria-describedby="why_reset">↺ Reset</button>
+    <button class="cmd" data-cmd="pause" aria-describedby="why_pause">❚❚ Pause</button>
+    <button class="cmd" data-cmd="resume" aria-describedby="why_resume">▶ Resume</button>
+  </div>
+  <div class="why" id="why">
+    <span id="why_stop"></span><span id="why_start"></span><span id="why_reset"></span><span id="why_pause"></span><span id="why_resume"></span><span id="why_latch"></span>
+  </div>
+  <div class="cmdlog" id="cmdlog" aria-label="Command results"></div>
+</div>
+<div class="fabstop" id="fab" aria-hidden="true"><span class="st" id="fabState"></span><button class="cmd stop" data-cmd="stop" tabindex="-1">■ Stop</button></div>
+<div class="sr" aria-live="polite" id="announce"></div>
 
 <main>
-  <section class="panel">
-    <h2>Live</h2>
-    <div class="tiles">
-      <div class="tile"><div class="k">Mission state (VC)</div><div class="state" id="t_st">–</div></div>
-      <div class="tile"><div class="k">Wheel speed L / R (S2)</div><div class="v"><span id="t_vl">–</span> / <span id="t_vr">–</span> <span class="u">mm/s</span></div></div>
-      <div class="tile"><div class="k">Distance driven (S2)</div><div class="v"><span id="t_odo">–</span> <span class="u">mm</span></div></div>
-      <div class="tile"><div class="k">Line position (S3)</div><div class="v"><span id="t_line">–</span></div>
-        <div class="linebar"><b></b><i id="t_linebar"></i></div></div>
-      <div class="tile"><div class="k">Barcodes read / last nav</div><div class="v"><span id="t_bc">–</span> <span class="u" id="t_nav"></span></div></div>
-      <div class="tile"><div class="k">Last barcode received</div><div class="v" id="t_barcode">–</div></div>
-      <div class="tile"><div class="k">Pitch (S4)</div><div class="v"><span id="t_pitch">–</span> <span class="u">°</span></div></div>
-      <div class="tile"><div class="k">Hump now / max (S4)</div><div class="v"><span id="t_hump">–</span> / <span id="t_maxhump">–</span> <span class="u">mm</span></div></div>
-      <div class="tile"><div class="k">Ultrasonic (S5)</div><div class="v"><span id="t_us">–</span> <span class="u">mm</span></div><div class="k" id="t_obs"></div></div>
-      <div class="tile"><div class="k">Last update</div><div class="v"><span id="t_age">–</span></div></div>
+  <section class="panel" aria-labelledby="h_out">
+    <h2 id="h_out">Last run</h2>
+    <div class="outcome">
+      <div class="card" id="outNow"><div class="t">No finished run yet</div><div class="m">A run's end reason, time and distance stay here until the next run starts.</div></div>
+      <div class="card" id="outPrev" hidden></div>
     </div>
   </section>
 
-  <section class="panel">
-    <h2>Last 60 seconds</h2>
+  <section class="panel" aria-labelledby="h_conn">
+    <h2 id="h_conn">Connection</h2>
+    <div class="conn">
+      <label class="sr" for="mqttUrl">Broker WebSocket address</label>
+      <input id="mqttUrl" type="text" placeholder="ws://192.168.1.10:9001" autocomplete="off" spellcheck="false">
+      <button id="btnMqtt" class="primary">Connect MQTT</button>
+      <button id="btnSerial">Connect USB (read-only)</button>
+      <button id="btnFile">Open log file</button>
+      <input id="fileIn" type="file" accept=".txt,.log,text/plain" hidden>
+    </div>
+    <p class="note" id="connNote">Commands go over MQTT. USB only reads the console.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="h_live">
+    <h2 id="h_live">Live</h2>
+    <div class="groups">
+      <div class="group"><h3>Motion (S2)</h3><div class="tiles">
+        <div class="tile"><div class="k">Speed left</div><div class="v"><span id="t_vl">–</span> <span class="u">mm/s</span></div></div>
+        <div class="tile"><div class="k">Speed right</div><div class="v"><span id="t_vr">–</span> <span class="u">mm/s</span></div></div>
+        <div class="tile"><div class="k">Distance this run</div><div class="v"><span id="t_odo">–</span> <span class="u">mm</span></div></div>
+      </div></div>
+      <div class="group"><h3>Line and barcode (S3)</h3><div class="tiles">
+        <div class="tile"><div class="k">Line position</div><div class="v"><span id="t_line">–</span> <span class="u">of ±1000</span></div>
+          <div class="linebar" aria-hidden="true"><b></b><i id="t_linebar"></i></div></div>
+        <div class="tile"><div class="k">Barcodes this run</div><div class="v" id="t_bc">–</div></div>
+        <div class="tile"><div class="k">Last barcode / pending turn</div><div class="v"><span id="t_barcode">–</span> <span class="u" id="t_nav"></span></div></div>
+      </div></div>
+      <div class="group"><h3>IMU (S4)</h3><div class="tiles">
+        <div class="tile"><div class="k">Pitch</div><div class="v"><span id="t_pitch">–</span> <span class="u">°</span></div></div>
+        <div class="tile"><div class="k">Hump now / max</div><div class="v"><span id="t_hump">–</span> / <span id="t_maxhump">–</span> <span class="u">mm</span></div></div>
+        <div class="tile"><div class="k">Lift / tilt latch</div><div class="v small" id="t_latch">Latch status unavailable</div></div>
+      </div></div>
+      <div class="group"><h3>Obstacle (S5)</h3><div class="tiles">
+        <div class="tile"><div class="k">Ultrasonic</div><div class="v"><span id="t_us">–</span> <span class="u" id="t_us_u">mm</span></div></div>
+        <div class="tile"><div class="k">Obstacle state</div><div class="v small" id="t_obs">–</div></div>
+      </div></div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="h_charts">
+    <h2 id="h_charts">Last 60 seconds</h2>
     <div class="charts">
-      <div class="chart"><div class="k"><span>Speed (mm/s), left and right</span><span id="c_speed_v"></span></div><canvas id="c_speed"></canvas></div>
-      <div class="chart"><div class="k"><span>Line position (−1000 left … +1000 right)</span><span id="c_line_v"></span></div><canvas id="c_line"></canvas></div>
-      <div class="chart"><div class="k"><span>Ultrasonic distance (mm)</span><span id="c_us_v"></span></div><canvas id="c_us"></canvas></div>
-      <div class="chart"><div class="k"><span>Pitch (°)</span><span id="c_pitch_v"></span></div><canvas id="c_pitch"></canvas></div>
+      <div class="chart"><div class="k"><span>Speed (mm/s): left solid, right dashed</span><span id="c_speed_v"></span></div><canvas id="c_speed" aria-label="Wheel speed chart"></canvas></div>
+      <div class="chart"><div class="k"><span>Line position (−1000 left … +1000 right)</span><span id="c_line_v"></span></div><canvas id="c_line" aria-label="Line position chart"></canvas></div>
+      <div class="chart"><div class="k"><span>Ultrasonic distance (mm)</span><span id="c_us_v"></span></div><canvas id="c_us" aria-label="Ultrasonic chart"></canvas></div>
+      <div class="chart"><div class="k"><span>Pitch (°)</span><span id="c_pitch_v"></span></div><canvas id="c_pitch" aria-label="Pitch chart"></canvas></div>
     </div>
-  </section>
-
-  <section class="panel">
-    <div class="row"><h2 style="margin:0">Self-tests (make TEST=1)</h2>
-      <span class="note" id="testTotal"></span>
-      <button id="btnClearTests" style="margin-left:auto">Clear</button></div>
-    <div class="subs" id="subs"></div>
   </section>
 
   <div class="cols">
-    <section class="panel">
-      <h2>Events</h2>
-      <div class="tl" id="events" style="max-height:320px"></div>
+    <section class="panel" aria-labelledby="h_faults">
+      <h2 id="h_faults">Faults</h2>
+      <div class="list" id="faults"><p class="note">No faults reported.</p></div>
     </section>
-    <section class="panel">
-      <div class="row"><h2 style="margin:0">Console</h2>
+    <section class="panel" aria-labelledby="h_bc">
+      <h2 id="h_bc">Barcodes</h2>
+      <div class="tablewrap"><table id="bcTable">
+        <thead><tr><th>Received</th><th>Text</th><th>Scan direction</th><th>Configured action</th><th>Pending (robot)</th><th>Junction action seen</th></tr></thead>
+        <tbody id="barcodes"><tr><td colspan="6" class="note">No barcode reads yet.</td></tr></tbody>
+      </table></div>
+    </section>
+  </div>
+
+  <div class="cols">
+    <section class="panel" aria-labelledby="h_ev">
+      <h2 id="h_ev">Events</h2>
+      <div class="tl" id="events"></div>
+    </section>
+    <section class="panel" aria-labelledby="h_con">
+      <div class="row"><h2 id="h_con" style="margin:0">Console</h2>
+        <label class="sr" for="filter">Filter console</label>
         <input id="filter" type="text" placeholder="filter, e.g. vc: or imu:" style="flex:1">
-        <label class="muted"><input type="checkbox" id="hideTlm" checked> hide telemetry</label>
-        <button id="btnSave">Save log</button></div>
+        <label class="muted"><input type="checkbox" id="hideTlm" checked> hide telemetry</label></div>
       <div id="log"></div>
     </section>
   </div>
-</main>
 
+  <details class="panel" id="diag">
+    <summary>Diagnostics</summary>
+    <dl class="kv" id="diagKv"></dl>
+  </details>
+
+  <details class="panel" id="selftests">
+    <summary>Self-tests (TEST=1 build)</summary>
+    <div class="row"><span class="note" id="testTotal"></span>
+      <button id="btnClearTests" style="margin-left:auto">Clear results</button></div>
+    <div class="subs" id="subs"></div>
+  </details>
+
+  <section class="panel" aria-labelledby="h_save">
+    <h2 id="h_save">Save and history</h2>
+    <div class="row">
+      <button id="btnSave">Save log (.txt)</button>
+      <button id="btnCsv">Download telemetry CSV</button>
+      <button id="btnClear">Clear history</button>
+    </div>
+    <p class="note" id="retention"></p>
+  </section>
+</main>
 <script>
-(() => {
-  const $ = id => document.getElementById(id);
-  const SUBS = { subsystem1: "S1 WiFi / MQTT", subsystem2: "S2 Motion", subsystem3: "S3 Line + barcode",
-                 subsystem4: "S4 IMU", subsystem5: "S5 Obstacle", vehicle_controller: "Vehicle Controller" };
-  const NAV = ["none", "left", "right", "straight", "U-turn"];
-  const OBS = ["idle", "monitoring", "detected", "coarse scan", "fine scan", "planning",
-               "bypassing", "search line", "line recovery", "error"];
-  const WINDOW_MS = 60000;
-  const series = { vl: [], vr: [], line: [], us: [], pitch: [] };
-  const allLines = [];
-  let lastTlm = 0, mqttClient = null, port = null, reader = null;
+/* CORE-BEGIN: pure logic, no DOM. testing/subsystem1/dashboard_test loads
+   exactly this block from tools/dashboard.html, so the checks run the
+   production code. */
+const DashCore = (() => {
+  "use strict";
+
+  /* ---------- wire constants (app_program/subsystem1/s1_codec.h) ---------- */
   const STATES = ["IDLE", "MISSION_START", "FOLLOW_LINE", "JUNCTION_STOP",
-                "LOST_LINE", "AVOID_OBSTACLE", "DECODE_BARCODE",
-                "EXECUTE_ACTION", "TERRAIN_CHECK", "FAULT",
-                "MISSION_COMPLETE"];
+    "LOST_LINE", "AVOID_OBSTACLE", "DECODE_BARCODE", "EXECUTE_ACTION",
+    "TERRAIN_CHECK", "FAULT", "MISSION_COMPLETE"];
+  /* vc_sm_is_active(): MISSION_START .. TERRAIN_CHECK (vc_sm.c:67) */
+  const ACTIVE = new Set(STATES.slice(1, 9));
+  const STATE_LABEL = {
+    IDLE: "Idle", MISSION_START: "Starting (self-check)",
+    FOLLOW_LINE: "Following line", JUNCTION_STOP: "Stopping at junction",
+    LOST_LINE: "Searching for line", AVOID_OBSTACLE: "Avoiding obstacle",
+    DECODE_BARCODE: "Reading barcode", EXECUTE_ACTION: "Junction manoeuvre",
+    TERRAIN_CHECK: "Crossing hump", FAULT: "Fault",
+    MISSION_COMPLETE: "Mission complete", UNKNOWN: "Unknown state"
+  };
+  const NAV = ["None", "Left", "Right", "Straight", "U-turn"];
+  const OBS = ["Idle", "Monitoring", "Detected", "Coarse scan", "Fine scan",
+    "Planning", "Bypassing", "Search line", "Line recovery", "Error"];
+  const ACK = ["queued", "busy", "rejected", "reserved"];
   const CMD_CODES = { start: 0, stop: 1, reset: 2 };
   const EXT_CODES = { pause: 0, resume: 1 };
-  const ACK_RESULTS = ["queued", "busy", "rejected", "reserved"];
+  const CMD_LABEL = { start: "Start", stop: "Stop", reset: "Reset", pause: "Pause", resume: "Resume" };
   const BARCODE_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
-  let mqttCommandSeq = 0, lastMqttTlmSeq = null;
-  const pendingCommands = new Map();
+  const TLM_PERIOD_MS = 200;      /* telemetry_task, every 200 ms */
+  const USB_TLM_PERIOD_MS = 1000; /* JSON every S1_CONSOLE_EVERY = 5 ticks */
+  const HB_PERIOD_MS = 5000;      /* MQTT_UTK_HEARTBEAT_MS */
+  const ACK_TIMEOUT_MS = 2000;
+  const CONFIRM_MS = 4000;
 
-  /* ---------- status ---------- */
-  function setStatus(text, on) { $("statusText").textContent = text; $("dot").classList.toggle("on", !!on); }
+  /* Letter -> action, copied from vc_barcode_config.h.  The dashboard check
+     compares this with the firmware table, so the two cannot drift apart. */
+  const BARCODE_RULES = { Z: "Right" };
 
-  /* ---------- tests ---------- */
-  const tests = {};          /* sub -> {checks: Map(id -> {ok, desc}), summary} */
-  function subFor(id) {
-    const m = /^S(\d)/.exec(id); return m ? "subsystem" + m[1] : "other";
+  function staleAfterMs(source) {
+    /* 1 s, or two periods of a slower source (USB prints once a second) */
+    return Math.max(1000, 2 * (source === "usb" ? USB_TLM_PERIOD_MS : TLM_PERIOD_MS));
   }
-  function addTest(id, ok, desc) {
-    const s = subFor(id); (tests[s] ||= { checks: new Map(), summary: null }).checks.set(id, { ok, desc });
-    renderTests();
-  }
-  function addSummary(name, pass, fail) {
-    (tests[name] ||= { checks: new Map(), summary: null }).summary = { pass, fail }; renderTests();
-  }
-  function renderTests() {
-    const box = $("subs"); box.innerHTML = "";
-    let p = 0, f = 0;
-    const names = Object.keys(SUBS).concat(Object.keys(tests).filter(k => !SUBS[k]));
-    for (const name of names) {
-      const t = tests[name] || { checks: new Map(), summary: null };
-      const pass = [...t.checks.values()].filter(c => c.ok).length;
-      const fail = t.checks.size - pass;
-      p += pass; f += fail;
-      const el = document.createElement("div"); el.className = "sub";
-      const badge = t.checks.size === 0 ? '<span class="badge">not run</span>'
-        : fail ? `<span class="badge bad">${fail} failed</span>` : `<span class="badge ok">${pass} passed</span>`;
-      el.innerHTML = `<div class="h"><span>${SUBS[name] || name}</span>${badge}</div><div class="tl"></div>`;
-      const tl = el.querySelector(".tl");
-      for (const [id, c] of t.checks) {
-        const d = document.createElement("div");
-        d.className = c.ok ? "pass" : "fail"; d.title = c.desc;
-        d.textContent = `${c.ok ? "✓" : "✗"} ${id}  ${c.desc}`; tl.appendChild(d);
-      }
-      box.appendChild(el);
-    }
-    $("testTotal").textContent = (p + f) ? `${p} passed, ${f} failed` : "Flash the TEST=1 image, connect, then reset the Pico.";
-  }
-  $("btnClearTests").onclick = () => { for (const k in tests) delete tests[k]; renderTests(); };
 
-  /* ---------- telemetry ---------- */
-  function push(arr, t, v) { arr.push([t, v]); while (arr.length && arr[0][0] < t - WINDOW_MS) arr.shift(); }
-  function txt(id, v) { $(id).textContent = v; }
-  function decodeBinaryTelemetry(payload) {
+  /* ---------- telemetry frame, 14 bytes, version 1 ---------- */
+  function decodeTelemetry(payload) {
     const bytes = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
     if (bytes.length !== 14) return null;
     let bit = 0;
     const read = width => {
       let value = 0;
-      for (let i = 0; i < width; i++, bit++) {
-        value = value * 2 + ((bytes[bit >> 3] >> (7 - (bit & 7))) & 1);
-      }
+      for (let i = 0; i < width; i++, bit++) value = value * 2 + ((bytes[bit >> 3] >> (7 - (bit & 7))) & 1);
       return value;
     };
-    const signed = width => {
-      const value = read(width);
-      return value >= 2 ** (width - 1) ? value - 2 ** width : value;
-    };
+    const signed = width => { const v = read(width); return v >= 2 ** (width - 1) ? v - 2 ** width : v; };
     if (read(3) !== 1) return null;
-    const j = {};
-    j.seq = read(8);
-    j.st = STATES[read(4)] || "UNKNOWN";
-    j.v = [signed(8) * 4, signed(8) * 4];
-    j.odo = read(16);
-    j.line = signed(8) * 8;
+    const r = { source: "mqtt" };
+    r.seq = read(8);
+    const st = read(4);
+    r.state = STATES[st] || "UNKNOWN";
+    r.stateCode = st;
+    r.speedL = signed(8) * 4;
+    r.speedR = signed(8) * 4;
+    r.distance = read(16);
+    r.line = signed(8) * 8;
     const obsCm = read(7);
-    j.obsDetected = !!read(1);
-    j.obs = read(4);
-    j.us = obsCm === 127 ? 0 : obsCm * 10;
-    j.nav = read(3);
-    j.bc = read(4);
-    j.pitch = signed(8) * 50;
-    j.hump = read(6) * 0.5;
-    j.maxhump = read(6) * 0.5;
-    j.fault = read(16);
-    j.wifi = !!read(1);
-    j.paused = !!read(1);
-    return j;
+    r.obstacleDetected = !!read(1);
+    r.obstacleState = read(4);
+    /* 127 = no reading (last_distance_mm 0) or at least 127 cm */
+    r.obstacleMm = obsCm === 127 ? null : obsCm * 10;
+    r.obstacleNoEcho = obsCm === 127;
+    r.nav = read(3);
+    r.barcodes = read(4);
+    r.pitchDeg = signed(8) * 50 / 100;
+    r.humpMm = read(6) * 0.5;
+    r.humpMaxMm = read(6) * 0.5;
+    r.fault = read(16);
+    r.wifi = !!read(1);
+    r.paused = !!read(1);
+    return r;
   }
-  function onTelemetry(j) {
-    const t = Date.now(); lastTlm = t;
-    const st = String(j.st ?? "–");
-    txt("t_st", st + (j.paused ? " (paused)" : ""));
-    $("t_st").className = "state" + (/FAULT/i.test(st) ? " fault" : /IDLE|COMPLETE/i.test(st) ? "" : " run");
-    if (Array.isArray(j.v)) { txt("t_vl", j.v[0]); txt("t_vr", j.v[1]); push(series.vl, t, j.v[0]); push(series.vr, t, j.v[1]); }
-    if (j.odo != null) txt("t_odo", j.odo);
-    if (j.line != null) {
-      txt("t_line", j.line); push(series.line, t, j.line);
-      $("t_linebar").style.left = (50 + Math.max(-1000, Math.min(1000, j.line)) / 20) + "%";
-    }
-    if (j.bc != null) txt("t_bc", j.bc);
-    if (j.nav != null) txt("t_nav", NAV[j.nav] || j.nav);
-    if (j.pitch != null) { const d = j.pitch / 100; txt("t_pitch", d.toFixed(1)); push(series.pitch, t, d); }
-    if (j.hump != null) txt("t_hump", j.hump);
-    if (j.maxhump != null) txt("t_maxhump", j.maxhump);
-    if (j.us != null) { txt("t_us", j.us === 0 ? "no echo" : j.us); if (j.us) push(series.us, t, j.us); }
-    if (j.obs != null) txt("t_obs", OBS[j.obs] || "state " + j.obs);
+
+  /* USB JSON printed by telemetry_task.c while MQTT is down.  No sequence,
+     fault, paused or WiFi field: those stay null ("not reported"). */
+  function fromUsbJson(j) {
+    if (!j || typeof j !== "object" || typeof j.st !== "string") return null;
+    const num = v => (typeof v === "number" && isFinite(v) ? v : null);
+    return {
+      source: "usb", seq: null, state: STATES.includes(j.st) ? j.st : "UNKNOWN",
+      speedL: Array.isArray(j.v) ? num(j.v[0]) : null, speedR: Array.isArray(j.v) ? num(j.v[1]) : null,
+      distance: num(j.odo), line: num(j.line),
+      obstacleMm: num(j.us) ? j.us : null, obstacleNoEcho: j.us === 0, obstacleDetected: null,
+      obstacleState: num(j.obs), nav: num(j.nav), barcodes: num(j.bc),
+      pitchDeg: num(j.pitch) == null ? null : j.pitch / 100,
+      humpMm: num(j.hump), humpMaxMm: num(j.maxhump), fault: null, wifi: null, paused: null
+    };
   }
+
   function decodeBarcode(bytes) {
     if (bytes.length < 1 || bytes.length > 8) return null;
     let bit = 0, text = "";
     while (bit + 6 <= bytes.length * 8) {
       let value = 0;
-      for (let i = 0; i < 6; i++, bit++) {
-        value = (value << 1) | ((bytes[bit >> 3] >> (7 - (bit & 7))) & 1);
-      }
+      for (let i = 0; i < 6; i++, bit++) value = (value << 1) | ((bytes[bit >> 3] >> (7 - (bit & 7))) & 1);
       if (value === 0) break;
       if (value > BARCODE_ALPHABET.length || text.length === 10) return null;
       text += BARCODE_ALPHABET[value - 1];
     }
-    for (; bit < bytes.length * 8; bit++) {
-      if ((bytes[bit >> 3] >> (7 - (bit & 7))) & 1) return null;
-    }
+    for (; bit < bytes.length * 8; bit++) if ((bytes[bit >> 3] >> (7 - (bit & 7))) & 1) return null;
     if (!text || bytes.length !== Math.ceil(text.length * 6 / 8)) return null;
     return text;
   }
-  setInterval(() => {
-    txt("t_age", lastTlm ? Math.round((Date.now() - lastTlm) / 1000) + " s ago" : "–");
-    drawAll();
-  }, 500);
 
-  /* ---------- charts (plain canvas) ---------- */
-  function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
-  function draw(id, lines, fixed) {
-    const c = $(id), dpr = window.devicePixelRatio || 1;
-    const w = c.clientWidth, h = c.clientHeight;
-    if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
-    const g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
-    const now = Date.now(); let lo = Infinity, hi = -Infinity;
-    for (const l of lines) for (const [, v] of l.data) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
-    if (fixed) { lo = Math.min(lo, fixed[0]); hi = Math.max(hi, fixed[1]); }
-    if (!isFinite(lo)) { lo = 0; hi = 1; }
-    if (hi - lo < 1e-6) { hi += 1; lo -= 1; }
-    const y = v => h - 4 - (v - lo) / (hi - lo) * (h - 8);
-    g.strokeStyle = css("--line"); g.lineWidth = 1;
-    if (lo < 0 && hi > 0) { g.beginPath(); g.moveTo(0, y(0)); g.lineTo(w, y(0)); g.stroke(); }
-    g.fillStyle = css("--muted"); g.font = "10px system-ui";
-    g.fillText(Math.round(hi), 2, 10); g.fillText(Math.round(lo), 2, h - 2);
-    for (const l of lines) {
-      g.strokeStyle = l.color; g.lineWidth = 1.6; g.beginPath();
-      l.data.forEach(([t, v], i) => { const x = w - (now - t) / WINDOW_MS * w; i ? g.lineTo(x, y(v)) : g.moveTo(x, y(v)); });
-      g.stroke();
+  function encodeCommand(cmd, seq) {
+    const code = CMD_CODES[cmd], ext = EXT_CODES[cmd];
+    if (code == null && ext == null) return null;
+    return ext == null ? new Uint8Array([(code << 6) | (seq & 63)]) : new Uint8Array([0xC0 | (seq & 63), ext]);
+  }
+  function decodeCommand(bytes) {
+    if (bytes.length === 1 && bytes[0] >> 6 !== 3) return { cmd: ["start", "stop", "reset"][bytes[0] >> 6], seq: bytes[0] & 63 };
+    if (bytes.length === 2 && bytes[0] >> 6 === 3 && bytes[1] <= 1) return { cmd: bytes[1] ? "resume" : "pause", seq: bytes[0] & 63 };
+    return { cmd: null, seq: bytes.length ? bytes[0] & 63 : null };
+  }
+  function decodeAck(bytes) {
+    if (bytes.length !== 1) return null;
+    return { result: ACK[bytes[0] >> 6], seq: bytes[0] & 63 };
+  }
+
+  /* ---------- faults ---------- */
+  const SUBSYS = { 1: "S1 WiFi / MQTT", 2: "S2 Motion", 3: "S3 Line + barcode",
+    4: "S4 IMU", 5: "S5 Obstacle", 6: "Vehicle controller" };
+  const SEV = ["Non-critical", "Recoverable", "Critical"];
+  const FLAT = "Place it flat, hands off 2 s, press Reset, then Start.";
+  /* code -> catalogue entry.  def = firmware name the coverage check
+     looks for; owner = subsystem that defines the code. */
+  const FAULTS = {
+    0x0001: { def: "VC_FC_OPERATOR_STOP", owner: 6, name: "Operator stop",
+      action: "Stop was pressed. Press Reset, then Start for a new run." },
+    0x0002: { def: "VC_FC_SELF_CHECK", owner: 6, name: "Controller self-check",
+      action: "S2 motion or S3 line did not report ready within 2 s. Check which subsystem is not ready in the console; if the robot was lifted or tilted: " + FLAT,
+      bySev: { 0: { name: "Self-check: optional subsystem missing",
+        action: "S4 IMU or S5 obstacle did not report ready; the run continues without it. Check the console for which one." } } },
+    0x0003: { def: "VC_FC_LINE_RECOVERY", owner: 6, name: "Line not found",
+      action: "Three line searches failed. Put the robot back on the line, press Reset, then Start." },
+    0x0004: { def: "VC_FC_AVOID_FAILED", owner: 6, name: "Obstacle bypass failed",
+      action: "The bypass did not find the line again. Clear the path, put the robot on the line, press Reset, then Start." },
+    0x0006: { def: "VC_FC_STATE_TIMEOUT", owner: 6, name: "State took too long",
+      action: "A manoeuvre did not finish in time. Check the wheels can turn freely, press Reset, then Start.",
+      bySev: { 1: { name: "Manoeuvre or hump timed out",
+        action: "The robot carries on (junction turn: line search; hump: back to following). Watch the next turn." } } },
+    0x0007: { def: "VC_FC_BARCODE", owner: 6, name: "Barcode not read",
+      action: "The read gave up and the run continues. Check where the sheet sits under the sensor on the next pass." },
+    0x0008: { def: "VC_FC_JUNCTION_STOP", owner: 6, name: "Stop not confirmed",
+      action: "S2 did not confirm zero speed within 2 s (junction or pause). Check the encoders and wheels, press Reset, then Start." },
+    0x0009: { def: "VC_FC_PAUSE_INTERRUPTED", owner: 6, name: "Event while paused",
+      action: "Line loss, obstacle, junction or barcode arrived during Pause, so the robot stopped. Press Reset, then Start." },
+    0x1000: { def: "VC_FC_WIFI_DOWN", owner: 1, name: "WiFi / MQTT down",
+      action: "The robot keeps driving. Check the hotspot and broker; the dashboard reconnects by itself." },
+    0x2001: { def: "MFAULT_STALL_LEFT", owner: 2, name: "Left wheel stalled",
+      action: "Drive applied but no left encoder ticks. Free the left wheel, check its motor and encoder cable and the battery, press Reset, then Start." },
+    0x2002: { def: "MFAULT_STALL_RIGHT", owner: 2, name: "Right wheel stalled",
+      action: "Drive applied but no right encoder ticks. Free the right wheel, check its motor and encoder cable and the battery, press Reset, then Start." },
+    0x2003: { def: "MFAULT_DRIVER", owner: 2, name: "Motor driver failed",
+      action: "Motor or encoder driver did not start. Power-cycle the robot." },
+    0x2010: { def: "S2_FC_TIMEOUT", owner: 2, name: "Steering commands stopped",
+      action: "S2 got no drive update for 500 ms and stopped. Press Reset, then Start; if it repeats, save the log for the S3/VC owner." },
+    0x2011: { def: "S2_FC_SAFE_STOP", owner: 2, name: "Motors safe-stopped",
+      action: "S2 latched the motors off. It usually follows another fault, or an IMU lift or tilt. " + FLAT },
+    0x3002: { def: "S3_FC_CAL_FAILED", owner: 3, name: "Line sensor calibration failed",
+      action: "The old calibration is kept and the run continues. Recalibrate on the track before the next run." },
+    0x4001: { def: "S4_FC_FAULT", owner: 4, name: "IMU read errors",
+      action: "S4 is retrying the IMU. Check the IMU cable if it repeats." },
+    0x4002: { def: "S4_FC_FATAL", owner: 4, name: "IMU gave up",
+      action: "The run continues without hump data. Power-cycle to recover the IMU." },
+    0x4003: { def: "S4_FC_TILT", owner: 4, name: "Tilt limit",
+      action: "The robot tilted past the limit. " + FLAT },
+    0x4004: { def: "S4_FC_CAL_FAILED", owner: 4, name: "IMU calibration failed",
+      action: "S4 retries on its own. Keep the robot still on a flat surface during Start." },
+    0x4005: { def: "S4_FC_SAFETY", owner: 4, name: "Lifted or overturned",
+      action: "Robot was lifted or tilted: " + FLAT },
+    0x5001: { def: "S5_FAULT_ECHO_TIMEOUT", owner: 5, name: "Ultrasonic silent",
+      action: "No echo several times in a row. Check the ultrasonic sensor cable, press Reset, then Start." },
+    0x5002: { def: "S5_FAULT_MOTION_TIMEOUT", owner: 5, name: "Bypass move timed out",
+      action: "A bypass move did not finish. Check the wheels, press Reset, then Start." },
+    0x5003: { def: "S5_FAULT_NO_PROFILE", owner: 5, name: "Obstacle scan incomplete",
+      action: "The servo scan did not finish. Check the servo, press Reset, then Start." },
+    0x5004: { def: "S5_FAULT_BLOCKED", owner: 5, name: "No side clear",
+      action: "Neither side of the obstacle has room. Move the obstacle or the robot, press Reset, then Start." },
+    0x5005: { def: "S5_FAULT_LINE_NOT_FOUND", owner: 5, name: "Line not found after bypass",
+      action: "Put the robot on the line past the obstacle, press Reset, then Start." }
+  };
+  const SAFE_STOP = 0x2011;
+  function hex4(code) { return "0x" + (code >>> 0).toString(16).toUpperCase().padStart(4, "0"); }
+
+  function parseFaultJson(text) {
+    let j;
+    try { j = JSON.parse(text); } catch (e) { return null; }
+    if (!j || !Number.isInteger(j.src) || !Number.isInteger(j.sev) || !Number.isInteger(j.code)) return null;
+    return { src: j.src, sev: j.sev, code: j.code };
+  }
+  /* "vc: fault from S6  CRITICAL  code 0x0002" (vc_ports.c:114) */
+  function parseFaultConsole(line) {
+    const m = /^vc: fault from S(\d)\s+(non-critical|recoverable|CRITICAL|\?)\s+code 0x([0-9a-fA-F]+)/.exec(line);
+    if (!m) return null;
+    return { src: +m[1], sev: { "non-critical": 0, recoverable: 1, CRITICAL: 2 }[m[2]] ?? -1, code: parseInt(m[3], 16) };
+  }
+  function describeFault(f) {
+    const e = FAULTS[f.code];
+    const sub = e && e.bySev && e.bySev[f.sev];
+    return {
+      code: f.code, hex: hex4(f.code), src: f.src, sev: f.sev, known: !!e,
+      subsystem: SUBSYS[f.src] || ("Source " + f.src),
+      severity: SEV[f.sev] || ("Severity " + f.sev),
+      name: e ? (sub ? sub.name : e.name) : "Unknown " + hex4(f.code),
+      action: e ? (sub ? sub.action : e.action)
+        : "Not in the dashboard's fault list. Look for \"vc: fault from\" in the console and the code in the firmware.",
+      raw: JSON.stringify({ src: f.src, sev: f.sev, code: f.code })
+    };
+  }
+
+  /* ---------- heartbeat "hb N s1 tq=.. tl=.. ..." (mqtt_utk.c:164) ---------- */
+  const HB_FIELDS = { tq: 1, tl: 1, eq: 1, ed: 4, pa: 2, rf: 3, cb: 3, uc: 1, if: 2, hr: 1, lf: 1 };
+  function parseCounters(text) {
+    const out = {};
+    let any = false;
+    for (const m of String(text).matchAll(/\b([a-z]{2})=([0-9/]+)/g)) {
+      const width = HB_FIELDS[m[1]];
+      if (m[1] === "il") { out.il = +m[2]; continue; }
+      if (!width) continue;
+      const v = m[2].split("/").map(Number);
+      if (v.length !== width || v.some(x => !Number.isFinite(x))) continue;
+      out[m[1]] = width === 1 ? v[0] : v; any = true;
+    }
+    return any || out.il != null ? out : null;
+  }
+  function parseHeartbeat(text) {
+    const m = /^hb (\d+)(?: (.*))?$/.exec(String(text).trim());
+    if (!m) return null;
+    const c = m[2] ? parseCounters(m[2]) : null;
+    /* "il=0|1": PROPOSED optional IMU-latch field (not in any build yet) */
+    const imuLatch = c && (c.il === 0 || c.il === 1) ? c.il : null;
+    if (c) delete c.il;
+    return { count: +m[1], counters: c && Object.keys(c).length ? c : null, imuLatch };
+  }
+  function latchStatus(hb, now) {
+    if (!hb || hb.imuLatch == null) return "unavailable";
+    if (now - hb.at > HB_PERIOD_MS + 1500) return "unavailable";
+    return hb.imuLatch ? "set" : "clear";
+  }
+
+  /* ---------- browser-observed MQTT loss, 60 s window ----------
+     Rules (tested):
+     - duplicate: the same sequence as a frame received in the last 2 s
+     - gap: next sequence skips n (mod 256): n missing, unless
+         * more than AMBIGUOUS_MS passed since the previous frame, or
+         * n frames could not fit in the elapsed time (n*200 ms > elapsed+1 s),
+           e.g. a reboot that restarted the sequence;
+       then nothing is counted and the gap is reported as ambiguous.
+     - a sequence that goes backwards by more than half the range is a
+       restart: counted as received, no missing.
+     - reset(): after a reconnect the next frame starts fresh.
+     - burst: gaps detected within BURST_MS of the previous gap belong to
+       one burst and give one event. */
+  class LossWindow {
+    constructor(o = {}) {
+      this.windowMs = o.windowMs || 60000; this.periodMs = o.periodMs || TLM_PERIOD_MS;
+      this.ambiguousMs = o.ambiguousMs || 5000; this.burstMs = o.burstMs || 2000;
+      this.rx = []; this.miss = []; this.last = null; this.burst = null; this.lastGapAt = -Infinity;
+      this.bursts = 0; this.dups = 0;
+    }
+    reset() { this.last = null; }
+    add(seq, now) {
+      const res = { duplicate: false, missing: 0, ambiguous: null, burst: null, newBurst: false };
+      if (this.rx.some(r => r.seq === seq && now - r.t <= 2000)) { res.duplicate = true; this.dups++; return res; }
+      if (this.last) {
+        const delta = (seq - this.last.seq) & 255;
+        const elapsed = now - this.last.t;
+        const n = delta - 1;
+        if (delta >= 128) res.ambiguous = "sequence restarted (" + this.last.seq + " -> " + seq + ")";
+        else if (n > 0 && elapsed > this.ambiguousMs) res.ambiguous = "no frames for " + (elapsed / 1000).toFixed(1) + " s, sequence " + this.last.seq + " -> " + seq;
+        else if (n > 0 && n * this.periodMs > elapsed + 1000) res.ambiguous = "sequence jumped " + this.last.seq + " -> " + seq + " faster than the robot sends";
+        else if (n > 0) res.missing = n;
+      }
+      this.rx.push({ t: now, seq });
+      this.last = { t: now, seq };
+      if (res.missing) {
+        this.miss.push({ t: now, n: res.missing });
+        if (this.burst && now - this.lastGapAt <= this.burstMs) {
+          this.burst.frames += res.missing; this.burst.gaps++; this.burst.end = now;
+        } else {
+          this.bursts++;
+          this.burst = { id: this.bursts, frames: res.missing, gaps: 1, start: now, end: now };
+          res.newBurst = true;
+        }
+        this.lastGapAt = now;
+        res.burst = this.burst;
+      }
+      this.expire(now);
+      return res;
+    }
+    expire(now) {
+      const lim = now - this.windowMs;
+      while (this.rx.length && this.rx[0].t < lim) this.rx.shift();
+      while (this.miss.length && this.miss[0].t < lim) this.miss.shift();
+    }
+    stats(now) {
+      this.expire(now);
+      const received = this.rx.length, missing = this.miss.reduce((a, m) => a + m.n, 0);
+      return { received, missing, loss: received + missing ? missing / (received + missing) : null };
     }
   }
-  function last(a) { return a.length ? a[a.length - 1][1] : ""; }
-  function drawAll() {
-    const acc = css("--accent"), warn = css("--warn");
-    draw("c_speed", [{ data: series.vl, color: acc }, { data: series.vr, color: warn }], [0, 100]);
-    draw("c_line", [{ data: series.line, color: acc }], [-1000, 1000]);
-    draw("c_us", [{ data: series.us, color: acc }], [0, 500]);
-    draw("c_pitch", [{ data: series.pitch, color: acc }], [-5, 5]);
-    txt("c_speed_v", series.vl.length ? `L ${last(series.vl)}  R ${last(series.vr)}` : "");
-    txt("c_line_v", last(series.line)); txt("c_us_v", last(series.us));
-    txt("c_pitch_v", series.pitch.length ? last(series.pitch).toFixed(1) : "");
+
+  /* ---------- commands and acks ---------- */
+  function expectedState(cmd, st, paused) {
+    switch (cmd) {
+      case "start": return ACTIVE.has(st);
+      case "stop": return st === "FAULT";
+      case "reset": return st === "IDLE";
+      case "pause": return paused === true;
+      case "resume": return paused === false && ACTIVE.has(st);
+    }
+    return false;
+  }
+  class CommandTracker {
+    constructor(startSeq) { this.seq = ((startSeq ?? 1) - 1) & 63; this.list = []; this.foreign = new Map(); this.nextId = 1; }
+    nextSeq(now) {
+      for (let i = 0; i < 64; i++) {
+        this.seq = (this.seq + 1) & 63;
+        if (this.seq === 0) continue; /* 0 is echoed for malformed commands (s1_bridge.c:149) */
+        if (!this.list.some(e => e.seq === this.seq && (e.status === "waiting" || now - e.sentAt < 10000))) return this.seq;
+      }
+      return this.seq;
+    }
+    send(cmd, now) {
+      const seq = this.nextSeq(now);
+      const e = { id: this.nextId++, cmd, seq, sentAt: now, status: "waiting", result: null, ackAt: null, late: false, confirm: "pending", confirmAt: null };
+      this.list.push(e);
+      while (this.list.length > 20) this.list.shift();
+      return { entry: e, payload: encodeCommand(cmd, seq) };
+    }
+    pending(cmd) { return this.list.some(e => e.cmd === cmd && e.status === "waiting"); }
+    /* a command seen on robot/g10/cmd: ours (echo) or another client's */
+    onCommandSeen(dec, now) {
+      if (dec.seq == null) return "invalid";
+      if (this.list.some(e => e.seq === dec.seq && now - e.sentAt < 5000 && e.cmd === dec.cmd)) return "own";
+      this.foreign.set(dec.seq, { cmd: dec.cmd, at: now });
+      return "foreign";
+    }
+    onAck(ack, now) {
+      const cand = this.list.filter(e => e.seq === ack.seq && now - e.sentAt < 30000);
+      const e = cand.reverse().find(x => x.status === "waiting" || x.status === "noack");
+      if (e) {
+        e.late = e.status === "noack";
+        e.status = "acked"; e.result = ack.result; e.ackAt = now;
+        if (ack.result !== "queued") e.confirm = "n/a";
+        return { kind: e.late ? "late" : "matched", entry: e };
+      }
+      if (cand.length) return { kind: "duplicate", entry: cand[0] };
+      const f = this.foreign.get(ack.seq);
+      if (f && now - f.at < 30000) return { kind: "foreign", cmd: f.cmd };
+      return { kind: "unrelated" };
+    }
+    tick(now) {
+      const changed = [];
+      for (const e of this.list) {
+        if (e.status === "waiting" && now - e.sentAt >= ACK_TIMEOUT_MS) { e.status = "noack"; changed.push(e); }
+        if (e.confirm === "pending" && e.status === "acked" && now - e.ackAt >= CONFIRM_MS) { e.confirm = "not-seen"; changed.push(e); }
+      }
+      return changed;
+    }
+    /* a fresh telemetry state received at `now` */
+    onState(st, paused, now) {
+      const changed = [];
+      for (const e of this.list) {
+        if (e.confirm !== "pending" || now <= e.sentAt) continue;
+        if (e.status === "acked" && e.result !== "queued") continue;
+        if (expectedState(e.cmd, st, paused)) { e.confirm = "confirmed"; e.confirmAt = now; e.confirmState = st; changed.push(e); }
+      }
+      return changed;
+    }
+  }
+  function describeCommand(e) {
+    const label = CMD_LABEL[e.cmd] + " #" + e.seq;
+    if (e.status === "waiting") return { tone: "work", text: label + ": waiting for ack" };
+    if (e.status === "noack") return { tone: "attn", text: label + ": no ack after 2 s" };
+    const ms = e.ackAt - e.sentAt;
+    const lat = e.late ? "late ack after " + (ms / 1000).toFixed(1) + " s" : "ack " + ms + " ms";
+    if (e.result === "busy") return { tone: "attn", text: label + ": busy, robot queue full, not executed (" + lat + ")" };
+    if (e.result === "rejected") return { tone: "attn", text: label + ": rejected by robot (" + lat + ")" };
+    if (e.result !== "queued") return { tone: "attn", text: label + ": ack result " + e.result + " (" + lat + ")" };
+    const acc = (e.cmd === "pause" || e.cmd === "resume") ? "accepted" : "queued";
+    if (e.confirm === "confirmed") return { tone: "good", text: label + ": " + acc + " (" + lat + "), state confirmed: " + (e.cmd === "pause" ? "paused" : STATE_LABEL[e.confirmState] || e.confirmState) };
+    if (e.confirm === "not-seen") return { tone: "attn", text: label + ": " + acc + " (" + lat + "), but no matching state change within 4 s" };
+    return { tone: "work", text: label + ": " + acc + " (" + lat + "), waiting for state change" };
   }
 
+  /* Which commands make sense now, and why not (vc_sm.c guards). */
+  function commandAvailability(c) {
+    const out = {};
+    const st = c.fresh ? c.state : null;
+    const noCmd = !c.mqtt ? "Commands use MQTT: connect the broker first." : null;
+    const set = (k, why) => { out[k] = { ok: !why, why: why || "" }; };
+    set("stop", noCmd);
+    if (noCmd) { for (const k of ["start", "reset", "pause", "resume"]) set(k, noCmd); return out; }
+    const unknown = "No fresh robot state" + (c.restored ? " (showing restored data)" : "") + ".";
+    if (c.latch === "set") set("start", "Robot was lifted or tilted: place it flat, hands off 2 s, press Reset, then Start.");
+    else if (!st) set("start", unknown);
+    else if (c.paused) set("start", "Robot is paused: use Resume or Stop.");
+    else if (st === "FAULT") set("start", "Start is ignored in Fault: press Reset first.");
+    else if (ACTIVE.has(st)) set("start", "A run is already active.");
+    else if (c.pendingStart) set("start", "A Start is still waiting for its ack.");
+    else set("start", null);
+    if (st && ACTIVE.has(st)) set("reset", "Reset is ignored during a run: press Stop first.");
+    else set("reset", null);
+    if (!st) set("pause", unknown);
+    else if (st !== "FOLLOW_LINE") set("pause", "Pause works only while following the line.");
+    else if (c.paused) set("pause", "Already paused.");
+    else set("pause", null);
+    if (!st) set("resume", unknown);
+    else if (!c.paused) set("resume", "Robot is not paused.");
+    else if (c.pendingResume) set("resume", "A Resume is still waiting for its ack.");
+    else set("resume", null);
+    return out;
+  }
+
+  /* ---------- run outcome: frozen until a confirmed new run ---------- */
+  class RunTracker {
+    constructor(saved) {
+      this.current = saved && saved.current || null;
+      this.previous = saved && saved.previous || null;
+      this.lastState = null; /* only live states can confirm a transition */
+      this.recent = [];
+    }
+    snapshot() { return { current: this.current, previous: this.previous, lastState: this.lastState }; }
+    onFault(f, now) {
+      this.recent.push({ f, t: now });
+      this.recent = this.recent.filter(r => now - r.t < 5000);
+      const c = this.current;
+      if (!c || now - c.at > 3000 || now < c.at - 1500) return false;
+      return this.attach(c, f);
+    }
+    attach(c, f) {
+      if (c.kind === "complete") {
+        if (f.code === SAFE_STOP) { c.secondary.push(f); return true; }
+        return false;
+      }
+      if (c.causes.some(x => x.code === f.code && x.src === f.src)) return false;
+      if (f.sev !== 2 && f.sev !== -1) return false;
+      if (f.code === SAFE_STOP && c.causes.some(x => x.code !== SAFE_STOP)) { c.secondary.push(f); return true; }
+      if (f.code !== SAFE_STOP && c.causes.length && c.causes.every(x => x.code === SAFE_STOP)) {
+        /* a real cause arrived after the safe-stop report: it wins */
+        c.secondary.push(...c.causes); c.causes = [f]; return true;
+      }
+      c.causes.push(f);
+      return true;
+    }
+    /* state from fresh telemetry or a USB "vc: A -> B" line */
+    onState(st, tlm, now) {
+      const prev = this.lastState;
+      this.lastState = st;
+      if (!st || st === prev) return null;
+      const wasActive = prev && ACTIVE.has(prev);
+      if (ACTIVE.has(st) && (!prev || !ACTIVE.has(prev))) {
+        if (this.current) { this.previous = this.current; this.current = null; return "new-run"; }
+        return null;
+      }
+      if (st === "FAULT" || st === "MISSION_COMPLETE") {
+        const c = { kind: st === "FAULT" ? "fault" : "complete", state: st, at: now, observed: !!wasActive,
+          distanceMm: tlm && tlm.distance != null ? tlm.distance : null,
+          tlmFault: tlm && tlm.fault ? tlm.fault : null, causes: [], secondary: [] };
+        if (this.current && !wasActive) return null; /* first frame after reload: keep the saved outcome */
+        if (this.current) this.previous = this.current;
+        this.current = c;
+        for (const r of this.recent) if (now - r.t <= 1500) this.attach(c, r.f);
+        return "ended";
+      }
+      return null;
+    }
+  }
+  function describeOutcome(o) {
+    if (!o) return null;
+    if (o.kind === "complete") {
+      return { tone: "good", title: "Mission complete: robot lifted",
+        detail: "In this build only a lift ends a run as Mission complete (vc_sm.c:450; END_OF_COURSE has no sender).",
+        secondary: o.secondary.map(f => describeFault(f).name + " " + hex4(f.code) + " followed (expected after a lift)") };
+    }
+    const prim = o.causes.find(f => f.code !== SAFE_STOP) || o.causes[0];
+    let title, detail = "", action = "";
+    if (prim) {
+      const d = describeFault(prim);
+      title = "Fault: " + d.name; action = d.action;
+      detail = d.subsystem + ", " + d.severity.toLowerCase() + ", " + d.hex;
+      if (prim.code === SAFE_STOP && o.causes.length === 1)
+        detail += ". No earlier cause was reported; an IMU lift or tilt also ends this way (inferred from vc_bridge_s2.c reporting before vc_bridge_s4.c)";
+      const others = o.causes.filter(f => f !== prim && f.code !== SAFE_STOP);
+      if (others.length) detail += ". Cause uncertain: also reported " + others.map(f => describeFault(f).name + " " + hex4(f.code)).join(", ");
+    } else if (o.tlmFault) {
+      const d = describeFault({ src: FAULTS[o.tlmFault] ? FAULTS[o.tlmFault].owner : 0, sev: 2, code: o.tlmFault });
+      title = "Fault: " + d.name; action = d.action;
+      detail = d.hex + " from telemetry (no fault message received)";
+    } else {
+      title = "Fault: cause not reported"; detail = "No fault message or telemetry code was received for this stop.";
+    }
+    return { tone: "fault", title, detail, action,
+      secondary: o.secondary.filter(f => f.code === SAFE_STOP).map(() => "Motors safe-stopped " + hex4(SAFE_STOP) + " followed") };
+  }
+
+  /* ---------- barcode records ---------- */
+  function configuredAction(text) {
+    if (Object.prototype.hasOwnProperty.call(BARCODE_RULES, text)) return BARCODE_RULES[text];
+    return "None (no rule for \"" + text + "\")";
+  }
+
+  /* ---------- persistence ---------- */
+  const STORE_KEY = "robot.dash.v1";
+  const STORE_VERSION = 1;
+  const STORE_CAPS = { events: 300, barcodes: 200, faults: 100, bytes: 300000 };
+  /* returns { json, dropped } with the newest records that fit the caps */
+  function packStore(s) {
+    const data = {
+      v: STORE_VERSION, savedAt: s.savedAt,
+      events: s.events.slice(-STORE_CAPS.events), barcodes: s.barcodes.slice(-STORE_CAPS.barcodes),
+      faults: s.faults.slice(-STORE_CAPS.faults), last: s.last || null, run: s.run || null
+    };
+    let dropped = (s.events.length - data.events.length) + (s.barcodes.length - data.barcodes.length) + (s.faults.length - data.faults.length);
+    let json = JSON.stringify(data);
+    while (json.length > STORE_CAPS.bytes && (data.events.length || data.barcodes.length || data.faults.length)) {
+      const n = Math.max(1, Math.ceil(data.events.length / 4));
+      if (data.events.length) { data.events.splice(0, n); dropped += n; }
+      else if (data.faults.length) { data.faults.shift(); dropped++; }
+      else { data.barcodes.shift(); dropped++; }
+      json = JSON.stringify(data);
+    }
+    return { json, dropped };
+  }
+  function unpackStore(json) {
+    if (json == null) return { data: null, note: null };
+    let d;
+    try { d = JSON.parse(json); } catch (e) { return { data: null, note: "Saved history was unreadable and was discarded." }; }
+    if (!d || d.v !== STORE_VERSION || !Array.isArray(d.events) || !Array.isArray(d.barcodes) || !Array.isArray(d.faults))
+      return { data: null, note: "Saved history had an unknown format and was discarded." };
+    const okRec = r => r && typeof r === "object" && typeof r.t === "number";
+    return { data: { events: d.events.filter(okRec), barcodes: d.barcodes.filter(okRec), faults: d.faults.filter(okRec),
+      last: d.last && typeof d.last === "object" ? d.last : null, run: d.run && typeof d.run === "object" ? d.run : null,
+      savedAt: d.savedAt || null }, note: null };
+  }
+  /* write with one retry at half size on a quota error */
+  function writeStore(storage, s) {
+    let p = packStore(s);
+    try { storage.setItem(STORE_KEY, p.json); return { ok: true, dropped: p.dropped }; }
+    catch (e) {
+      const half = { ...s, events: s.events.slice(-Math.floor(s.events.length / 2)), barcodes: s.barcodes.slice(-Math.floor(s.barcodes.length / 2)), faults: s.faults.slice(-Math.floor(s.faults.length / 2)) };
+      p = packStore(half);
+      try { storage.setItem(STORE_KEY, p.json); return { ok: true, dropped: p.dropped + (s.events.length + s.barcodes.length + s.faults.length) - (half.events.length + half.barcodes.length + half.faults.length), quota: true }; }
+      catch (e2) { return { ok: false, error: String(e2 && e2.name || e2) }; }
+    }
+  }
+
+  /* ---------- telemetry CSV ---------- */
+  const CSV_COLUMNS = [
+    ["time_iso", r => new Date(r.t).toISOString()], ["time_ms", r => r.t], ["source", r => r.source],
+    ["seq", r => r.seq], ["state", r => r.state], ["paused", r => r.paused == null ? null : r.paused ? 1 : 0],
+    ["speed_l_mm_s", r => r.speedL], ["speed_r_mm_s", r => r.speedR], ["distance_mm", r => r.distance],
+    ["line_pos_-1000_left_+1000_right", r => r.line], ["obstacle_mm", r => r.obstacleMm],
+    ["obstacle_no_echo", r => r.obstacleNoEcho == null ? null : r.obstacleNoEcho ? 1 : 0],
+    ["obstacle_detected", r => r.obstacleDetected == null ? null : r.obstacleDetected ? 1 : 0],
+    ["obstacle_state", r => r.obstacleState == null ? null : OBS[r.obstacleState] || r.obstacleState],
+    ["nav", r => r.nav == null ? null : NAV[r.nav] || r.nav], ["barcodes_read", r => r.barcodes],
+    ["pitch_deg", r => r.pitchDeg], ["hump_mm", r => r.humpMm], ["hump_max_mm", r => r.humpMaxMm],
+    ["fault_code", r => r.fault == null ? null : hex4(r.fault)], ["wifi_up", r => r.wifi == null ? null : r.wifi ? 1 : 0]
+  ];
+  function csvCell(v) {
+    if (v == null) return "";
+    const s = String(v);
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function telemetryCsv(rows) {
+    return CSV_COLUMNS.map(c => c[0]).join(",") + "\r\n" +
+      rows.map(r => CSV_COLUMNS.map(c => csvCell(c[1](r))).join(",")).join("\r\n") + (rows.length ? "\r\n" : "");
+  }
+  function parseCsv(text) {
+    const rows = []; let row = [], cell = "", q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === ",") { row.push(cell); cell = ""; }
+      else if (ch === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+      else if (ch !== "\r") cell += ch;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows;
+  }
+  /* one saved-log line: ISO time, kind, text (tabs inside text are spaces) */
+  function logLine(t, kind, text) { return new Date(t).toISOString() + "\t" + kind + "\t" + String(text).replace(/[\t\r\n]+/g, " "); }
+  function tlmLogText(r) {
+    return "src=" + r.source + " seq=" + (r.seq == null ? "-" : r.seq) + " st=" + r.state + " paused=" + (r.paused == null ? "-" : r.paused ? 1 : 0) +
+      " vL=" + r.speedL + "mm/s vR=" + r.speedR + "mm/s odo=" + r.distance + "mm line=" + r.line +
+      " us=" + (r.obstacleMm == null ? "none" : r.obstacleMm + "mm") + " pitch=" + r.pitchDeg + "deg hump=" + r.humpMm + "/" + r.humpMaxMm + "mm" +
+      " bc=" + r.barcodes + " nav=" + (NAV[r.nav] || r.nav) + " fault=" + (r.fault == null ? "-" : hex4(r.fault));
+  }
+
+  return { STATES, ACTIVE, STATE_LABEL, NAV, OBS, ACK, CMD_LABEL, BARCODE_RULES, FAULTS, SUBSYS, SEV, SAFE_STOP,
+    TLM_PERIOD_MS, HB_PERIOD_MS, ACK_TIMEOUT_MS, CONFIRM_MS, STORE_KEY, STORE_CAPS, CSV_COLUMNS,
+    staleAfterMs, decodeTelemetry, fromUsbJson, decodeBarcode, encodeCommand, decodeCommand, decodeAck,
+    parseFaultJson, parseFaultConsole, describeFault, hex4, parseHeartbeat, parseCounters, latchStatus,
+    LossWindow, CommandTracker, describeCommand, commandAvailability, expectedState,
+    RunTracker, describeOutcome, configuredAction, packStore, unpackStore, writeStore,
+    telemetryCsv, parseCsv, csvCell, logLine, tlmLogText };
+})();
+/* CORE-END */
+</script>
+<script>
+(() => {
+  "use strict";
+  const C = DashCore;
+  const $ = id => document.getElementById(id);
+  const WINDOW_MS = 60000;
+  const TLM_ROWS_MAX = 18000, LINES_MAX = 20000, EVENTS_MAX = 500, BARCODES_MAX = 200, FAULTS_MAX = 100;
+  const SUBS = { subsystem1: "S1 WiFi / MQTT", subsystem2: "S2 Motion", subsystem3: "S3 Line + barcode",
+                 subsystem4: "S4 IMU", subsystem5: "S5 Obstacle", vehicle_controller: "Vehicle Controller" };
+  const fmtTime = t => new Date(t).toLocaleTimeString();
+  const now = () => Date.now();
+
+  /* ---------- state ---------- */
+  const S = {
+    tlm: null, tlmAt: 0, tlmLive: false, restored: null,
+    usb: "off", mqtt: "off", mqttUrl: "", mqttErr: "",
+    hb: null, hbSource: null,
+    rows: [], rowsDropped: 0, lines: [], linesDropped: 0,
+    events: [], faults: [], barcodes: [], storeNote: "", storeOk: true, storeDropped: 0,
+    lastBarcodeIdx: -1, sawTest: false
+  };
+  const series = { vl: [], vr: [], line: [], us: [], pitch: [] };
+  const loss = new C.LossWindow();
+  const cmds = new C.CommandTracker(1 + Math.floor(Math.random() * 63));
+  let run = new C.RunTracker(null);
+  let mqttClient = null, port = null, reader = null, gapEvent = null;
+
+  /* ---------- storage (versioned, capped, batched) ---------- */
+  let storage = null;
+  try { storage = window.localStorage; storage.getItem(C.STORE_KEY); } catch (e) { storage = null; }
+  function getSetting(k) { try { return storage ? storage.getItem(k) : null; } catch (e) { return null; } }
+  function setSetting(k, v) { try { if (storage) storage.setItem(k, v); } catch (e) {} }
+  let dirty = false;
+  function markDirty() { dirty = true; }
+  function flush() {
+    if (!dirty || !storage) return;
+    dirty = false;
+    const r = C.writeStore(storage, { savedAt: now(), events: S.events, barcodes: S.barcodes, faults: S.faults,
+      last: S.tlm ? { tlm: S.tlm, at: S.tlmAt } : null, run: run.snapshot() });
+    S.storeOk = r.ok; S.storeDropped = r.ok ? r.dropped : S.storeDropped;
+    if (!r.ok) S.storeNote = "Could not save history in this browser (" + r.error + "). It is kept until you close the page.";
+    else if (r.quota) S.storeNote = "Browser storage was full: only the newest half of the history was saved.";
+    renderRetention();
+  }
+  setInterval(flush, 2000);
+  window.addEventListener("pagehide", flush);
+  function restore() {
+    if (!storage) { S.storeNote = "This browser blocks local storage: history is not kept across reloads."; return; }
+    let raw = null;
+    try { raw = storage.getItem(C.STORE_KEY); } catch (e) { raw = null; }
+    const { data, note } = C.unpackStore(raw);
+    if (note) { S.storeNote = note; try { storage.removeItem(C.STORE_KEY); } catch (e) {} }
+    if (!data) return;
+    S.events = data.events.map(e => ({ ...e, restored: true }));
+    S.faults = data.faults.map(f => ({ ...f, restored: true })); S.barcodes = data.barcodes.map(b => ({ ...b, restored: true }));
+    if (data.run) run = new C.RunTracker(data.run);
+    if (data.last && data.last.tlm) { S.tlm = data.last.tlm; S.tlmAt = data.last.at; S.restored = { at: data.last.at, savedAt: data.savedAt }; }
+  }
+
+  /* ---------- announcements (transitions and acks only) ---------- */
+  function announce(text) { const a = $("announce"); a.textContent = ""; setTimeout(() => { a.textContent = text; }, 30); }
+
   /* ---------- events ---------- */
-  const EVENT_RE = /^(vc: .*->|vc: barcode|vc: fault|vc: s5 profile|imu: event|imu: LSM303|s5: obstacle|s5: line|s5: avoidance|motion: (?!st=)|.*ERROR)/;
-  function addEvent(line) {
-    const d = document.createElement("div");
-    d.textContent = new Date().toLocaleTimeString() + "  " + line;
-    if (/ERROR|fault|FAIL/i.test(line)) d.className = "fail";
-    const box = $("events"); box.appendChild(d);
-    while (box.childNodes.length > 300) box.removeChild(box.firstChild);
-    box.scrollTop = box.scrollHeight;
+  function addEvent(text, tone, t) {
+    const e = { t: t || now(), text: String(text), tone: tone || "" };
+    S.events.push(e); if (S.events.length > EVENTS_MAX) S.events.splice(0, S.events.length - EVENTS_MAX);
+    markDirty(); renderEvents(); return e;
+  }
+  function renderEvents() {
+    const box = $("events"); const frag = document.createDocumentFragment();
+    let prevRestored = null;
+    for (const e of S.events.slice(-300)) {
+      const r = !!e.restored;
+      if (r !== prevRestored && (r || prevRestored)) {
+        const h = document.createElement("div"); h.className = "muted";
+        h.textContent = r ? "— restored from saved history —" : "— live —"; frag.appendChild(h);
+      }
+      prevRestored = r;
+      const d = document.createElement("div");
+      d.textContent = fmtTime(e.t) + "  " + e.text;
+      if (e.tone === "fault") d.className = "fail"; else if (e.tone === "good") d.className = "pass";
+      frag.appendChild(d);
+    }
+    box.replaceChildren(frag); box.scrollTop = box.scrollHeight;
   }
 
   /* ---------- console ---------- */
+  function addLine(line, t) {
+    S.lines.push({ t: t || now(), line });
+    if (S.lines.length > LINES_MAX) { S.linesDropped += 5000; S.lines.splice(0, 5000); }
+    scheduleLog();
+  }
   function lineClass(l) {
+    if (l.startsWith("[mqtt t] ")) return "";
     if (/^\[TEST\]/.test(l)) return /FAIL/.test(l) ? "err" : "tst";
     if (/ERROR|FAIL|fault/i.test(l)) return "err";
     if (/^vc:/.test(l)) return "vc";
@@ -348,47 +1014,505 @@ canvas { width: 100%; height: 90px; display: block; }
     const f = $("filter").value.trim().toLowerCase(), hide = $("hideTlm").checked;
     const box = $("log"); const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
     const frag = document.createDocumentFragment();
-    const shown = allLines.filter(l => (!hide || l[0] !== "{") && (!f || l.toLowerCase().includes(f))).slice(-800);
-    for (const l of shown) { const d = document.createElement("div"); d.className = lineClass(l); d.textContent = l; frag.appendChild(d); }
+    const isTlm = l => l[0] === "{" || l.startsWith("[mqtt t] ");
+    const shown = S.lines.filter(o => (!hide || !isTlm(o.line)) && (!f || o.line.toLowerCase().includes(f))).slice(-800);
+    for (const o of shown) { const d = document.createElement("div"); d.className = lineClass(o.line); d.textContent = o.line; frag.appendChild(d); }
     box.replaceChildren(frag); if (atEnd) box.scrollTop = box.scrollHeight;
   }
   let logTimer = 0;
   function scheduleLog() { if (!logTimer) logTimer = setTimeout(() => { logTimer = 0; renderLog(); }, 200); }
   $("filter").oninput = renderLog; $("hideTlm").onchange = renderLog;
-  $("btnSave").onclick = () => {
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([allLines.join("\n") + "\n"], { type: "text/plain" }));
-    a.download = "robot-log-" + new Date().toISOString().replace(/[:.]/g, "-") + ".txt"; a.click();
-  };
 
-  /* ---------- one console line ---------- */
-  function handleLine(raw) {
-    const line = raw.replace(/\r$/, ""); if (!line) return;
-    allLines.push(line); if (allLines.length > 20000) allLines.splice(0, 5000);
-    let m;
-    if ((m = /^\[TEST\] (\S+) (PASS|FAIL)\s+(.*?)(\s+\(.*:\d+\))?$/.exec(line))) addTest(m[1], m[2] === "PASS", m[3]);
-    else if ((m = /^\[TEST\] (\S+) SUMMARY (\d+) passed, (\d+) failed/.exec(line))) addSummary(m[1], +m[2], +m[3]);
-    else if (line[0] === "{") { try { onTelemetry(JSON.parse(line)); } catch (e) { /* partial line */ } }
-    else {
-      if ((m = /^vc: barcode "([^"]+)" nav \d+$/.exec(line))) txt("t_barcode", m[1]);
-      else if ((m = /^\[mqtt robot\/g10\/barcode\] barcode: (.+)$/.exec(line))) txt("t_barcode", m[1]);
-      if (EVENT_RE.test(line)) addEvent(line);
+  /* ---------- self-tests ---------- */
+  const tests = {};
+  function subFor(id) { const m = /^S(\d)/.exec(id); return m ? "subsystem" + m[1] : /^VC/.test(id) ? "vehicle_controller" : "other"; }
+  function addTest(id, ok, desc) {
+    const s = subFor(id); (tests[s] ||= { checks: new Map() }).checks.set(id, { ok, desc });
+    if (!S.sawTest) { S.sawTest = true; $("selftests").open = true; }
+    renderTests();
+  }
+  function renderTests() {
+    const box = $("subs"); const frag = document.createDocumentFragment();
+    let p = 0, f = 0;
+    const names = Object.keys(SUBS).concat(Object.keys(tests).filter(k => !SUBS[k]));
+    for (const name of names) {
+      const t = tests[name] || { checks: new Map() };
+      const pass = [...t.checks.values()].filter(c => c.ok).length, fail = t.checks.size - pass;
+      p += pass; f += fail;
+      const el = document.createElement("div"); el.className = "sub";
+      const h = document.createElement("div"); h.className = "h";
+      const n = document.createElement("span"); n.textContent = SUBS[name] || name;
+      const b = document.createElement("span"); b.className = "badge " + (t.checks.size === 0 ? "tone-idle" : fail ? "tone-fault" : "tone-good");
+      b.textContent = t.checks.size === 0 ? "not run" : fail ? "✗ " + fail + " failed" : "✓ " + pass + " passed";
+      h.append(n, b); el.appendChild(h);
+      const tl = document.createElement("div"); tl.className = "tl";
+      for (const [id, c] of t.checks) { const d = document.createElement("div"); d.className = c.ok ? "pass" : "fail"; d.textContent = (c.ok ? "✓ " : "✗ ") + id + "  " + c.desc; tl.appendChild(d); }
+      el.appendChild(tl); frag.appendChild(el);
     }
-    scheduleLog();
+    box.replaceChildren(frag);
+    $("testTotal").textContent = (p + f) ? p + " passed, " + f + " failed" : "No test output yet. Flash the TEST=1 image, connect USB, then reset the Pico.";
+  }
+  $("btnClearTests").onclick = () => { for (const k in tests) delete tests[k]; renderTests(); };
+
+  /* ---------- telemetry ---------- */
+  function push(arr, t, v) { arr.push([t, v]); while (arr.length && arr[0][0] < t - WINDOW_MS) arr.shift(); }
+  function onTelemetry(r, t) {
+    const prev = S.tlm && S.tlmLive ? S.tlm : null;
+    t = t || now();
+    if (r.source === "usb" && S.tlmLive && S.tlm.source === "mqtt" && t - S.tlmAt < C.staleAfterMs("mqtt")) {
+      /* MQTT is fresher; still keep the USB row for the CSV */
+      keepRow(r, t); return;
+    }
+    S.tlm = r; S.tlmAt = t; S.tlmLive = true; S.restored = null;
+    keepRow(r, t);
+    if (r.speedL != null) { push(series.vl, t, r.speedL); push(series.vr, t, r.speedR); }
+    if (r.line != null) push(series.line, t, r.line);
+    if (r.pitchDeg != null) push(series.pitch, t, r.pitchDeg);
+    if (r.obstacleMm != null) push(series.us, t, r.obstacleMm);
+    onLiveState(r.state, r, t, prev ? prev.state : null);
+    if (r.paused != null && prev && prev.paused != null && prev.paused !== r.paused) {
+      addEvent(r.paused ? "Robot paused" : "Robot resumed", "");
+      announce(r.paused ? "Robot paused" : "Robot resumed");
+    }
+    for (const e of cmds.onState(r.state, r.paused, t)) { announce(C.describeCommand(e).text); }
+    /* pending instruction and executed manoeuvre for the newest barcode */
+    const b = S.barcodes[S.lastBarcodeIdx];
+    if (b && !b.restored) {
+      if (b.pending == null && r.nav != null && t - b.t < 1500 && r.barcodes != null) { b.pending = C.NAV[r.nav] || String(r.nav); markDirty(); renderBarcodes(); }
+      if (!b.executed && r.state === "EXECUTE_ACTION" && t > b.t) { b.executed = "Seen at " + fmtTime(t) + " (turn direction not reported)"; markDirty(); renderBarcodes(); }
+    }
+    renderLive(); renderStatus();
+  }
+  function keepRow(r, t) {
+    S.rows.push({ ...r, t });
+    if (S.rows.length > TLM_ROWS_MAX) { S.rows.splice(0, 1000); S.rowsDropped += 1000; }
+  }
+  function onLiveState(st, r, t, prevSt) {
+    if (st === prevSt) { run.onState(st, r, t); return; }
+    const res = run.onState(st, r, t);
+    if (prevSt) addEvent("State: " + (C.STATE_LABEL[prevSt] || prevSt) + " → " + (C.STATE_LABEL[st] || st), st === "FAULT" ? "fault" : st === "MISSION_COMPLETE" ? "good" : "");
+    if (res === "ended") {
+      const o = C.describeOutcome(run.current);
+      announce("Run ended: " + o.title);
+      addEvent("Run ended: " + o.title + (run.current.distanceMm != null ? ", " + run.current.distanceMm + " mm" : ""), o.tone === "fault" ? "fault" : "good");
+    } else if (res === "new-run") {
+      announce("New run started"); addEvent("New run started", "");
+    } else if (prevSt) announce("State: " + (C.STATE_LABEL[st] || st));
+    markDirty(); renderOutcome();
   }
 
-  /* ---------- Web Serial ---------- */
-  $("btnSerial").onclick = async () => {
-    if (port) { await disconnectSerial(); return; }
-    if (!("serial" in navigator)) {
-      alert("This browser cannot open serial ports. Use Chrome or Edge on a computer, and open this file directly (not inside another page).");
+  /* ---------- faults ---------- */
+  function onFault(f, source, t) {
+    t = t || now();
+    /* the same report seen over USB and MQTT within 1.5 s is one fault */
+    const dup = S.faults.find(x => x.code === f.code && x.src === f.src && x.sev === f.sev && x.source !== source && Math.abs(x.t - t) < 1500);
+    if (dup) return;
+    const d = C.describeFault(f);
+    const rec = { t, source, src: f.src, sev: f.sev, code: f.code, state: S.tlm && S.tlmLive ? S.tlm.state : null };
+    S.faults.push(rec); if (S.faults.length > FAULTS_MAX) S.faults.splice(0, S.faults.length - FAULTS_MAX);
+    const attached = run.onFault(f, t);
+    addEvent("Fault " + d.hex + " " + d.name + " (" + d.subsystem + ", " + d.severity.toLowerCase() + ")", f.sev === 2 ? "fault" : "");
+    if (f.sev === 2) announce("Fault: " + d.name);
+    markDirty(); renderFaults(); if (attached) renderOutcome(); renderStatus();
+  }
+  function renderFaults() {
+    const box = $("faults");
+    if (!S.faults.length) { const p = document.createElement("p"); p.className = "note"; p.textContent = "No faults reported."; box.replaceChildren(p); return; }
+    const frag = document.createDocumentFragment();
+    for (const r of S.faults.slice(-30).reverse()) {
+      const d = C.describeFault(r);
+      const it = document.createElement("div"); it.className = "item";
+      const h = document.createElement("div"); h.className = "h";
+      const tone = r.sev === 2 ? "tone-fault" : r.sev === 1 ? "tone-attn" : "tone-idle";
+      const tag = document.createElement("span"); tag.className = "tag " + tone; tag.textContent = (r.sev === 2 ? "✖ " : "! ") + d.severity;
+      const n = document.createElement("strong"); n.textContent = d.name;
+      const m = document.createElement("span"); m.className = "muted"; m.textContent = d.subsystem + " · " + fmtTime(r.t);
+      h.append(tag, n, m);
+      const a = document.createElement("div"); a.textContent = d.action;
+      const det = document.createElement("details");
+      const s = document.createElement("summary"); s.textContent = "Raw report";
+      const raw = document.createElement("div"); raw.className = "mono";
+      raw.textContent = d.raw + "  code " + d.hex + "  via " + r.source + (r.state ? "  robot state " + r.state : "");
+      det.append(s, raw); it.append(h, a, det); frag.appendChild(it);
+    }
+    box.replaceChildren(frag);
+  }
+
+  /* ---------- barcodes ---------- */
+  function onBarcode(text, source, t) {
+    t = t || now();
+    const dup = S.barcodes.find(b => b.text === text && b.source !== source && Math.abs(b.t - t) < 2000);
+    if (dup) return;
+    const b = { t, text, source, direction: null, configured: C.configuredAction(text), pending: null, executed: null };
+    S.barcodes.push(b); if (S.barcodes.length > BARCODES_MAX) S.barcodes.splice(0, S.barcodes.length - BARCODES_MAX);
+    S.lastBarcodeIdx = S.barcodes.length - 1;
+    $("t_barcode").textContent = text;
+    addEvent("Barcode \"" + text + "\" read (configured action: " + b.configured + ")", "");
+    announce("Barcode " + text);
+    markDirty(); renderBarcodes();
+  }
+  function renderBarcodes() {
+    const body = $("barcodes");
+    if (!S.barcodes.length) { const tr = document.createElement("tr"); const td = document.createElement("td"); td.colSpan = 6; td.className = "note"; td.textContent = "No barcode reads yet."; tr.appendChild(td); body.replaceChildren(tr); return; }
+    const frag = document.createDocumentFragment();
+    for (const b of S.barcodes.slice(-100).reverse()) {
+      const tr = document.createElement("tr");
+      const cells = [fmtTime(b.t) + (b.restored ? " (saved)" : "") + " · " + b.source, b.text, b.direction || "Not reported",
+        b.configured, b.pending ? b.pending : "Not reported", b.executed || "Not reported"];
+      const heads = ["Received", "Text", "Scan direction", "Configured action", "Pending (robot)", "Junction action seen"];
+      cells.forEach((c, i) => { const td = document.createElement("td"); td.textContent = c; td.dataset.label = heads[i]; if (i === 1) td.className = "mono"; tr.appendChild(td); });
+      frag.appendChild(tr);
+    }
+    body.replaceChildren(frag);
+  }
+
+  /* ---------- heartbeat counters (robot side) ---------- */
+  function onHeartbeat(text, source) {
+    const hb = C.parseHeartbeat(text);
+    if (!hb) return false;
+    S.hb = { ...hb, at: now(), source }; renderDiag(); renderStatus(); return true;
+  }
+
+  /* ---------- one console line (USB, replay, or legacy MQTT text) ---------- */
+  function handleLine(raw, opts) {
+    const line = raw.replace(/\r$/, ""); if (!line) return;
+    const replay = opts && opts.replay;
+    addLine(line);
+    let m;
+    if ((m = /^\[TEST\] (\S+) (PASS|FAIL)\s+(.*?)(\s+\(.*:\d+\))?$/.exec(line))) { addTest(m[1], m[2] === "PASS", m[3]); return; }
+    if (/^\[TEST\] (\S+) SUMMARY/.test(line)) { if (!S.sawTest) { S.sawTest = true; $("selftests").open = true; } return; }
+    if (replay) return; /* a replayed file is history, not live robot state */
+    if (line[0] === "{") { try { const r = C.fromUsbJson(JSON.parse(line)); if (r) onTelemetry(r); } catch (e) {} return; }
+    let f;
+    if ((f = C.parseFaultConsole(line))) { onFault(f, "usb"); return; }
+    if ((m = /^vc: barcode "([^"]+)" nav \d+$/.exec(line))) { onBarcode(m[1], "usb"); return; }
+    if ((m = /^vc: (\w+) -> (\w+)$/.exec(line)) && C.STATES.includes(m[2])) {
+      /* USB state change: use it when MQTT telemetry is not fresh */
+      if (!(S.tlmLive && S.tlm.source === "mqtt" && now() - S.tlmAt < C.staleAfterMs("mqtt"))) {
+        const r = { ...(S.tlm || {}), source: "usb", state: m[2], seq: null };
+        S.tlm = r; S.tlmAt = now(); S.tlmLive = true; S.restored = null;
+        onLiveState(m[2], r, now(), m[1]); renderLive(); renderStatus();
+      }
       return;
     }
-    try {
-      port = await navigator.serial.requestPort();
-      await port.open({ baudRate: 115200 });
-    } catch (e) { port = null; setStatus("Serial: " + e.message, false); return; }
-    $("btnSerial").textContent = "Disconnect USB"; setStatus("USB connected (reset the Pico to see boot and tests)", true);
+    if ((m = /^mqtt: TX \[[^\]]*heartbeat\] "(.*)"$/.exec(line))) { onHeartbeat(m[1], "usb"); return; }
+    if (/^s1 tq=/.test(line)) { const c = C.parseCounters(line); if (c) { S.hb = { count: null, counters: c, imuLatch: null, at: now(), source: "usb" }; renderDiag(); } }
+  }
+
+  /* ---------- MQTT messages ---------- */
+  function handleMqttMessage(topic, payload) {
+    const bytes = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+    const text = () => new TextDecoder().decode(bytes);
+    const t = now();
+    if (topic === "robot/g10/t") {
+      const r = C.decodeTelemetry(bytes);
+      if (!r) { addEvent("Invalid telemetry frame (" + bytes.length + " bytes)", ""); return; }
+      const res = loss.add(r.seq, t);
+      if (res.duplicate) return;
+      if (res.ambiguous) addEvent("Telemetry gap not counted: " + res.ambiguous, "");
+      if (res.newBurst) gapEvent = addEvent("", "");
+      if (res.burst && gapEvent) {
+        const b = res.burst;
+        gapEvent.text = "Telemetry gap: " + b.frames + " frame" + (b.frames > 1 ? "s" : "") + " missing in " + b.gaps + " gap" + (b.gaps > 1 ? "s" : "") +
+          (b.end > b.start ? " over " + ((b.end - b.start) / 1000).toFixed(1) + " s" : "");
+        renderEvents(); markDirty();
+      }
+      addLine("[mqtt t] " + C.tlmLogText(r));
+      onTelemetry(r, t);
+    } else if (topic === "robot/g10/barcode") {
+      const s = C.decodeBarcode(bytes);
+      addLine("[mqtt " + topic + "] " + (s === null ? "invalid payload" : "barcode: " + s));
+      if (s === null) { addEvent("Invalid barcode payload", ""); return; }
+      onBarcode(s, "mqtt", t);
+    } else if (topic === "robot/g10/ack") {
+      const a = C.decodeAck(bytes);
+      if (!a) { addEvent("Invalid command acknowledgement", ""); return; }
+      const r = cmds.onAck(a, t);
+      let msg;
+      if (r.kind === "matched" || r.kind === "late") msg = C.describeCommand(r.entry).text;
+      else if (r.kind === "duplicate") msg = "Repeated ack for " + C.CMD_LABEL[r.entry.cmd] + " #" + a.seq + ": " + a.result;
+      else if (r.kind === "foreign") msg = "Ack for " + (C.CMD_LABEL[r.cmd] || "a command") + " #" + a.seq + " sent by another client: " + a.result;
+      else msg = "Ack #" + a.seq + " (" + a.result + ") matches no command sent from this page" + (a.seq === 0 ? "; seq 0 means the robot could not read a command" : "");
+      addLine("[mqtt " + topic + "] " + msg);
+      addEvent(msg, ""); if (r.kind === "matched" || r.kind === "late") announce(msg);
+      renderCmdLog();
+    } else if (topic === "robot/g10/fault") {
+      const s = text(); addLine("[mqtt " + topic + "] " + s);
+      const f = C.parseFaultJson(s);
+      if (!f) { addEvent("Unreadable fault report: " + s.slice(0, 80), ""); return; }
+      onFault(f, "mqtt", t);
+    } else if (topic === "robot/g10/cmd") {
+      const d = C.decodeCommand(bytes);
+      const who = cmds.onCommandSeen(d, t);
+      addLine("[mqtt " + topic + "] " + (d.cmd ? d.cmd : "invalid command") + " #" + d.seq + (who === "own" ? " (this page)" : " (another client)"));
+      if (who === "foreign" && d.cmd) addEvent("Another client sent " + C.CMD_LABEL[d.cmd] + " #" + d.seq, "");
+    } else if (/heartbeat$/.test(topic)) {
+      const s = text(); addLine("[mqtt " + topic + "] " + s); onHeartbeat(s, "mqtt");
+    } else if (topic.endsWith("/telemetry")) {
+      handleLine(text());
+    } else {
+      addLine("[mqtt " + topic + "] " + text());
+    }
+  }
+
+  /* ---------- MQTT connection ---------- */
+  function loadMqttLib() {
+    return new Promise((ok, bad) => {
+      if (window.mqtt) return ok();
+      const urls = ["https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js", "https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"];
+      const next = () => {
+        const u = urls.shift();
+        if (!u) return bad(new Error("The MQTT library (mqtt.js) could not load: this page needs internet once to fetch it."));
+        const s = document.createElement("script"); s.src = u; s.onload = ok; s.onerror = next; document.head.appendChild(s);
+      };
+      next();
+    });
+  }
+  async function connectMqtt(url, auto) {
+    if (mqttClient) return;
+    if (!/^wss?:\/\/\S+$/.test(url)) { S.mqttErr = "Enter the broker's WebSocket address, e.g. ws://192.168.1.10:9001"; renderStatus(); return; }
+    S.mqttUrl = url; setSetting("robot.mqttUrl", url); setSetting("robot.mqttAuto", "1");
+    S.mqtt = "connecting"; S.mqttErr = ""; renderStatus();
+    try { await loadMqttLib(); } catch (e) { S.mqtt = "off"; S.mqttErr = e.message; renderStatus(); return; }
+    /* the library's own reconnect (every 3 s) is the only retry loop */
+    mqttClient = mqtt.connect(url, { reconnectPeriod: 3000, connectTimeout: 5000 });
+    mqttClient.on("connect", () => {
+      mqttClient.subscribe(["robot/g10/#", "+/heartbeat"]);
+      loss.reset(); S.mqtt = "on"; S.mqttErr = "";
+      addEvent("MQTT connected" + (auto ? " (restored from last session)" : "") + ": " + url, "good"); renderStatus();
+    });
+    mqttClient.on("error", e => { S.mqttErr = e.message; renderStatus(); });
+    mqttClient.on("close", () => { if (mqttClient) { if (S.mqtt === "on") addEvent("MQTT connection lost, retrying every 3 s", ""); S.mqtt = "reconnecting"; renderStatus(); } });
+    mqttClient.on("message", (topic, payload) => {
+      const bytes = payload instanceof Uint8Array ? payload : new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
+      handleMqttMessage(topic, bytes);
+    });
+  }
+  function disconnectMqtt() {
+    if (!mqttClient) return;
+    const c = mqttClient; mqttClient = null; c.end(true);
+    S.mqtt = "off"; setSetting("robot.mqttAuto", "0"); addEvent("MQTT disconnected by you", ""); renderStatus();
+  }
+  $("btnMqtt").onclick = () => mqttClient ? disconnectMqtt() : connectMqtt($("mqttUrl").value.trim(), false);
+
+  /* ---------- commands ---------- */
+  function availability() {
+    const fresh = S.tlmLive && S.tlm && now() - S.tlmAt <= C.staleAfterMs(S.tlm.source);
+    return C.commandAvailability({
+      mqtt: S.mqtt === "on", fresh, state: S.tlm && S.tlm.state, paused: S.tlm && S.tlm.paused,
+      restored: !!S.restored, latch: C.latchStatus(S.hb, now()),
+      pendingStart: cmds.pending("start"), pendingResume: cmds.pending("resume")
+    });
+  }
+  document.querySelectorAll(".cmd").forEach(b => b.onclick = () => {
+    const cmd = b.dataset.cmd, av = availability()[cmd];
+    if (!av.ok) { announce(C.CMD_LABEL[cmd] + " unavailable: " + av.why); return; }
+    if (cmd === "start" && !confirm("Start the mission? The wheels will turn.")) return;
+    if (cmd === "resume" && !confirm("Resume line following? The wheels will turn.")) return;
+    if (!mqttClient || S.mqtt !== "on") return;
+    const { entry, payload } = cmds.send(cmd, now());
+    mqttClient.publish("robot/g10/cmd", payload);
+    addEvent("Sent " + C.CMD_LABEL[cmd] + " #" + entry.seq, "");
+    renderCmdLog(); renderStatus();
+  });
+  function renderCmdLog() {
+    const box = $("cmdlog"); const frag = document.createDocumentFragment();
+    for (const e of cmds.list.slice(-3).reverse()) {
+      if (now() - e.sentAt > 120000) continue;
+      const d = C.describeCommand(e); const el = document.createElement("div");
+      el.className = "tone-" + d.tone; el.textContent = (d.tone === "good" ? "✓ " : d.tone === "attn" ? "! " : "… ") + fmtTime(e.sentAt) + " " + d.text;
+      frag.appendChild(el);
+    }
+    box.replaceChildren(frag);
+  }
+
+  /* ---------- status banner, pills, buttons ---------- */
+  function setTone(el, tone) { el.className = el.className.replace(/\btone-\w+/g, "").trim() + " tone-" + tone; }
+  function renderStatus() {
+    const t = now();
+    const age = S.tlm && S.tlmLive ? t - S.tlmAt : null;
+    const stale = age != null && age > C.staleAfterMs(S.tlm.source);
+    /* pills */
+    const usbTxt = { off: "USB: off", on: "USB: connected (read-only)", unsupported: "USB: not in this browser" }[S.usb] || "USB: " + S.usb;
+    $("pUsb").textContent = (S.usb === "on" ? "● " : "○ ") + usbTxt; setTone($("pUsb"), S.usb === "on" ? "good" : "idle");
+    const mq = { off: "MQTT: off", connecting: "MQTT: connecting…", on: "MQTT: connected", reconnecting: "MQTT: reconnecting…" }[S.mqtt];
+    $("pMqtt").textContent = (S.mqtt === "on" ? "● " : S.mqtt === "off" ? "○ " : "◌ ") + mq;
+    setTone($("pMqtt"), S.mqtt === "on" ? "good" : S.mqtt === "off" ? "idle" : "attn");
+    if (age == null) { $("pAge").textContent = S.restored ? "Data: restored, not live" : "Data: none"; setTone($("pAge"), "idle"); }
+    else { $("pAge").textContent = (stale ? "! Stale: " : "Data: ") + (age < 1000 ? age + " ms" : (age / 1000).toFixed(age < 10000 ? 1 : 0) + " s") + " ago via " + S.tlm.source.toUpperCase(); setTone($("pAge"), stale ? "attn" : "good"); }
+    const ls = loss.stats(t);
+    if (ls.loss == null) { $("pLoss").textContent = "Loss 60 s: no data"; setTone($("pLoss"), "idle"); }
+    else { $("pLoss").textContent = "Loss 60 s: " + (100 * ls.loss).toFixed(1) + "% (" + ls.missing + "/" + (ls.received + ls.missing) + ")"; setTone($("pLoss"), ls.missing ? "attn" : "good"); }
+
+    /* banner */
+    let tone = "idle", word, sub = "", ico = "○";
+    const st = S.tlm && S.tlm.state;
+    if (!S.tlm) {
+      word = "No robot data";
+      sub = S.mqtt === "on" ? "Broker connected, but no telemetry from the robot yet. Is the robot on and on the same network?"
+        : S.mqtt === "connecting" || S.mqtt === "reconnecting" ? "Connecting to the broker…" : S.usb === "on" ? "USB connected: the robot prints state once a second while MQTT is down." : "Connect MQTT or USB below.";
+    } else if (S.restored || !S.tlmLive) {
+      word = "Last known: " + (C.STATE_LABEL[st] || st);
+      sub = "Restored from saved history (" + fmtTime(S.restored ? S.restored.at : S.tlmAt) + "), not live." + (S.mqtt === "on" ? " Broker connected, waiting for robot telemetry." : "");
+    } else {
+      const o = run.current && st === run.current.state ? C.describeOutcome(run.current) : null;
+      if (st === "FAULT") { tone = "fault"; ico = "✖"; word = o ? o.title.replace(/^Fault: /, "Fault — ") : "Fault"; sub = o ? o.action : "Press Reset, then Start."; }
+      else if (S.tlm.paused) { tone = "attn"; ico = "❚❚"; word = "Paused"; sub = "Stopped on the line. Resume or Stop."; }
+      else if (st === "MISSION_COMPLETE") { tone = "good"; ico = "✓"; word = "Mission complete"; sub = "Robot lifted: run ended. Reset or Start for a new run."; }
+      else if (st === "IDLE") { tone = "idle"; ico = "○"; word = "Idle"; sub = "Ready for Start."; }
+      else if (st === "LOST_LINE") { tone = "attn"; ico = "!"; word = C.STATE_LABEL[st]; sub = "Bounded search: up to 3 attempts, then Fault."; }
+      else if (C.ACTIVE.has(st)) { tone = "work"; ico = "▶"; word = C.STATE_LABEL[st]; sub = "Run in progress."; }
+      else { word = C.STATE_LABEL[st] || st; }
+      if (stale) { tone = "attn"; ico = "!"; sub = "Stale: no telemetry for " + (age / 1000).toFixed(1) + " s. The robot may have changed state. " + sub; }
+      else if (S.mqtt === "on" && S.tlm.source === "usb") sub += " (state from USB)";
+    }
+    if (S.mqttErr) sub += " MQTT: " + S.mqttErr;
+    $("btnMqtt").textContent = S.mqtt === "off" ? "Connect MQTT" : "Disconnect MQTT";
+    const banner = $("banner"); setTone(banner, tone);
+    $("bIco").textContent = ico; $("bWord").textContent = word; $("bSub").textContent = sub;
+    $("fabState").textContent = ico + " " + word; $("fabState").className = "st tone-" + tone;
+
+    /* buttons and reasons */
+    const av = availability();
+    const whys = new Set(Object.values(av).map(a => a.why));
+    const allSame = whys.size === 1 && !av.stop.ok;
+    document.querySelectorAll(".cmd").forEach(b => {
+      const k = b.dataset.cmd, a = av[k];
+      b.setAttribute("aria-disabled", a.ok ? "false" : "true");
+      /* one shared reason is shown once, on Stop's line */
+      $("why_" + k).textContent = a.ok ? "" : allSame ? (k === "stop" ? "All commands: " + a.why : "") : C.CMD_LABEL[k] + ": " + a.why;
+      if (allSame) b.setAttribute("aria-describedby", "why_stop"); else b.setAttribute("aria-describedby", "why_" + k);
+    });
+    const latch = C.latchStatus(S.hb, t);
+    const endState = st === "IDLE" || st === "FAULT" || st === "MISSION_COMPLETE";
+    $("why_latch").textContent = latch === "unavailable" && S.tlm && endState && av.start.ok !== undefined
+      ? "Latch status unavailable on this build: if the robot was lifted or tilted, place it flat, hands off 2 s, press Reset, then Start." : "";
+    $("t_latch").textContent = latch === "set" ? "Latched: lifted or tilted" : latch === "clear" ? "Clear" : "Latch status unavailable";
+  }
+
+  /* ---------- live tiles ---------- */
+  function txt(id, v) { $(id).textContent = v; }
+  const dash = v => v == null ? "–" : v;
+  function renderLive() {
+    const r = S.tlm; if (!r) return;
+    txt("t_vl", dash(r.speedL)); txt("t_vr", dash(r.speedR)); txt("t_odo", dash(r.distance));
+    txt("t_line", dash(r.line));
+    if (r.line != null) $("t_linebar").style.left = (50 + Math.max(-1000, Math.min(1000, r.line)) / 20) + "%";
+    txt("t_bc", dash(r.barcodes));
+    txt("t_nav", r.nav == null ? "" : r.nav === 0 ? "no turn pending" : "turn: " + (C.NAV[r.nav] || r.nav));
+    txt("t_pitch", r.pitchDeg == null ? "–" : r.pitchDeg.toFixed(1));
+    txt("t_hump", dash(r.humpMm)); txt("t_maxhump", dash(r.humpMaxMm));
+    if (r.obstacleMm != null) { txt("t_us", r.obstacleMm); txt("t_us_u", "mm"); }
+    else { txt("t_us", "–"); txt("t_us_u", r.obstacleNoEcho ? "no echo" : "not reported"); }
+    txt("t_obs", r.obstacleState == null ? "–" : (C.OBS[r.obstacleState] || "State " + r.obstacleState) + (r.obstacleDetected ? " · obstacle" : ""));
+    if (S.barcodes.length) txt("t_barcode", S.barcodes[S.barcodes.length - 1].text);
+  }
+
+  /* ---------- outcome cards ---------- */
+  function fillOutcome(el, o, label) {
+    const d = C.describeOutcome(o); el.replaceChildren();
+    el.className = "card tone-" + d.tone;
+    const t = document.createElement("div"); t.className = "t"; t.textContent = (d.tone === "fault" ? "✖ " : "✓ ") + d.title;
+    const m = document.createElement("div"); m.className = "m";
+    m.textContent = label + (o.observed ? "ended " : "seen ") + new Date(o.at).toLocaleString() + (o.observed ? "" : " (end time not observed)") +
+      " · distance " + (o.distanceMm == null ? "not reported" : o.distanceMm + " mm");
+    el.append(t, m);
+    if (d.detail) { const x = document.createElement("div"); x.className = "d"; x.textContent = d.detail; el.appendChild(x); }
+    if (d.action) { const x = document.createElement("div"); x.className = "a"; x.textContent = "Next: " + d.action; el.appendChild(x); }
+    for (const s of d.secondary) { const x = document.createElement("div"); x.className = "m"; x.textContent = s; el.appendChild(x); }
+  }
+  function renderOutcome() {
+    const cur = $("outNow"), prev = $("outPrev");
+    if (run.current) fillOutcome(cur, run.current, "This run: ");
+    else {
+      cur.className = "card"; cur.replaceChildren();
+      const t = document.createElement("div"); t.className = "t";
+      t.textContent = S.tlm && C.ACTIVE.has(S.tlm.state) && S.tlmLive ? "Run in progress" : "No finished run yet";
+      const m = document.createElement("div"); m.className = "m"; m.textContent = "A run's end reason, time and distance stay here until the next run starts.";
+      cur.append(t, m);
+    }
+    if (run.previous) { prev.hidden = false; fillOutcome(prev, run.previous, "Previous run: "); } else prev.hidden = true;
+  }
+
+  /* ---------- diagnostics ---------- */
+  function renderDiag() {
+    const kv = $("diagKv"); const frag = document.createDocumentFragment();
+    const add = (k, v) => { const dt = document.createElement("dt"); dt.textContent = k; const dd = document.createElement("dd"); dd.textContent = v; frag.append(dt, dd); };
+    const ls = loss.stats(now());
+    add("Browser-observed MQTT loss (60 s)", ls.loss == null ? "no data" : ls.received + " received, " + ls.missing + " missing, " + (100 * ls.loss).toFixed(1) + "% · " + loss.dups + " duplicates ignored · " + loss.bursts + " gap bursts");
+    if (!S.hb) add("Robot delivery counters", "Not received yet (heartbeat every 5 s on MQTT, or the console line \"s1 tq=…\" on USB).");
+    else if (!S.hb.counters) add("Robot delivery counters", "Unavailable: this build's heartbeat has no counters (hb " + S.hb.count + ").");
+    else {
+      const c = S.hb.counters, g = (k, i) => c[k] == null ? "n/a" : Array.isArray(c[k]) ? c[k][i] : c[k];
+      add("Robot counters (" + S.hb.source + ", " + fmtTime(S.hb.at) + ")", "cumulative since power-on");
+      add("Telemetry queued / lost in robot", g("tq") + " / " + g("tl"));
+      add("Events queued / dropped ack, fault, barcode, other", g("eq") + " / " + (c.ed ? c.ed.join(", ") : "n/a"));
+      add("Accepted by lwIP telemetry / events", g("pa", 0) + " / " + g("pa", 1));
+      add("Publish refused: no memory / no connection / other", c.rf ? c.rf.join(" / ") : "n/a");
+      add("Completions ok / error / stale, unconfirmed", (c.cb ? c.cb.join(" / ") : "n/a") + ", " + g("uc"));
+      add("In flight telemetry / events", c.if ? c.if.join(" / ") : "n/a");
+      add("Heartbeat refused, lock failures", g("hr") + ", " + g("lf"));
+    }
+    add("IMU lift / tilt latch", C.latchStatus(S.hb, now()) === "unavailable" ? "Latch status unavailable: the telemetry frame has no free bit (all 112 used); see TEAM.md" : C.latchStatus(S.hb, now()));
+    add("Freshness rule", "Stale after " + C.staleAfterMs("mqtt") / 1000 + " s for MQTT (5 frames/s) and " + C.staleAfterMs("usb") / 1000 + " s for USB (1 line/s).");
+    kv.replaceChildren(frag);
+  }
+  function renderRetention() {
+    $("retention").textContent = "Kept in this browser: newest " + C.STORE_CAPS.events + " events, " + C.STORE_CAPS.barcodes + " barcode reads and " + C.STORE_CAPS.faults +
+      " faults (300 kB). Telemetry rows for the CSV: newest " + TLM_ROWS_MAX + " in memory only, now " + S.rows.length +
+      (S.rowsDropped ? ", " + S.rowsDropped + " older rows dropped" : "") + ". Console: newest " + LINES_MAX + " lines" + (S.linesDropped ? ", " + S.linesDropped + " dropped" : "") + "." +
+      (S.storeDropped ? " " + S.storeDropped + " old records did not fit the saved history." : "") + (S.storeNote ? " " + S.storeNote : "");
+  }
+
+  /* ---------- charts (plain canvas) ---------- */
+  function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+  function draw(id, lines, fixed) {
+    const c = $(id), dpr = window.devicePixelRatio || 1;
+    const w = c.clientWidth, h = c.clientHeight;
+    if (!w) return;
+    if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+    const g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+    const t = now(); let lo = Infinity, hi = -Infinity;
+    for (const l of lines) for (const [, v] of l.data) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    if (fixed) { lo = Math.min(lo, fixed[0]); hi = Math.max(hi, fixed[1]); }
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    if (hi - lo < 1e-6) { hi += 1; lo -= 1; }
+    const y = v => h - 4 - (v - lo) / (hi - lo) * (h - 8);
+    g.strokeStyle = css("--line"); g.lineWidth = 1; g.setLineDash([]);
+    if (lo < 0 && hi > 0) { g.beginPath(); g.moveTo(0, y(0)); g.lineTo(w, y(0)); g.stroke(); }
+    g.fillStyle = css("--muted"); g.font = "10px system-ui";
+    g.fillText(Math.round(hi), 2, 10); g.fillText(Math.round(lo), 2, h - 2);
+    for (const l of lines) {
+      g.strokeStyle = l.color; g.lineWidth = 1.8; g.setLineDash(l.dash || []); g.beginPath();
+      l.data.forEach(([ts, v], i) => { const x = w - (t - ts) / WINDOW_MS * w; i ? g.lineTo(x, y(v)) : g.moveTo(x, y(v)); });
+      g.stroke();
+    }
+    g.setLineDash([]);
+  }
+  function last(a) { return a.length ? a[a.length - 1][1] : ""; }
+  function drawAll() {
+    const work = css("--work"), attn = css("--attn");
+    draw("c_speed", [{ data: series.vl, color: work }, { data: series.vr, color: attn, dash: [5, 3] }], [0, 100]);
+    draw("c_line", [{ data: series.line, color: work }], [-1000, 1000]);
+    draw("c_us", [{ data: series.us, color: work }], [0, 500]);
+    draw("c_pitch", [{ data: series.pitch, color: work }], [-5, 5]);
+    txt("c_speed_v", series.vl.length ? "L " + last(series.vl) + "  R " + last(series.vr) : "");
+    txt("c_line_v", last(series.line)); txt("c_us_v", last(series.us));
+    txt("c_pitch_v", series.pitch.length ? last(series.pitch).toFixed(1) : "");
+  }
+
+  /* ---------- Web Serial (read-only) ---------- */
+  if (!("serial" in navigator)) {
+    S.usb = "unsupported";
+    $("btnSerial").setAttribute("aria-disabled", "true");
+    $("connNote").textContent = "USB reading needs Chrome or Edge on a computer (this browser has no Web Serial). MQTT works here, including all commands.";
+  }
+  $("btnSerial").onclick = async () => {
+    if (S.usb === "unsupported") { announce("USB is not available in this browser. Use MQTT."); return; }
+    if (port) { await disconnectSerial(); return; }
+    try { port = await navigator.serial.requestPort(); await port.open({ baudRate: 115200 }); }
+    catch (e) { port = null; addEvent("USB: " + e.message, ""); return; }
+    $("btnSerial").textContent = "Disconnect USB"; S.usb = "on"; addEvent("USB connected (read-only). Reset the Pico to see boot and tests.", "good"); renderStatus();
     readLoop();
   };
   async function readLoop() {
@@ -404,125 +1528,89 @@ canvas { width: 100%; height: 90px; display: block; }
           }
         } finally { reader.releaseLock(); reader = null; }
       }
-    } catch (e) { setStatus("USB lost: " + e.message + " (Pico reset? press Connect USB again)", false); }
+    } catch (e) { addEvent("USB lost: " + e.message + " (Pico reset? press Connect USB again)", ""); }
     await disconnectSerial(true);
   }
   async function disconnectSerial(silent) {
     const p = port; port = null;
     try { if (reader) await reader.cancel(); } catch (e) {}
     try { if (p) await p.close(); } catch (e) {}
-    $("btnSerial").textContent = "Connect USB"; if (!silent) setStatus("Not connected", false);
+    $("btnSerial").textContent = "Connect USB (read-only)"; S.usb = "off"; if (!silent) addEvent("USB disconnected", ""); renderStatus();
   }
 
   /* ---------- log file replay ---------- */
   $("btnFile").onclick = () => $("fileIn").click();
   $("fileIn").onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
-    (await f.text()).split("\n").forEach(handleLine);
-    setStatus("Loaded " + f.name, false); e.target.value = "";
+    for (const l of (await f.text()).split("\n")) {
+      /* a log saved here: "ISO<TAB>console<TAB>line"; other kinds are skipped */
+      const m = /^\d{4}-\d\d-\d\dT[^\t]*\t(\w+)\t(.*)$/.exec(l);
+      if (m) { if (m[1] === "console") handleLine(m[2], { replay: true }); }
+      else handleLine(l, { replay: true });
+    }
+    addEvent("Replayed " + f.name + " into the console (history only, not live state)", ""); e.target.value = "";
   };
 
-  /* ---------- MQTT over WebSocket ---------- */
-  try { $("mqttUrl").value = localStorage.getItem("robot.mqttUrl") || ""; } catch (e) {}
-  function loadMqttLib() {
-    return new Promise((ok, bad) => {
-      if (window.mqtt) return ok();
-      const urls = ["https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js",
-                    "https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"];
-      const next = () => {
-        const u = urls.shift();
-        if (!u) return bad(new Error("could not load mqtt.js (no internet?)"));
-        const s = document.createElement("script");
-        s.src = u; s.onload = ok; s.onerror = next; document.head.appendChild(s);
-      };
-      next();
-    });
+  /* ---------- save log, CSV, clear ---------- */
+  function download(name, text, type) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   }
-  $("btnMqtt").onclick = async () => {
-    if (mqttClient) { mqttClient.end(true); mqttClient = null; mqttUi(false); setStatus("MQTT disconnected", false); return; }
-    const url = $("mqttUrl").value.trim();
-    if (!/^wss?:\/\//.test(url)) { alert("Enter the broker's WebSocket address, e.g. ws://192.168.1.10:9001"); return; }
-    try { localStorage.setItem("robot.mqttUrl", url); } catch (e) {}
-    try { await loadMqttLib(); } catch (e) { setStatus(e.message, false); return; }
-    setStatus("MQTT connecting…", false);
-    mqttClient = mqtt.connect(url, { reconnectPeriod: 3000, connectTimeout: 5000 });
-    mqttClient.on("connect", () => { mqttClient.subscribe("robot/g10/#"); mqttUi(true); setStatus("MQTT connected: " + url, true); });
-    mqttClient.on("error", e => setStatus("MQTT: " + e.message, false));
-    mqttClient.on("close", () => {
-      if (mqttClient) {
-        document.querySelectorAll(".cmd").forEach(b => b.disabled = true);
-        setStatus("MQTT reconnecting…", false);
-      }
-    });
-    mqttClient.on("message", (topic, payload) => {
-      const bytes = payload instanceof Uint8Array ? payload :
-        new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
-      const s = payload.toString();
-      if (topic.endsWith("/t")) {
-        const j = decodeBinaryTelemetry(bytes);
-        if (!j) {
-          addEvent("invalid binary telemetry frame (" + bytes.length + " bytes)");
-          return;
-        }
-        if (lastMqttTlmSeq !== null && j.seq !== ((lastMqttTlmSeq + 1) & 255)) {
-          addEvent("telemetry gap: seq " + lastMqttTlmSeq + " -> " + j.seq);
-        }
-        lastMqttTlmSeq = j.seq;
-        onTelemetry(j);
-      } else if (topic === "robot/g10/barcode") {
-        const barcode = decodeBarcode(bytes);
-        if (barcode === null) {
-          addEvent("invalid barcode payload");
-          return;
-        }
-        txt("t_barcode", barcode);
-        const message = "barcode: " + barcode;
-        addEvent(message);
-        allLines.push("[mqtt " + topic + "] " + message);
-        scheduleLog();
-      } else if (topic.endsWith("/telemetry")) {
-        handleLine(s);
-      } else if (topic.endsWith("/ack")) {
-        if (bytes.length !== 1) {
-          addEvent("invalid command acknowledgement");
-          return;
-        }
-        const result = bytes[0] >> 6, seq = bytes[0] & 63;
-        const command = pendingCommands.get(seq) || "unknown command";
-        pendingCommands.delete(seq);
-        const message = "ack " + command + ": " + ACK_RESULTS[result] + " (seq " + seq + ")";
-        addEvent(message);
-        allLines.push("[mqtt " + topic + "] " + message);
-        scheduleLog();
-      } else if (topic.endsWith("/fault")) {
-        addEvent("fault " + s);
-        allLines.push("[mqtt " + topic + "] " + s);
-        scheduleLog();
-      } else {
-        allLines.push("[mqtt " + topic + "] " + s);
-        scheduleLog();
-      }
-    });
+  const stamp = () => new Date().toISOString().replace(/[:.]/g, "-");
+  function buildLog() {
+    const out = [];
+    out.push(C.logLine(now(), "info", "Robot Dashboard log. Columns: ISO time, kind, text. Telemetry rows kept: " + S.rows.length + (S.rowsDropped ? " (" + S.rowsDropped + " older dropped)" : "")));
+    const all = [];
+    for (const r of S.rows) all.push([r.t, "telemetry", C.tlmLogText(r)]);
+    for (const e of S.events) all.push([e.t, "event", (e.restored ? "(saved) " : "") + e.text]);
+    for (const b of S.barcodes) all.push([b.t, "barcode", b.text + " | source " + b.source + " | direction " + (b.direction || "Not reported") + " | configured " + b.configured + " | pending " + (b.pending || "Not reported") + " | junction action " + (b.executed || "Not reported")]);
+    for (const f of S.faults) { const d = C.describeFault(f); all.push([f.t, "fault", d.hex + " " + d.name + " | " + d.subsystem + " | " + d.severity + " | " + d.raw + " | via " + f.source]); }
+    for (const o of S.lines) all.push([o.t, "console", o.line]);
+    all.sort((a, b) => a[0] - b[0]);
+    for (const [t, k, x] of all) out.push(C.logLine(t, k, x));
+    return out.join("\n") + "\n";
+  }
+  $("btnSave").onclick = () => download("robot-log-" + stamp() + ".txt", buildLog(), "text/plain");
+  $("btnCsv").onclick = () => download("robot-telemetry-" + stamp() + ".csv", C.telemetryCsv(S.rows), "text/csv");
+  $("btnClear").onclick = () => {
+    if (!confirm("Clear saved events, barcode reads, faults and the last run outcome? The broker address is kept.")) return;
+    S.events = []; S.faults = []; S.barcodes = []; S.rows = []; S.rowsDropped = 0; S.lastBarcodeIdx = -1;
+    run = new C.RunTracker(null); if (S.tlm && S.tlmLive) run.lastState = S.tlm.state;
+    if (!S.tlmLive) { S.tlm = null; S.restored = null; }
+    try { if (storage) storage.removeItem(C.STORE_KEY); } catch (e) {}
+    S.storeDropped = 0; S.storeNote = "";
+    renderAll(); addEvent("History cleared", "");
   };
-  function mqttUi(on) {
-    $("btnMqtt").textContent = on ? "Disconnect MQTT" : "Connect MQTT";
-    document.querySelectorAll(".cmd").forEach(b => b.disabled = !on);
-  }
-  document.querySelectorAll(".cmd").forEach(b => b.onclick = () => {
-    if (b.dataset.cmd === "start" && !confirm("Start the mission? The wheels will turn.")) return;
-    if (b.dataset.cmd === "resume" && !confirm("Resume line following? The wheels will turn.")) return;
-    const code = CMD_CODES[b.dataset.cmd];
-    const ext = EXT_CODES[b.dataset.cmd];
-    if ((code == null && ext == null) || !mqttClient) return;
-    mqttCommandSeq = (mqttCommandSeq + 1) & 63;
-    pendingCommands.set(mqttCommandSeq, b.dataset.cmd);
-    const payload = ext == null ? [(code << 6) | mqttCommandSeq] :
-      [0xC0 | mqttCommandSeq, ext];
-    mqttClient.publish("robot/g10/cmd", new Uint8Array(payload));
-    addEvent("sent " + b.dataset.cmd + " (seq " + mqttCommandSeq + ")");
-  });
 
-  renderTests(); drawAll();
+  /* ---------- periodic ---------- */
+  setInterval(() => {
+    const changed = cmds.tick(now());
+    for (const e of changed) { const d = C.describeCommand(e); addEvent(d.text, ""); announce(d.text); }
+    renderCmdLog(); renderStatus(); drawAll(); renderDiag();
+  }, 500);
+  setInterval(renderRetention, 5000);
+
+  function renderAll() { renderEvents(); renderFaults(); renderBarcodes(); renderOutcome(); renderLive(); renderStatus(); renderDiag(); renderRetention(); renderTests(); renderCmdLog(); drawAll(); }
+
+  /* phone: show the fixed Stop bar once the top block is out of view */
+  if ("IntersectionObserver" in window) {
+    new IntersectionObserver(es => { for (const e of es) $("fab").classList.toggle("show", !e.isIntersecting); }).observe($("top"));
+  }
+
+  /* ---------- start ---------- */
+  restore();
+  S.mqttUrl = getSetting("robot.mqttUrl") || "";
+  $("mqttUrl").value = S.mqttUrl;
+  renderAll();
+  if (S.restored) addEvent("Showing saved history from " + new Date(S.restored.at).toLocaleString() + ": not live", "");
+  /* reconnect once to the saved broker, unless you pressed Disconnect.
+     Nothing is ever re-sent: commands are not saved. */
+  if (S.mqttUrl && getSetting("robot.mqttAuto") !== "0") connectMqtt(S.mqttUrl, true);
+
+  /* for the dashboard checks and bench debugging: the same entry points
+     the MQTT and USB handlers use */
+  window.robotDashboard = { handleMqttMessage, handleLine, core: C };
 })();
 </script>
 </body>
