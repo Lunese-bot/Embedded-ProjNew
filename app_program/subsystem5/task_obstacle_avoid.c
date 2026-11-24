@@ -57,6 +57,12 @@ static step_result_t    g_bypass_result; /* how the bypass ended (final reason) 
 
 /* Store the record for S1 and print it on USB with the exact MQTT frame,
    so the USB console and the dashboard can be compared byte for byte. */
+#if S5_REPORT_SUPPORTED_WIDTH
+/* Where the reported width came from (S5_REPORT_SUPPORTED_WIDTH):
+   "sup" = supported-edge estimate, "raw" = the profile's own width */
+static const char * g_width_src = "raw";
+#endif
+
 static void report_publish(void)
 {
     uint8_t frame[S5_OR_BYTES];
@@ -79,6 +85,11 @@ static void report_publish(void)
               s5_or_width_name(g_report.width_status), g_report.length_mm,
               s5_or_length_name(g_report.length_status),
               s5_or_reason_name(g_report.length_reason), hex);
+#if S5_REPORT_SUPPORTED_WIDTH
+    /* own line: the obstacle line and its frame stay as the dashboard
+       and S1 expect them */
+    tm_printf((uint8_t *)"s5: width source #%d %s\n", g_report.profile_id, g_width_src);
+#endif
 }
 
 /* Resolve the length once per encounter from the pass tracker. */
@@ -809,8 +820,27 @@ static void report_front(const s5_profile_t * p_prof)
     s5_or_reason_t why = ((0 == S5_SIDE_PASS) && (0 == S5_LENGTH_OBSERVE))
                              ? S5_OR_R_OBSERVE_OFF : S5_OR_R_NO_BYPASS;
 
+    uint16_t width_mm = p_prof->width_mm;
+
+#if S5_REPORT_SUPPORTED_WIDTH
+    {
+        /* report only: the bypass below still uses p_prof unchanged */
+        s5_width_est_t est;
+
+        s5_load_width_est(&est);
+        g_width_src = "raw";
+        if ((S5_WE_OK == (s5_we_status_t)est.status) &&
+            (est.raw_width_mm == p_prof->width_mm) &&
+            (est.raw_r_deg == p_prof->right_edge_deg) &&
+            (est.raw_l_deg == p_prof->left_edge_deg))
+        {
+            width_mm    = est.sup_width_mm;
+            g_width_src = "sup";
+        }
+    }
+#endif
     s5_or_front(&g_report, p_prof->valid, p_prof->distance_mm,
-                p_prof->right_edge_deg, p_prof->left_edge_deg, p_prof->width_mm,
+                p_prof->right_edge_deg, p_prof->left_edge_deg, width_mm,
                 p_prof->bypass_side, (n > 0) ? ang[0] : 0, (n > 0) ? ang[n - 1] : 0,
                 b_follow, why);
     if (!b_follow)

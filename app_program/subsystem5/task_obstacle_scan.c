@@ -82,6 +82,7 @@ typedef struct
     int32_t      n;         /* trips behind the final profile          */
     s5_trip_t    trips[SCAN_MAX_SAMPLES];
     s5_profile_t prof;      /* the profile handed over                 */
+    s5_width_est_t est;     /* supported-edge estimate of the same trips */
 } scan_diag_t;
 
 static scan_diag_t g_diag;
@@ -198,6 +199,9 @@ static void do_scan(void)
     }
 
     point_and_wait(0);
+    /* report-only estimate from the same trips (pure, no readings) */
+    (void)s5_width_estimate(g_diag.trips, g_diag.n, &g_diag.est);
+    s5_store_width_est(&g_diag.est);
     s5_store_profile(&prof);
     g_diag.prof = prof;
     tk_get_tim(&t_end);
@@ -257,6 +261,15 @@ static void print_diag(void)
               (int32_t)p->left_edge_deg, edge_range(p->left_edge_deg),
               (int32_t)p->right_mm, (int32_t)p->left_mm, (int32_t)p->width_mm,
               (int32_t)p->bypass_side, lat);
+    tm_printf((uint8_t *)"s5d: #%d sup st=%s rawsup R%d L%d | R%d:%d/%d L%d:%d/%d rmm=%d lmm=%d w=%d\n",
+              (int32_t)g_diag.id, s5_we_name(g_diag.est.status),
+              (int32_t)g_diag.est.raw_r_support, (int32_t)g_diag.est.raw_l_support,
+              (int32_t)g_diag.est.sup_r_deg, (int32_t)g_diag.est.sup_r_range,
+              (int32_t)g_diag.est.sup_r_support,
+              (int32_t)g_diag.est.sup_l_deg, (int32_t)g_diag.est.sup_l_range,
+              (int32_t)g_diag.est.sup_l_support,
+              (int32_t)g_diag.est.sup_right_mm, (int32_t)g_diag.est.sup_left_mm,
+              (int32_t)g_diag.est.sup_width_mm);
 }
 #endif
 

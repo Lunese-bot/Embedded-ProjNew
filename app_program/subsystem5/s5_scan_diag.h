@@ -61,4 +61,75 @@ extern int32_t s5_format_trips(char * p_buf, int32_t size,
                                const s5_trip_t * p_trips, int32_t first,
                                int32_t n);
 
+/* ---- Supported-edge width estimate (report only) ------------------
+   Runs beside the normal profile and never changes it: side choice,
+   clearance, lateral offset, measured pass and line recovery keep using
+   the raw edges of s5_build_profile.
+
+   Raw edges: the outermost samples of the profile's cluster (one echo of
+   three is enough to be a hit there).  Supported edges: starting from
+   each raw edge and moving inward, the first sample of the same cluster
+   whose own trip has at least S5_WE_MIN_SUPPORT plausible pings.  A ping
+   is plausible when it is a hit (1..S5_HIT_RANGE_MM) within
+   S5_CLUSTER_GAP_MM of the range that joined this sample to the cluster
+   (the median of its inward neighbour; the nearest sample's own median),
+   the rules s5_build_profile already uses.  So one box echo plus one
+   distant background echo is not two supporting pings.  A fine trip that
+   replaced a coarse one at the same angle brings only its own pings;
+   coarse and fine pings are never pooled.  The sideways offset of a
+   supported edge is its own median x sin(angle), as for a raw edge. */
+#define S5_WE_MIN_SUPPORT 2
+
+/* 1 = the obstacle size report (MQTT width_mm, USB "s5: obstacle" line)
+   carries the supported width when it is resolved, the raw width
+   otherwise; the USB line says which ("sup" / "raw").  0 (default) = the
+   raw width, exactly as before.  Never changes the bypass. */
+#ifndef S5_REPORT_SUPPORTED_WIDTH
+#define S5_REPORT_SUPPORTED_WIDTH 0
+#endif
+
+typedef enum
+{
+    S5_WE_OK = 0,      /* both supported edges found, left of right      */
+    S5_WE_NO_PROFILE,  /* the trips give no obstacle                     */
+    S5_WE_CLIPPED,     /* a raw edge is the first or last sample: the
+                          side beyond it was never observed              */
+    S5_WE_NO_SUPPORT,  /* no sample of the cluster has enough support    */
+    S5_WE_COLLAPSED    /* the supported edges meet or cross: too narrow
+                          for two supported endpoints                    */
+} s5_we_status_t;
+
+typedef struct
+{
+    uint8_t  status;       /* s5_we_status_t                              */
+    /* raw (the profile's own numbers) */
+    int8_t   raw_r_deg;
+    int8_t   raw_l_deg;
+    uint16_t raw_r_range;  /* median used at the edge                    */
+    uint16_t raw_l_range;
+    int16_t  raw_right_mm;
+    int16_t  raw_left_mm;
+    uint16_t raw_width_mm;
+    uint8_t  raw_r_support; /* plausible pings of the raw edge trips     */
+    uint8_t  raw_l_support;
+    /* supported; angles and ranges are those found, the mm values and the
+       width are 0 unless status is S5_WE_OK */
+    int8_t   sup_r_deg;
+    int8_t   sup_l_deg;
+    uint16_t sup_r_range;
+    uint16_t sup_l_range;
+    int16_t  sup_right_mm;
+    int16_t  sup_left_mm;
+    uint16_t sup_width_mm;
+    uint8_t  sup_r_support;
+    uint8_t  sup_l_support;
+} s5_width_est_t;
+
+/* Build the raw profile from trips (s5_build_profile on their medians)
+   and the supported-edge estimate beside it.  Returns the status. */
+extern s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t n,
+                                        s5_width_est_t * p_est);
+
+extern const char * s5_we_name(uint8_t status);
+
 #endif /* S5_SCAN_DIAG_H */

@@ -94,7 +94,8 @@ static void tm_printf(const uint8_t *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    if (0 == strncmp((const char *)fmt, "s5: obstacle #", 14) && w.nusb < 16)
+    if ((0 == strncmp((const char *)fmt, "s5: obstacle #", 14) ||
+         0 == strncmp((const char *)fmt, "s5: width source #", 18)) && w.nusb < 16)
     {
         vsnprintf(w.usb[w.nusb++], 200, (const char *)fmt, ap);
     }
@@ -104,6 +105,18 @@ void s5_set_state(s5_state_t s) { (void)s; }
 void s5_set_fault(s5_fault_code_t f) { (void)f; }
 void s5_count_avoid_ok(void) {}
 void s5_load_profile(s5_profile_t *p) { *p = w.prof; }
+#if S5_REPORT_SUPPORTED_WIDTH
+/* S5-W05 build: a resolved supported width 20 mm below the raw one */
+void s5_load_width_est(s5_width_est_t *e)
+{
+    *e = (s5_width_est_t){ 0 };
+    e->status = (uint8_t)S5_WE_OK;
+    e->raw_r_deg = w.prof.right_edge_deg;
+    e->raw_l_deg = w.prof.left_edge_deg;
+    e->raw_width_mm = w.prof.width_mm;
+    e->sup_width_mm = (uint16_t)(w.prof.width_mm - 20);
+}
+#endif
 ER s5_get_status(s5_status_t *s) { *s = (s5_status_t){ 0 }; return E_OK; }
 void s5_port_set_line_search(bool b) { (void)b; }
 bool s5_port_line_detected(void) { return false; }
@@ -347,6 +360,25 @@ int main(int argc, char **argv)
         /* same encounters in both builds; only the motion is printed */
         for (unsigned i = 0; i < 2; i++) { encounter(lens[i], 180, 200); run_encounter(); print_trace(i ? "B" : "A"); }
         encounter(240, 180, 200); w.abort_at_odo = w.odo_mm + ABORT_INTO_PASS_MM; run_encounter(); print_trace("C");
+#if S5_REPORT_SUPPORTED_WIDTH
+        /* S5-W05: the report carries the supported width and says so,
+           while the motion above must match the raw build (Makefile cmp).
+           Messages go to stderr: stdout is the trace. */
+        {
+            int front = 0, sup_lines = 0;
+            for (int i = 0; i < w.nhist; i++)
+            {
+                if ((S5_OR_STAGE_FRONT == w.hist[i].stage) && (S5_OR_W_MEASURED == w.hist[i].width_status))
+                {
+                    front++;
+                    if (w.hist[i].width_mm != (uint16_t)(w.prof.width_mm - 20)) { fprintf(stderr, "FAIL S5-W05 width %d\n", w.hist[i].width_mm); return 1; }
+                }
+            }
+            for (int i = 0; i < w.nusb; i++) { if (0 == strncmp(w.usb[i], "s5: width source #", 18) && NULL != strstr(w.usb[i], " sup")) { sup_lines++; } }
+            if ((0 == front) || (0 == sup_lines)) { fprintf(stderr, "FAIL S5-W05 front %d sup lines %d\n", front, sup_lines); return 1; }
+            fprintf(stderr, "[TEST] S5-W05 PASS  report switch on: supported width reported and marked \"sup\"\n");
+        }
+#endif
         return 0;
     }
     codec_tests();

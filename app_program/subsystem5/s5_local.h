@@ -9,6 +9,7 @@
 
 #include "subsystem5.h"
 #include "obstacle_logic.h"
+#include "s5_scan_diag.h"
 
 /* Bench mode: 1 = test S5 alone, with no Vehicle Controller or motors.
    The scan task starts the avoidance itself and every motion request
@@ -87,6 +88,10 @@ extern void s5_count_avoid_ok(void);
 extern void s5_store_profile(const s5_profile_t * p_profile);
 extern void s5_report_store(const s5_obst_report_t * p_rec); /* avoid task */
 extern void s5_load_profile(s5_profile_t * p_profile);
+/* Supported-edge estimate of the same scan (scan task stores it just
+   before the profile; read only when S5_REPORT_SUPPORTED_WIDTH is 1) */
+extern void s5_store_width_est(const s5_width_est_t * p_est);
+extern void s5_load_width_est(s5_width_est_t * p_est);
 
 /* Side look (measured pass).  Avoid task: request / end / read.  Scan task:
    arm once the servo is pointed, then publish one reading per ping.  All

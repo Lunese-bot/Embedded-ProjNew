@@ -4,7 +4,7 @@
 #ifndef S5_SAME_H
 #define S5_SAME_H
 
-static bool same_samples(const s5_sample_t * a, const s5_sample_t * b, int32_t n)
+static inline bool same_samples(const s5_sample_t * a, const s5_sample_t * b, int32_t n)
 {
     int32_t i;
     for (i = 0; i < n; i++)
@@ -14,7 +14,7 @@ static bool same_samples(const s5_sample_t * a, const s5_sample_t * b, int32_t n
     return true;
 }
 
-static bool same_profile(const s5_profile_t * a, const s5_profile_t * b)
+static inline bool same_profile(const s5_profile_t * a, const s5_profile_t * b)
 {
     return (a->distance_mm == b->distance_mm) && (a->left_edge_deg == b->left_edge_deg) &&
            (a->right_edge_deg == b->right_edge_deg) && (a->centre_deg == b->centre_deg) &&
@@ -24,7 +24,7 @@ static bool same_profile(const s5_profile_t * a, const s5_profile_t * b)
            (a->valid == b->valid);
 }
 
-static bool same_steps(const s5_step_t * a, const s5_step_t * b, int32_t n)
+static inline bool same_steps(const s5_step_t * a, const s5_step_t * b, int32_t n)
 {
     int32_t i;
     for (i = 0; i < n; i++)

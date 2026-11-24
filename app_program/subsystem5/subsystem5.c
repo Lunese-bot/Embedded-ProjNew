@@ -32,6 +32,7 @@ ID       g_tid_s5_avoid;
 uint32_t g_s5_evt_dropped;
 
 static s5_status_t g_s5_status;
+static s5_width_est_t g_s5_width_est; /* under g_mtx_s5, like the profile */
 
 #define S5_STATUS_TMO_MS    100 /* s5_get_status(): longest mutex wait */
 
@@ -332,6 +333,24 @@ void s5_load_profile(s5_profile_t * p_profile)
     if (s5_lock())
     {
         *p_profile = g_s5_status.profile;
+        s5_unlock();
+    }
+}
+
+void s5_store_width_est(const s5_width_est_t * p_est)
+{
+    if (s5_lock())
+    {
+        g_s5_width_est = *p_est;
+        s5_unlock();
+    }
+}
+
+void s5_load_width_est(s5_width_est_t * p_est)
+{
+    if (s5_lock())
+    {
+        *p_est = g_s5_width_est;
         s5_unlock();
     }
 }
