@@ -9,6 +9,7 @@ ID             g_tid_telemetry;
 ID             g_mbf_telemetry; /* IF-T1 */
 comms_status_t g_s1_stat;
 S1_STATS       g_s1_stats;
+S1_TXQ         g_s1_txq;
 
 static ID g_cyc_telemetry;
 
@@ -52,7 +53,8 @@ ER subsystem1_init(void)
         return ercd;
     }
     cmbf.mbfatr = TA_TFIFO;
-    cmbf.bufsz  = S1_QUEUE_LINES * ((S1_LINE_MAX / 2) + 4); /* typical line */
+    /* events only, at most S1_EVT_QUEUE_MAX, so size for the longest */
+    cmbf.bufsz  = S1_EVT_QUEUE_MAX * (S1_LINE_MAX + 4);
     cmbf.maxmsz = S1_LINE_MAX;
     g_mbf_telemetry = tk_cre_mbf(&cmbf);
     if (g_mbf_telemetry < E_OK)
@@ -88,19 +90,40 @@ ER subsystem1_start(void)
     return (g_cyc_telemetry < E_OK) ? g_cyc_telemetry : E_OK;
 }
 
-/* Kind (s1_stats_kind) of a queued line "topic\0payload". */
-int32_t s1_line_kind(const uint8_t * p_line, int32_t len)
+/* Event path of s1_post(), S1 lock held.  At S1_EVT_QUEUE_MAX waiting
+   events the oldest waiting one is evicted (the staged one is not in the
+   buffer, so it cannot be). */
+static ER post_event(const uint8_t * p_line, int32_t len, int32_t kind)
 {
-    int32_t idx;
+    uint8_t old[S1_LINE_MAX];
+    int32_t old_len;
+    ER      ercd;
 
-    for (idx = 0; idx < len; idx++)
+    if (g_s1_txq.evt_waiting >= S1_EVT_QUEUE_MAX)
     {
-        if (p_line[idx] == 0U)
+        old_len = tk_rcv_mbf(g_mbf_telemetry, old, TMO_POL);
+        if (old_len > 0)
         {
-            return s1_stats_kind((const char *)p_line);
+            g_s1_txq.evt_waiting--;
+            g_s1_stat.dropped++;
+            s1_stats_lost(&g_s1_stats, s1_stats_line_kind(old, old_len));
         }
     }
-    return S1_EVT_OTHER;
+    /* counted before the send: a host test's buffer may hand the message
+       straight to s1_bridge_pop(), which counts it out again */
+    g_s1_txq.evt_waiting++;
+    ercd = tk_snd_mbf(g_mbf_telemetry, p_line, len, TMO_POL);
+    if (ercd < E_OK)
+    {
+        g_s1_txq.evt_waiting--;
+        g_s1_stat.dropped++;
+        s1_stats_lost(&g_s1_stats, kind);
+    }
+    else
+    {
+        g_s1_stats.evt_posted++;
+    }
+    return ercd;
 }
 
 /* IF-T1 */
@@ -112,7 +135,6 @@ ER s1_post(const char * p_topic, const void * p_data, int32_t data_len)
     int32_t len;
     int32_t idx;
     int32_t kind;
-    int32_t b_lock;
     ER      ercd;
 
     if ((p_topic == NULL) || (data_len < 1) || (p_data == NULL))
@@ -141,41 +163,22 @@ ER s1_post(const char * p_topic, const void * p_data, int32_t data_len)
     }
     len = topic_len + 1 + data_len;
 
-    kind   = s1_stats_kind(p_topic);
-    b_lock = s1_lock(); /* counters only; the queue rule is unchanged */
-    ercd   = tk_snd_mbf(g_mbf_telemetry, line, len, TMO_POL);
-    if (ercd < E_OK)
+    kind = s1_stats_kind(p_topic);
+    if (!s1_lock())
     {
-        /* full: drop the OLDEST line so telemetry stays fresh */
-        uint8_t old[S1_LINE_MAX];
-        int32_t old_len = tk_rcv_mbf(g_mbf_telemetry, old, TMO_POL);
-        g_s1_stat.dropped++;
-        if (b_lock && (old_len > 0))
-        {
-            s1_stats_lost(&g_s1_stats, s1_line_kind(old, old_len));
-        }
-        ercd = tk_snd_mbf(g_mbf_telemetry, line, len, TMO_POL);
+        s1_lock_failed();
+        return E_TMOUT; /* dropped: never wait longer than S1_LOCK_TMO_MS */
     }
-    if (b_lock)
+    if (kind == S1_KIND_TLM)
     {
-        if (ercd < E_OK)
-        {
-            s1_stats_lost(&g_s1_stats, kind);
-        }
-        else if (kind == S1_KIND_TLM)
-        {
-            g_s1_stats.tlm_posted++;
-        }
-        else
-        {
-            g_s1_stats.evt_posted++;
-        }
-        s1_unlock();
+        s1_txq_post_tlm(&g_s1_txq, &g_s1_stats, line, len);
+        ercd = E_OK;
     }
     else
     {
-        s1_lock_failed();
+        ercd = post_event(line, len, kind);
     }
+    s1_unlock();
 #if APP_TEST
     if (E_OK == ercd)
     {

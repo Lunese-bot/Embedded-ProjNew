@@ -6,53 +6,28 @@
 
 #include "subsystem1.h"
 #include "s1_codec.h"
+#include "s1_txq.h"
 #include "../vehicle_controller/vehicle_controller.h"
 
-/* s1_bridge_publish_tag(): bits 0-2 hold kind - S1_KIND_TLM + 1, that is
-   1..5 (never 0, so a tag is never NULL), bits 3.. the connection
-   generation. */
+/* Callback tags: bits 0-2 hold kind - S1_KIND_TLM + 1, that is 1..5 (never
+   0, so a tag is never NULL), bits 3.. the connection generation. */
 #define S1_TAG_KIND_BIAS (1 - S1_KIND_TLM)
 #define S1_TAG_KIND_MASK 7U
 #define S1_TAG_GEN_SHIFT 3
 #define S1_TAG_GEN_MASK  (UINTPTR_MAX >> S1_TAG_GEN_SHIFT)
 
-static uint32_t g_s1_conn_gen; /* WiFi service task only */
-
-static void bridge_count_lost(int32_t kind)
+/* "topic\0payload" -> full topic and payload; payload length, or -1 when
+   the line cannot be expressed in the caller's buffers. */
+static int32_t line_to_message(const uint8_t * p_line, int32_t msg_len,
+                               char * p_topic, int32_t topic_max,
+                               uint8_t * p_payload, int32_t payload_max)
 {
-    if (s1_lock())
-    {
-        s1_stats_lost(&g_s1_stats, kind);
-        s1_unlock();
-    }
-    else
-    {
-        s1_lock_failed();
-    }
-}
-
-static int32_t bridge_pop_from(ID mbf, bool count_sent, char * p_topic,
-                               int32_t topic_max, uint8_t * p_payload,
-                               int32_t payload_max)
-{
-    uint8_t line[S1_LINE_MAX];
-    int32_t msg_len;
     int32_t topic_len = 0;
     int32_t payload_len;
     int32_t idx;
     int32_t dst;
 
-    if ((p_topic == NULL) || (topic_max <= 0) ||
-        (p_payload == NULL) || (payload_max < 0))
-    {
-        return -1;
-    }
-    msg_len = tk_rcv_mbf(mbf, (char *)line, TMO_POL);
-    if (msg_len <= 0)
-    {
-        return 0;
-    }
-    while ((topic_len < msg_len) && (line[topic_len] != '\0'))
+    while ((topic_len < msg_len) && (p_line[topic_len] != '\0'))
     {
         topic_len++;
     }
@@ -60,11 +35,6 @@ static int32_t bridge_pop_from(ID mbf, bool count_sent, char * p_topic,
         ((int32_t)(sizeof(S1_TOPIC_ROOT) - 1) + topic_len >= topic_max) ||
         (msg_len - topic_len - 1 > payload_max))
     {
-        if (count_sent)
-        {
-            /* taken from the queue but unusable: lost */
-            bridge_count_lost(s1_line_kind(line, msg_len));
-        }
         return -1;
     }
     dst = 0;
@@ -74,34 +44,84 @@ static int32_t bridge_pop_from(ID mbf, bool count_sent, char * p_topic,
     }
     for (idx = 0; idx < topic_len; idx++)
     {
-        p_topic[dst++] = (char)line[idx];
+        p_topic[dst++] = (char)p_line[idx];
     }
     p_topic[dst] = '\0';
     payload_len = msg_len - topic_len - 1;
     for (idx = 0; idx < payload_len; idx++)
     {
-        p_payload[idx] = line[topic_len + 1 + idx];
-    }
-    if (count_sent)
-    {
-        g_s1_stat.sent++;
+        p_payload[idx] = p_line[topic_len + 1 + idx];
     }
     return payload_len;
 }
 
+static bool args_ok(const char * p_topic, int32_t topic_max,
+                    const uint8_t * p_payload, int32_t payload_max)
+{
+    return (p_topic != NULL) && (topic_max > 0) && (p_payload != NULL) &&
+           (payload_max >= 0);
+}
+
+/* s1_txq_pull_fn for the event buffer (S1 lock held) */
+static int32_t pull_event(uint8_t * p_line)
+{
+    int32_t len = tk_rcv_mbf(g_mbf_telemetry, (char *)p_line, TMO_POL);
+
+    return (len > 0) ? len : 0;
+}
+
+/* Legacy pop: the next message in publish order, removed at once. */
 int32_t s1_bridge_pop(char * p_topic, int32_t topic_max, uint8_t * p_payload,
                       int32_t payload_max)
 {
-    return bridge_pop_from(g_mbf_telemetry, true, p_topic, topic_max,
-                           p_payload, payload_max);
+    S1_TXQ_ITEM item;
+    int32_t     len;
+
+    if (!args_ok(p_topic, topic_max, p_payload, payload_max))
+    {
+        return -1;
+    }
+    if (!s1_lock())
+    {
+        s1_lock_failed();
+        return 0;
+    }
+    len = s1_txq_take(&g_s1_txq, pull_event, &item);
+    if (len > 0)
+    {
+        len = line_to_message(item.line, item.len, p_topic, topic_max,
+                              p_payload, payload_max);
+        if (len < 0)
+        {
+            s1_stats_lost(&g_s1_stats, s1_stats_line_kind(item.line, item.len));
+        }
+        else
+        {
+            g_s1_stat.sent++;
+        }
+    }
+    s1_unlock();
+    return len;
 }
 
 #if APP_TEST
 int32_t s1_test_bridge_pop(char * p_topic, int32_t topic_max,
                            uint8_t * p_payload, int32_t payload_max)
 {
-    return bridge_pop_from(g_mbf_s1_test, false, p_topic, topic_max,
-                           p_payload, payload_max);
+    uint8_t line[S1_LINE_MAX];
+    int32_t msg_len;
+
+    if (!args_ok(p_topic, topic_max, p_payload, payload_max))
+    {
+        return -1;
+    }
+    msg_len = tk_rcv_mbf(g_mbf_s1_test, (char *)line, TMO_POL);
+    if (msg_len <= 0)
+    {
+        return 0;
+    }
+    return line_to_message(line, msg_len, p_topic, topic_max, p_payload,
+                           payload_max);
 }
 #endif
 
@@ -176,14 +196,9 @@ void s1_bridge_set_connected(int32_t connected)
 {
     bool b_was = g_s1_stat.mqtt_up;
 
-    /* New generation: nothing accepted earlier can complete any more. */
-    g_s1_conn_gen++;
     if (s1_lock())
     {
-        g_s1_stats.unconfirmed +=
-            g_s1_stats.inflight_tlm + g_s1_stats.inflight_evt;
-        g_s1_stats.inflight_tlm = 0;
-        g_s1_stats.inflight_evt = 0;
+        s1_txq_set_connected(&g_s1_txq, &g_s1_stats, connected);
         s1_unlock();
     }
     else
@@ -200,88 +215,129 @@ void s1_bridge_set_connected(int32_t connected)
     }
 }
 
-void * s1_bridge_publish_tag(const char * p_topic)
-{
-    uintptr_t tag = (uintptr_t)(s1_stats_kind(p_topic) + S1_TAG_KIND_BIAS);
+/* A publish whose result could not be recorded (S1 lock busy afterwards) */
+static S1_TXQ_CLAIM s_unfinished;
+static int32_t      s_unfinished_err;
+static bool         s_unfinished_bad;
+static bool         s_b_unfinished;
 
-    tag |= ((uintptr_t)g_s1_conn_gen & S1_TAG_GEN_MASK) << S1_TAG_GEN_SHIFT;
+static void * make_tag(int32_t kind, uint32_t gen)
+{
+    uintptr_t tag = (uintptr_t)(kind + S1_TAG_KIND_BIAS);
+
+    tag |= ((uintptr_t)gen & S1_TAG_GEN_MASK) << S1_TAG_GEN_SHIFT;
     return (void *)tag;
 }
 
-/* 0 for a tag that s1_bridge_publish_tag() cannot have made */
-static int32_t tag_kind(uintptr_t tag, int32_t * p_kind)
+int32_t s1_bridge_service(s1_publish_fn publish, int32_t max_attempts)
 {
-    uintptr_t kind1 = tag & S1_TAG_KIND_MASK;
+    static char    topic[S1_BRIDGE_FULL_TOPIC_MAX];
+    static uint8_t payload[S1_BRIDGE_LINE_MAX];
+    S1_TXQ_CLAIM   claim;
+    int32_t        accepted = 0;
+    int32_t        attempt;
+    int32_t        len;
+    int32_t        err;
 
-    if ((kind1 == 0U) ||
-        (kind1 > (uintptr_t)(S1_EVT_KINDS - 1 + S1_TAG_KIND_BIAS)))
+    if (s_b_unfinished)
     {
-        return 0;
+        if (!s1_lock())
+        {
+            s1_lock_failed();
+            return 0;
+        }
+        if (s_unfinished_bad)
+        {
+            s1_txq_drop_claim(&g_s1_txq, &g_s1_stats, &s_unfinished);
+        }
+        else
+        {
+            s1_txq_finish(&g_s1_txq, &g_s1_stats, &s_unfinished,
+                          s_unfinished_err);
+        }
+        s1_unlock();
+        s_b_unfinished = false;
+        if ((!s_unfinished_bad) && (s_unfinished_err == S1_ERR_OK))
+        {
+            g_s1_stat.sent++;
+            accepted++;
+        }
     }
-    *p_kind = (int32_t)kind1 - S1_TAG_KIND_BIAS;
-    return 1;
-}
+    for (attempt = 0; attempt < max_attempts; attempt++)
+    {
+        if (!s1_lock())
+        {
+            s1_lock_failed();
+            break;
+        }
+        if (!s1_txq_claim(&g_s1_txq, &g_s1_stats, pull_event, &claim))
+        {
+            s1_unlock();
+            break;
+        }
+        s1_unlock();
 
-void s1_bridge_published(void * p_tag, int32_t err)
-{
-    int32_t kind = S1_EVT_OTHER;
-
-    (void)tag_kind((uintptr_t)p_tag, &kind);
-    if (!s1_lock())
-    {
-        s1_lock_failed();
-        return;
+        len = line_to_message(claim.item.line, claim.item.len, topic,
+                              (int32_t)sizeof(topic), payload,
+                              (int32_t)sizeof(payload));
+        /* Lock released: producers may post while this item is claimed. */
+        err = S1_ERR_MEM;
+        if (len >= 0)
+        {
+            err = publish(topic, payload, (uint16_t)len,
+                          make_tag(claim.kind, claim.gen));
+        }
+        if (!s1_lock())
+        {
+            /* Record the result on the next drain, before anything else;
+               the item stays claimed until then. */
+            s1_lock_failed();
+            s_unfinished     = claim;
+            s_unfinished_err = (len < 0) ? S1_ERR_OK : err;
+            s_unfinished_bad = (len < 0);
+            s_b_unfinished   = true;
+            break;
+        }
+        if (len < 0)
+        {
+            /* cannot happen for lines s1_post() accepted; never retry */
+            s1_txq_drop_claim(&g_s1_txq, &g_s1_stats, &claim);
+            s1_unlock();
+            continue;
+        }
+        s1_txq_finish(&g_s1_txq, &g_s1_stats, &claim, err);
+        s1_unlock();
+        if (err != S1_ERR_OK)
+        {
+            break; /* retried on the next drain, never in a tight loop */
+        }
+        g_s1_stat.sent++;
+        accepted++;
     }
-    s1_stats_publish(&g_s1_stats, kind, err);
-    if (err != S1_ERR_OK)
-    {
-        /* Popped before the call (unchanged queue rule): now gone. */
-        s1_stats_lost(&g_s1_stats, kind);
-    }
-    else if (kind == S1_KIND_TLM)
-    {
-        g_s1_stats.inflight_tlm++;
-    }
-    else
-    {
-        g_s1_stats.inflight_evt++;
-    }
-    s1_unlock();
+    return accepted;
 }
 
 void s1_bridge_publish_done(void * p_tag, int32_t err)
 {
-    uintptr_t  tag  = (uintptr_t)p_tag;
-    int32_t    kind = S1_EVT_OTHER;
-    uint32_t * p_inflight;
+    uintptr_t tag   = (uintptr_t)p_tag;
+    uintptr_t kind1 = tag & S1_TAG_KIND_MASK;
 
     if (!s1_lock())
     {
         s1_lock_failed();
         return;
     }
-    if ((!tag_kind(tag, &kind)) ||
-        ((tag >> S1_TAG_GEN_SHIFT) !=
-         ((uintptr_t)g_s1_conn_gen & S1_TAG_GEN_MASK)))
+    if ((kind1 == 0U) ||
+        (kind1 > (uintptr_t)(S1_EVT_KINDS - 1 + S1_TAG_KIND_BIAS)))
     {
-        g_s1_stats.cb_stale++;
+        g_s1_stats.cb_stale++; /* not a tag S1 made */
     }
     else
     {
-        if (err == S1_ERR_OK)
-        {
-            g_s1_stats.cb_ok++;
-        }
-        else
-        {
-            g_s1_stats.cb_err++;
-        }
-        p_inflight = (kind == S1_KIND_TLM) ? &g_s1_stats.inflight_tlm :
-                                             &g_s1_stats.inflight_evt;
-        if (*p_inflight > 0U)
-        {
-            (*p_inflight)--;
-        }
+        s1_txq_done(&g_s1_txq, &g_s1_stats,
+                    (int32_t)kind1 - S1_TAG_KIND_BIAS,
+                    (uint32_t)((tag >> S1_TAG_GEN_SHIFT) & S1_TAG_GEN_MASK),
+                    err);
     }
     s1_unlock();
 }

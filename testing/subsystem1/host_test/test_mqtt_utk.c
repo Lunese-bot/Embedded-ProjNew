@@ -337,7 +337,7 @@ static void test_heartbeat_bounds(void)
 
 static void test_counters(void)
 {
-    const uint8_t ack   = 0x05;
+    const uint8_t ack       = 0x05;
     uint8_t       frame[14] = { 0x20 };
     S1_STATS      st;
 
@@ -346,43 +346,48 @@ static void test_counters(void)
     g_pub_count = 0;
     (void)s1_post(S1_TOPIC_ACK, &ack, 1);
     (void)s1_post(S1_TOPIC_TLM, frame, sizeof(frame));
-    push_result(ERR_MEM);  /* ack refused */
-    push_result(ERR_CONN); /* telemetry refused */
+    push_result(ERR_MEM); /* the ack is refused once */
     fire(telemetry_timeout);
     st = stats();
-    CHECK("S1-M09", (st.ref_mem == 1) && (st.ref_conn == 1) &&
-          (st.evt_drop[S1_EVT_ACK] == 1) && (st.tlm_lost == 1) &&
-          (st.pub_tlm == 0) && (st.pub_evt == 0),
-          "refusals count per lwIP error, and each lost message once by topic");
+    CHECK("S1-M09", (g_pub_count == 1) && (st.ref_mem == 1) &&
+          (st.evt_drop[S1_EVT_ACK] == 0) && (st.tlm_lost == 0) &&
+          (st.pub_evt == 0) && (st.pub_tlm == 0),
+          "a refused ack stays in S1 and stops the drain (no busy retry)");
 
-    (void)s1_post(S1_TOPIC_ACK, &ack, 1);
-    (void)s1_post(S1_TOPIC_TLM, frame, sizeof(frame));
     fire(telemetry_timeout);
     st = stats();
-    CHECK("S1-M10", (st.pub_evt == 1) && (st.pub_tlm == 1) &&
+    CHECK("S1-M10", (g_pub_count == 3) &&
+          (strcmp(g_pub[1].topic, S1_TOPIC_ROOT S1_TOPIC_ACK) == 0) &&
+          (g_pub[1].len == 1) && (g_pub[1].payload[0] == ack) &&
+          (strcmp(g_pub[2].topic, S1_TOPIC_ROOT S1_TOPIC_TLM) == 0) &&
+          (st.pub_evt == 1) && (st.pub_tlm == 1) &&
           (st.inflight_evt == 1) && (st.inflight_tlm == 1),
-          "accepted publishes are counted and stay in flight");
+          "next drain: the same ack first, then telemetry, both in flight");
 
-    g_pub[2].cb(g_pub[2].arg, ERR_OK);
-    g_pub[3].cb(g_pub[3].arg, ERR_TIMEOUT);
+    g_pub[1].cb(g_pub[1].arg, ERR_OK);
+    g_pub[2].cb(g_pub[2].arg, ERR_TIMEOUT);
     st = stats();
     CHECK("S1-M11", (st.cb_ok == 1) && (st.cb_err == 1) &&
           (st.inflight_evt == 0) && (st.inflight_tlm == 0),
-          "completion callbacks release in-flight counts by kind");
+          "lwIP completion callbacks release in-flight counts by kind");
 
     (void)s1_post(S1_TOPIC_TLM, frame, sizeof(frame));
     fire(telemetry_timeout);
     broker_down();
+    (void)s1_post(S1_TOPIC_ACK, &ack, 1);
+    fire(telemetry_timeout);
     st = stats();
-    CHECK("S1-M12", (st.unconfirmed == 1) && (st.inflight_tlm == 0),
-          "a disconnect turns in-flight publishes into unconfirmed");
+    CHECK("S1-M12", (st.unconfirmed == 1) && (st.inflight_tlm == 0) &&
+          (g_pub_count == 4) && (g_s1_txq.evt_waiting == 1),
+          "disconnect: in flight -> unconfirmed; nothing offered offline");
 
     broker_up();
-    g_pub[4].cb(g_pub[4].arg, ERR_OK);
+    g_pub[3].cb(g_pub[3].arg, ERR_OK);
+    fire(telemetry_timeout);
     st = stats();
     CHECK("S1-M13", (st.cb_stale == 1) && (st.cb_ok == 1) &&
-          (st.inflight_tlm == 0),
-          "a completion from an old connection is stale and changes nothing");
+          (g_pub_count == 5) && (st.inflight_evt == 1),
+          "old-connection completion is stale; the kept ack goes out");
 }
 
 int main(void)

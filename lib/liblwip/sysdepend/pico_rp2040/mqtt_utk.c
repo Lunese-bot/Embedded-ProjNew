@@ -33,7 +33,7 @@
 #define MQTT_UTK_KEEPALIVE_S    60
 #define MQTT_UTK_RETRY_MS       3000
 #define MQTT_UTK_TELEMETRY_MS   100	/* drain the S1 queue this often */
-#define MQTT_UTK_TELEMETRY_MAX  4	/* messages per drain */
+#define MQTT_UTK_TELEMETRY_MAX  4	/* publish attempts per drain */
 
 /* Inbound message staging. A publish arrives as one topic callback followed by
  * one or more data callbacks, so the topic has to be kept until the fragment
@@ -190,29 +190,29 @@ static void heartbeat_timeout(void *arg)
 	sys_timeout(MQTT_UTK_HEARTBEAT_MS, heartbeat_timeout, NULL);
 }
 
+/* S1's publish adapter: the only S1 call into mqtt_publish().  The topic
+ * and payload stay valid for the call; lwIP copies them into its ring. */
+static int32_t s1_publish(const char *topic, const uint8_t *payload,
+			  uint16_t len, void *tag)
+{
+	if(!mqtt_client_is_connected(client)) {
+		return ERR_CONN;
+	}
+	return (int32_t)mqtt_publish(client, topic, (const u8_t *)payload,
+				     (u16_t)len, 0 /* qos */, 0 /* retain */,
+				     s1_publish_done_cb, tag);
+}
+
 /* Publish what the application queued (s1_post), a few per call so this
- * task keeps servicing the radio. Re-arms itself like the heartbeat. */
+ * task keeps servicing the radio. S1 decides the order and keeps every
+ * message until lwIP accepts it (s1_txq.h). Re-arms itself like the
+ * heartbeat. */
 static void telemetry_timeout(void *arg)
 {
-	static char	topic[S1_BRIDGE_FULL_TOPIC_MAX];
-	static uint8_t	payload[S1_BRIDGE_LINE_MAX];
-	int		i, len;
-	void		*tag;
-	err_t		err;
-
 	(void)arg;
 
-	for(i = 0; i < MQTT_UTK_TELEMETRY_MAX && mqtt_client_is_connected(client); i++) {
-		len = s1_bridge_pop(topic, sizeof(topic), payload, sizeof(payload));
-		if(len <= 0) {
-			break;
-		}
-		tag = s1_bridge_publish_tag(topic);
-		err = mqtt_publish(client, topic, (const u8_t *)payload, (u16_t)len,
-				   0 /* qos */, 0 /* retain */,
-				   s1_publish_done_cb, tag);
-		/* counters only: a refused message is still lost, as before */
-		s1_bridge_published(tag, (int32_t)err);
+	if(mqtt_client_is_connected(client)) {
+		(void)s1_bridge_service(s1_publish, MQTT_UTK_TELEMETRY_MAX);
 	}
 	sys_timeout(MQTT_UTK_TELEMETRY_MS, telemetry_timeout, NULL);
 }

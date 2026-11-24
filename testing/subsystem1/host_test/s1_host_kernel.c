@@ -188,7 +188,8 @@ void host_kernel_reset(void)
     memset(&g_s1_stat, 0, sizeof(g_s1_stat));
     memset(&g_s1_stats, 0, sizeof(g_s1_stats));
     g_mbf_telemetry = 0;
-    g_s1_conn_gen   = 0;
+    s1_txq_reset(&g_s1_txq);
+    s_b_unfinished  = false;
 }
 
 /*** end of file ***/

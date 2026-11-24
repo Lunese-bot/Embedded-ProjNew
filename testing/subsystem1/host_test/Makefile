@@ -11,7 +11,7 @@ s1_host_test: test_codec.c $(SRC)/s1_codec.c $(SRC)/s1_codec.h
 	$(CC) $(CFLAGS) -o $@ test_codec.c $(SRC)/s1_codec.c
 
 # S1 sources a test includes or links besides the codec
-S1_LINKED := $(SRC)/s1_codec.c $(SRC)/s1_stats.c s1_lock_host.c
+S1_LINKED := $(SRC)/s1_codec.c $(SRC)/s1_stats.c $(SRC)/s1_txq.c s1_lock_host.c
 
 s1_capture_test: test_capture.c $(wildcard $(SRC)/*.c $(SRC)/*.h) s1_lock_host.c ../../../app_program/test_report.h
 	$(CC) $(CFLAGS) -I../../../include -o $@ test_capture.c $(S1_LINKED)

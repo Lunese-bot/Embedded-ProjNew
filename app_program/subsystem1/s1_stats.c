@@ -63,6 +63,20 @@ int32_t s1_stats_kind(const char * p_topic)
     return S1_EVT_OTHER;
 }
 
+int32_t s1_stats_line_kind(const uint8_t * p_line, int32_t len)
+{
+    int32_t idx;
+
+    for (idx = 0; idx < len; idx++)
+    {
+        if (p_line[idx] == 0U)
+        {
+            return s1_stats_kind((const char *)p_line);
+        }
+    }
+    return S1_EVT_OTHER;
+}
+
 void s1_stats_lost(S1_STATS * p_stats, int32_t kind)
 {
     if (kind == S1_KIND_TLM)

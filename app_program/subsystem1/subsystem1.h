@@ -32,11 +32,13 @@
 #include "s1_bridge.h"
 #include "s1_stats.h"
 #include "s1_lock.h"
+#include "s1_txq.h"
 
 #define S1_PRI_TELEMETRY 12 /* priority band 12-13 (TEAM.md) */
 #define S1_PERIOD_MS     200
 #define S1_LINE_MAX      S1_BRIDGE_LINE_MAX /* topic + payload */
 #define S1_QUEUE_LINES   8
+#define S1_EVT_QUEUE_MAX S1_QUEUE_LINES /* waiting events (s1_txq.h) */
 #define S1_CONSOLE_LINE_MAX 224
 /* Also print telemetry on the console every 5 x 200 ms = 1 s while MQTT
    is not connected (read by tools/dashboard.html). */
@@ -47,7 +49,9 @@
 
 /* IF-T1: queue one MQTT message. The payload may contain any byte value.
    topic is the suffix after S1_TOPIC_ROOT (for example "t", "ack", "fault").
-   Never blocks; if the queue is full, the oldest message is dropped. */
+   Never blocks for more than S1_LOCK_TMO_MS.  Telemetry ("t") and events
+   (any other topic) are kept apart; see s1_txq.h for capacity, order and
+   the only cases in which a queued message is discarded. */
 extern ER s1_post(const char * p_topic, const void * p_data, int32_t len);
 
 typedef struct
@@ -71,7 +75,7 @@ extern ID             g_mbf_telemetry;
 extern comms_status_t g_s1_stat; /* counters, single-word updates */
 extern S1_STATS       g_s1_stats; /* delivery counters, under s1_lock() */
 extern void           telemetry_task(int32_t stacd, void * p_exinf);
-extern int32_t        s1_line_kind(const uint8_t * p_line, int32_t len);
+extern S1_TXQ         g_s1_txq;   /* delivery policy, under s1_lock() */
 
 #if APP_TEST
 extern ID g_mbf_s1_test;

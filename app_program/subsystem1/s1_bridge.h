@@ -27,8 +27,10 @@
 #define S1_ENABLE_REMOTE_PAUSE 1
 #endif
 
-/* Take the next queued message without blocking. The payload is binary and
-   is not NUL-terminated; return its exact byte length, or 0 when empty. */
+/* Take the next queued message without blocking, in publish order, as if
+   it had been published. The payload is binary and is not NUL-terminated;
+   return its exact byte length, or 0 when empty.  mqtt_utk.c now uses
+   s1_bridge_service() instead. */
 int32_t s1_bridge_pop(char * p_topic, int32_t topic_max, uint8_t * p_payload,
                       int32_t payload_max);
 
@@ -43,18 +45,25 @@ void s1_bridge_command_result(uint8_t seq, int32_t accepted);
    generation are counted as stale and otherwise ignored. */
 void s1_bridge_set_connected(int32_t connected);
 
-/* ---- delivery counters (s1_stats.h), all called from the WiFi service
-   task.  Each takes the S1 lock briefly and never calls lwIP. ---------- */
+/* ---- publishing, all called from the WiFi service task ------------- */
 
-/* Callback argument for one S1 publish of p_topic (full or suffix topic):
-   remembers the connection generation and whether it is telemetry.
-   Never NULL. */
-void * s1_bridge_publish_tag(const char * p_topic);
+/* Most telemetry publishes accepted by lwIP and still waiting for their
+   completion callback.  At this cap only the newest unsent frame is kept,
+   and the remaining lwIP request slots stay free for events. */
+#define S1_TLM_INFLIGHT_MAX 10
 
-/* mqtt_publish() returned err for the S1 message tagged p_tag.  In this
-   build the message has already left S1's queue, so a refusal also counts
-   it as lost under its own topic. */
-void s1_bridge_published(void * p_tag, int32_t err);
+/* Publish adapter: the only place that calls mqtt_publish() (mqtt_utk.c).
+   Returns lwIP's err_t; p_tag is passed to lwIP as the callback argument
+   and comes back through s1_bridge_publish_done(). */
+typedef int32_t (*s1_publish_fn)(const char * p_topic,
+                                 const uint8_t * p_payload, uint16_t len,
+                                 void * p_tag);
+
+/* Offer up to max_attempts queued messages to publish, events first (see
+   s1_txq.h).  Stops at the first refusal; the refused message stays in S1
+   for the next call.  Never holds the S1 lock while publish runs.
+   Returns the number accepted. */
+int32_t s1_bridge_service(s1_publish_fn publish, int32_t max_attempts);
 
 /* lwIP's completion callback (mqtt_request_cb_t) for a tagged publish. */
 void s1_bridge_publish_done(void * p_tag, int32_t err);

@@ -7,21 +7,26 @@
  *      exactly once.  Callers change or copy the counters only while they
  *      hold the S1 lock (s1_lock.h), so a snapshot is always coherent.
  *
- *      When each counter increments:
+ *      When each counter increments (this build; the stage-1 counters-only
+ *      build counted a popped-then-refused message as lost):
  *        tlm_posted   s1_post() put a "t" message into S1's queue.
  *        tlm_lost     a "t" message S1 had accepted was discarded before
- *                     mqtt_publish() returned ERR_OK for it: evicted from a
- *                     full queue, or (s1_post) refused even after eviction,
- *                     or popped and then refused by mqtt_publish().
+ *                     mqtt_publish() returned ERR_OK for it, by one of the
+ *                     overflow/coalescing rules in s1_txq.h (ring full, or
+ *                     superseded by a newer frame while disconnected or at
+ *                     S1_TLM_INFLIGHT_MAX).  A refused publish is not a loss:
+ *                     the message stays in S1 and is retried.
  *        evt_posted   s1_post() put any other topic into S1's queue.
- *        evt_drop[]   the same as tlm_lost for every other topic, split by
- *                     the discarded message's own topic: ack, fault,
- *                     barcode, any other.
+ *        evt_drop[]   an event discarded before lwIP accepted it, split by
+ *                     the discarded message's own topic (ack, fault,
+ *                     barcode, any other): evicted as the oldest waiting
+ *                     event when S1_EVT_QUEUE_MAX were already waiting, or
+ *                     refused by the kernel buffer itself.
  *        pub_tlm      mqtt_publish() returned ERR_OK for a "t" message.
  *        pub_evt      mqtt_publish() returned ERR_OK for any other topic.
  *        ref_mem      mqtt_publish() returned ERR_MEM (no request slot or
- *                     no ring space).  One count per call, so retrying one
- *                     message counts once per attempt.
+ *                     no ring space).  One count per call: one message
+ *                     refused five times counts five here and no loss.
  *        ref_conn     mqtt_publish() returned ERR_CONN (TCP disconnected).
  *        ref_other    mqtt_publish() returned any other error.
  *        cb_ok        lwIP's completion callback reported ERR_OK for an S1
@@ -31,17 +36,22 @@
  *                     received this message.
  *        cb_err       the same callback reported an error (ERR_TIMEOUT
  *                     after MQTT_REQ_TIMEOUT seconds).
- *        cb_stale     a completion arrived for an earlier connection; it
- *                     changes no other counter.
+ *        cb_stale     a completion arrived for an earlier connection, or
+ *                     with nothing of its kind in flight; it changes no
+ *                     other counter.
  *        unconfirmed  S1 publishes that were accepted but had no completion
  *                     when the connection dropped (lwIP clears its request
- *                     list without calling the callbacks).
+ *                     list without calling the callbacks), or that lwIP
+ *                     accepted while the connection was changing.
  *        inflight_tlm, inflight_evt
  *                     gauges, not totals: accepted S1 publishes of the
  *                     current connection still waiting for completion.
  *        hb_refused   mqtt_publish() refused the text heartbeat.
- *        lock_fail    the S1 lock could not be taken; the operation that
- *                     needed it was skipped.  Best effort (see s1_lock.h).
+ *        lock_fail    the S1 lock could not be taken within S1_LOCK_TMO_MS;
+ *                     the operation that needed it was skipped.  In
+ *                     s1_post() that means the message was not queued
+ *                     (E_TMOUT), so a lost frame may show only here.
+ *                     Best effort (see s1_lock.h).
  */
 
 #ifndef S1_STATS_H
@@ -89,6 +99,10 @@ typedef struct
 /* Topic suffix (after S1_TOPIC_ROOT, or the full topic) -> S1_KIND_TLM or
    S1_EVT_x.  p_topic may be NULL (unknown message): S1_EVT_OTHER. */
 int32_t s1_stats_kind(const char * p_topic);
+
+/* Kind of a queued line "topic\0payload" (S1_EVT_OTHER if it has no
+   NUL-terminated topic). */
+int32_t s1_stats_line_kind(const uint8_t * p_line, int32_t len);
 
 /* Count one message discarded before lwIP accepted it. */
 void s1_stats_lost(S1_STATS * p_stats, int32_t kind);
