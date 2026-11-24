@@ -11,6 +11,7 @@
 
 #include "subsystem1.h"
 #include "s1_codec.h"
+#include "s1_obst_pub.h"
 #include "../subsystem2/subsystem2.h"
 #include "../subsystem3/subsystem3.h"
 #include "../subsystem4/subsystem4.h"
@@ -27,6 +28,29 @@
 
 /* static: keeps the 2 KB task stack free for tm_printf */
 static char s_stats_line[S1_STATS_TEXT_MAX];
+
+/* S5's obstacle size report on its own topic (s1_obst_pub.h) */
+static S1_OBST_PUB      s_obst_pub;
+static s5_obst_report_t s_obst_rec;
+
+/* Post S5's obstacle record when it changed or MQTT came back.  Never
+   evicts an ack or fault (s1_post_spare); a refused post is due again
+   at the next period.  The 14-byte telemetry frame is not affected. */
+static void post_obstacle_profile(void)
+{
+    uint8_t frame[S5_OR_BYTES];
+
+    if ((E_OK == s5_get_obstacle_report(&s_obst_rec)) &&
+        s1_obst_pub_due(&s_obst_pub, &s_obst_rec, g_s1_stat.mqtt_up))
+    {
+        s5_or_encode(&s_obst_rec, frame);
+        if (E_OK == s1_post_spare(S5_OR_TOPIC, frame, S5_OR_BYTES,
+                                  S1_OBST_SPARE_SLOTS))
+        {
+            s1_obst_pub_sent(&s_obst_pub, &s_obst_rec);
+        }
+    }
+}
 
 void telemetry_task(int32_t stacd, void * p_exinf)
 {
@@ -92,6 +116,7 @@ void telemetry_task(int32_t stacd, void * p_exinf)
         tlm.paused       = vc_st.paused;
         s1_tlm_encode(&tlm, frame);
         (void)s1_post(S1_TOPIC_TLM, frame, sizeof(frame));
+        post_obstacle_profile();
 
         /* The casts match each value to its %d / %u conversion.  Every
            value fits: they are 32-bit or smaller on this target. */

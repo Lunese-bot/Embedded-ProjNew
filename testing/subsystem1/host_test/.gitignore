@@ -3,3 +3,4 @@ s1_capture_test
 s1_queue_test
 s1_mqtt_test
 *.exe
+s1_obst_pub_test

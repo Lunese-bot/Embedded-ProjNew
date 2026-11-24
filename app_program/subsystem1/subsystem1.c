@@ -188,6 +188,31 @@ ER s1_post(const char * p_topic, const void * p_data, int32_t data_len)
     return ercd;
 }
 
+/* IF-T1b */
+ER s1_post_spare(const char * p_topic, const void * p_data, int32_t len,
+                 int32_t spare)
+{
+    int32_t waiting;
+
+    if ((spare < 1) || (spare >= S1_EVT_QUEUE_MAX) ||
+        (S1_KIND_TLM == s1_stats_kind(p_topic)))
+    {
+        return E_PAR;
+    }
+    if (!s1_lock())
+    {
+        s1_lock_failed();
+        return E_TMOUT;
+    }
+    waiting = g_s1_txq.evt_waiting;
+    s1_unlock();
+    if ((waiting + 1 + spare) > S1_EVT_QUEUE_MAX)
+    {
+        return E_LIMIT;
+    }
+    return s1_post(p_topic, p_data, len);
+}
+
 ER s1_get_status(comms_status_t * p_status)
 {
     *p_status = g_s1_stat;

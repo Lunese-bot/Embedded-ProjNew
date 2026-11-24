@@ -54,6 +54,15 @@
    the only cases in which a queued message is discarded. */
 extern ER s1_post(const char * p_topic, const void * p_data, int32_t len);
 
+/* IF-T1b: like s1_post() for an event topic, but only while at least
+   `spare` event slots stay free after it (0 < spare < S1_EVT_QUEUE_MAX).
+   Otherwise returns E_LIMIT and queues nothing, so it never evicts an
+   ack or a fault.  The check and the post are two lock sections: a post
+   from another task in between can use one of the spare slots, never
+   push the queue past full.  Telemetry ("t") is refused with E_PAR. */
+extern ER s1_post_spare(const char * p_topic, const void * p_data,
+                        int32_t len, int32_t spare);
+
 typedef struct
 {
     bool     wifi_up;

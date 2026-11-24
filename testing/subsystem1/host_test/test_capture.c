@@ -21,6 +21,7 @@ typedef struct { uint32_t lo; } SYSTIM;
 #define E_OK 0
 #define E_PAR (-17)
 #define E_TMOUT (-50)
+#define E_LIMIT (-34)
 #define TMO_POL 0
 #define TA_TFIFO 0
 #define TA_HLNG 0

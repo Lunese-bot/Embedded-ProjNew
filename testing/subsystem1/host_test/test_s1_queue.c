@@ -703,8 +703,43 @@ static void test_config(void)
     }
 }
 
+/* S1-Q20: the obstacle profile never evicts an ack or fault */
+static void test_post_spare(void)
+{
+    static const uint8_t frame[20] = { 1, 0, 1 };
+    int32_t  idx;
+    int32_t  posted = 0;
+    S1_STATS st;
+
+    reset_policy(0);
+    for (idx = 0; idx < S1_EVT_QUEUE_MAX + 4; idx++)
+    {
+        if (E_OK == s1_post_spare("obstacle/profile", frame, sizeof(frame), 3))
+        {
+            posted++;
+        }
+    }
+    CHECK("S1-Q20", (posted == S1_EVT_QUEUE_MAX - 3) &&
+          (g_s1_txq.evt_waiting == S1_EVT_QUEUE_MAX - 3) &&
+          (stats().evt_drop[S1_EVT_OTHER] == 0),
+          "profile posts stop with 3 event slots still free, nothing evicted");
+    post_ack(1);
+    post_ack(2);
+    (void)s1_post("fault", "\x01\x02", 2);
+    st = stats();
+    CHECK("S1-Q20", (st.evt_drop[S1_EVT_ACK] == 0) &&
+          (st.evt_drop[S1_EVT_FAULT] == 0) && (st.evt_drop[S1_EVT_OTHER] == 0) &&
+          (g_s1_txq.evt_waiting == S1_EVT_QUEUE_MAX),
+          "two acks and a fault still fit after the profile filled its share");
+    CHECK("S1-Q20", (E_PAR == s1_post_spare(S1_TOPIC_TLM, frame, sizeof(frame), 3)) &&
+          (E_PAR == s1_post_spare("obstacle/profile", frame, sizeof(frame), 0)) &&
+          (E_PAR == s1_post_spare("obstacle/profile", frame, sizeof(frame), S1_EVT_QUEUE_MAX)),
+          "telemetry topic and spare outside 1..max-1 are refused");
+}
+
 int main(void)
 {
+    test_post_spare();
     test_kinds();
     test_format();
     test_latch();
