@@ -285,6 +285,37 @@ static void junction_to_execute(void)
     }
 }
 
+/* A U-turn in EXECUTE_ACTION from the fast pivot to the return line, as the
+   bridges report it: S2's odometer climbs, S3 samples arrive fresh, the
+   line passes under C during the slow approach, the wheels stop with the
+   tape between C and R.  (The details: test_vc_sm.c UT-xx.) */
+static void uturn_to_line(void)
+{
+    static uint32_t odo = 20000u;
+    vc_event_t      ev  = { 0 };
+    int32_t         n;
+
+    feed(VC_SRC_VC, VC_EV_TICK, 0, (int32_t)odo);
+    odo += VC_PIVOT_COUNTS(VC_UTURN_FAST_DEG);
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, (int32_t)odo);
+    ev.src  = VC_SRC_LINE;
+    ev.type = VC_EV_LINE_SAMPLE;
+    for (n = 0; n < 30; n++)
+    {
+        g_now_ms += 10u;
+        odo += 8u;
+        ev.p1      = ((n >= 10) && (n < 14)) ? VC_LINE_C : 0;
+        ev.p2      = (int32_t)odo;
+        ev.time_ms = g_now_ms;
+        vc_sm_handle(&g_sm, &ev, g_now_ms, &g_actions);
+        run_actions();
+        if ((n == 16) && (VC_EXEC_UT_BRAKE == g_sm.exec_phase))
+        {
+            feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, (int32_t)odo);
+        }
+    }
+}
+
 static int32_t turns(void)
 {
     return g_tally[VC_MOVE_TURN_LEFT] + g_tally[VC_MOVE_TURN_RIGHT] +
@@ -787,8 +818,7 @@ static void test_end_to_end(void)
     junction_to_execute();
     CHECK("E2E-09", (1 == g_tally[VC_MOVE_U_TURN]) && (1 == turns()),
           "Z = U-turn: the junction requests the 180 deg maneuver once");
-    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* pivot done */
-    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* straight drive done */
+    uturn_to_line(); /* the return line ends the U-turn */
 
     /* misread: an A sheet read as T is reported as T */
     tally_clear();
@@ -894,21 +924,27 @@ static void test_junction_notes(void)
                        (NAV_NONE == g_sm.pending_nav),
           "obstacle at the junction: Z's U-turn is DROPPED, never executed");
 
-    /* U-turn: COMPLETED only after the pivot AND the straight drive */
+    /* U-turn: COMPLETED only once the robot is aligned on the return line */
     start_mission();
     tally_clear();
     feed_s3_decode("Z");
     tally_clear();
     junction_to_execute();
-    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* 180 deg pivot done */
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* fast pivot done */
     CHECK("JX-08", (0 == g_jx_n) && (1 == g_tally[VC_MOVE_U_TURN]) &&
-                       (1 == g_tally[VC_MOVE_DRIVE_DIST]) &&
+                       (0 == g_tally[VC_MOVE_DRIVE_DIST]) &&
                        (VC_ST_EXECUTE_ACTION == g_sm.st.state),
-          "Z: pivot done, straight drive running: no COMPLETED yet");
-    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* straight done */
+          "Z: fast pivot done, still looking for the return line: no COMPLETED yet");
+    feed(VC_SRC_COMMS, VC_EV_CMD_STOP, 0, 0);
+    start_mission();
+    feed_s3_decode("Z");
+    tally_clear();
+    junction_to_execute();
+    uturn_to_line();
     CHECK("JX-09", (1 == g_jx_n) && jx_is(0, VC_JX_COMPLETED, 'Z', VC_BCW_UTURN) &&
-                       (VC_ST_FOLLOW_LINE == g_sm.st.state),
-          "Z: straight drive done: COMPLETED Z U-turn, line following again");
+                       (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                       (0 == g_tally[VC_MOVE_DRIVE_DIST]),
+          "Z: aligned on the return line: COMPLETED Z U-turn, line following again");
     feed(VC_SRC_COMMS, VC_EV_CMD_STOP, 0, 0);
 
     start_mission();

@@ -39,6 +39,7 @@ static int32_t      g_failed;
 
 /* Counts every MOVE action issued since tally_clear(), by move type. */
 static int32_t g_tally[32];
+static int32_t g_overflows; /* action lists that did not fit: a bug */
 
 static void tally_clear(void)
 {
@@ -47,6 +48,10 @@ static void tally_clear(void)
 
 static void tally_add(void)
 {
+    if (g_actions.overflow)
+    {
+        g_overflows++;
+    }
     for (int32_t idx = 0; idx < g_actions.n; idx++)
     {
         if ((VC_ACT_MOVE == g_actions.a[idx].kind) &&
@@ -398,7 +403,7 @@ static void test_turn_on_line(void)
           (0u == g_sm.turn_gate),
           "no line seen: turn ends at the max angle, follow as before");
 
-    /* U-turn (owner 2026-11-24): stop, full 180 deg pivot, straight, follow */
+    /* U-turn: stop, then the fast pivot (the rest: test_uturn) */
     tally_clear();
     feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_U_TURN, 0);
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
@@ -407,10 +412,12 @@ static void test_turn_on_line(void)
           "U-turn: the robot stops at the junction before it pivots");
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     CHECK("S6-H57", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          has_move(VC_MOVE_U_TURN, 0, 0) && (1 == g_tally[VC_MOVE_U_TURN]) &&
+          has_move(VC_MOVE_U_TURN, VC_UTURN_FAST_DEG, 1) &&
+          (1 == g_tally[VC_MOVE_U_TURN]) &&
           (0 == g_tally[VC_MOVE_DRIVE_DIST]) && (0u == g_sm.turn_gate) &&
-          (VC_EXEC_UTURN == g_sm.exec_phase),
-          "U-turn: pivots in place first (no advance), no end-on-line watch");
+          (VC_EXEC_UTURN == g_sm.exec_phase) &&
+          has_request(VC_SRC_LINE, VC_REQ_LINE_WATCH),
+          "U-turn: fast pivot in place to VC_UTURN_FAST_DEG (no advance), line watch on");
     {
         uint32_t u0 = g_sm.odo; /* odometer as the pivot starts */
 
@@ -419,22 +426,10 @@ static void test_turn_on_line(void)
     }
     CHECK("S6-H58", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
           (VC_EXEC_UTURN == g_sm.exec_phase) && (NAV_U_TURN == g_sm.pending_nav),
-          "U-turn: lines seen at 90 and 170 deg do not end the pivot early");
-    tally_clear();
-    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
-    CHECK("S6-H58a", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1) &&
-          (0 == g_tally[VC_MOVE_FORWARD]) && (VC_EXEC_UTURN_GO == g_sm.exec_phase),
-          "U-turn: after the 180 deg pivot it drives straight, line follow not yet");
-    line_at(g_sm.odo + 5000u);
-    CHECK("S6-H58b", VC_EXEC_UTURN_GO == g_sm.exec_phase,
-          "U-turn: a line reading does not cut the straight drive");
-    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
-    CHECK("S6-H58c", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-          (NAV_NONE == g_sm.pending_nav) && (1 == g_tally[VC_MOVE_DRIVE_DIST]) &&
-          (0 == g_tally[VC_MOVE_U_TURN]) &&
-          has_move(VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS, 1),
-          "U-turn: straight drive done, line following resumes, one pivot only");
+          "U-turn: LINE_FOUND at 90 and 170 deg does not end the pivot");
+    feed(VC_SRC_COMMS, VC_EV_CMD_STOP, 0, 0);
+    feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
+    start_mission();
 
     /* STRAIGHT: no watch, LINE_FOUND does not cut the clearing drive */
     feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_STRAIGHT, 0);
@@ -877,6 +872,546 @@ static void test_letter_config(void)
 
 /* ---- barcode letter -> junction navigation, end to end ---------------- */
 
+/* ------------------------------------------------------------------ */
+/*  U-turn: fast pivot, slow approach, line-confirmed end               */
+/* ------------------------------------------------------------------ */
+
+static void junction_to_execute(void);
+
+/* Simulated S2 odometer during a U-turn: L + R counts, both wheels add */
+static uint32_t g_ut_odo;
+static uint32_t g_ut_sample_ms; /* time stamp of the next S3 sample */
+
+/* heading in S2 counts since the U-turn began (the controller's own view) */
+#define UT_DEG(d) ((int32_t)VC_PIVOT_COUNTS(d))
+
+static int32_t count_moves(vc_move_t move, int32_t value)
+{
+    int32_t n = 0;
+
+    for (int32_t idx = 0; idx < g_actions.n; idx++)
+    {
+        if ((VC_ACT_MOVE == g_actions.a[idx].kind) &&
+            (g_actions.a[idx].p1 == (int32_t)move) &&
+            (g_actions.a[idx].p2 == value))
+        {
+            n++;
+        }
+    }
+    return n;
+}
+
+/* Traces since the last ut_log_clear(), so a step's lines can be checked
+   after several events */
+static int32_t g_ut_log[64][2];
+static int32_t g_ut_log_n;
+
+static void ut_log_clear(void) { g_ut_log_n = 0; }
+
+static void ut_log_add(void)
+{
+    for (int32_t idx = 0; idx < g_actions.n; idx++)
+    {
+        if ((VC_ACT_TRACE == g_actions.a[idx].kind) && (g_ut_log_n < 64))
+        {
+            g_ut_log[g_ut_log_n][0] = g_actions.a[idx].p1;
+            g_ut_log[g_ut_log_n][1] = g_actions.a[idx].rsv;
+            g_ut_log_n++;
+        }
+    }
+}
+
+static int32_t logged(vc_ut_trace_t what, int32_t detail, int32_t check)
+{
+    for (int32_t idx = 0; idx < g_ut_log_n; idx++)
+    {
+        if ((g_ut_log[idx][0] == (int32_t)what) &&
+            ((0 == check) || (g_ut_log[idx][1] == detail)))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* S2 has turned `counts` further (either way: the encoders only count) */
+static void ut_turn(uint32_t counts)
+{
+    g_ut_odo += counts;
+}
+
+/* One fresh S3 sample (C / R bits) at the current odometer */
+static void ut_sample_now(int32_t mask)
+{
+    vc_event_t event = { 0 };
+
+    g_now_ms += 10u;
+    g_ut_sample_ms = g_now_ms;
+    event.src     = VC_SRC_LINE;
+    event.type    = VC_EV_LINE_SAMPLE;
+    event.p1      = mask;
+    event.p2      = (int32_t)g_ut_odo;
+    event.time_ms = g_ut_sample_ms;
+    vc_sm_handle(&g_sm, &event, g_now_ms, &g_actions);
+    tally_add();
+    ut_log_add();
+}
+
+/* A sample taken `age_ms` before now (S3 published it before the step) */
+static void ut_sample_old(int32_t mask, uint32_t age_ms)
+{
+    vc_event_t event = { 0 };
+
+    event.src     = VC_SRC_LINE;
+    event.type    = VC_EV_LINE_SAMPLE;
+    event.p1      = mask;
+    event.p2      = (int32_t)g_ut_odo;
+    event.time_ms = g_now_ms - age_ms;
+    vc_sm_handle(&g_sm, &event, g_now_ms, &g_actions);
+    tally_add();
+    ut_log_add();
+}
+
+/* Turn on in `step`-count samples showing `mask` until `counts` more */
+static void ut_turn_seeing(uint32_t counts, uint32_t step, int32_t mask)
+{
+    for (uint32_t done = 0u; done < counts; done += step)
+    {
+        ut_turn(step);
+        ut_sample_now(mask);
+    }
+}
+
+static void ut_tick(void)
+{
+    g_now_ms += HOST_TICK_MS;
+    feed(VC_SRC_VC, VC_EV_TICK, 0, (int32_t)g_ut_odo);
+    ut_log_add();
+}
+
+static void ut_motion(vc_event_type_t type)
+{
+    feed(VC_SRC_MOTION, type, 1, (int32_t)g_ut_odo);
+    ut_log_add();
+}
+
+/* Mission running, U-turn barcode read, junction, stopped: the fast pivot
+   has just been asked for.  Odometer starts at a high value on purpose. */
+static void ut_begin(void)
+{
+    start_mission();
+    g_ut_odo = 50000u;
+    feed(VC_SRC_VC, VC_EV_TICK, 0, (int32_t)g_ut_odo);
+    feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_U_TURN, 0);
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    tally_clear();
+    ut_log_clear();
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    ut_log_add();
+}
+
+/* the fast pivot to VC_UTURN_FAST_DEG, then S2 says done */
+static void ut_fast(void)
+{
+    ut_turn_seeing((uint32_t)UT_DEG(VC_UTURN_FAST_DEG), 8u, 0);
+    ut_motion(VC_EV_MANOEUVRE_DONE);
+}
+
+/* A clean turn: the line comes under C, the robot brakes, C lets it go
+   while braking and R never sees it (the tape ends between them) */
+static void uturn_clean(void)
+{
+    ut_fast();
+    ut_turn_seeing((uint32_t)UT_DEG(30), 8u, 0);      /* white, approaching */
+    ut_turn_seeing(16u, 8u, VC_LINE_C);                /* C on the tape */
+    ut_turn_seeing(24u, 8u, VC_LINE_C);                /* braking, still on C */
+    ut_turn_seeing(16u, 8u, 0);                        /* C lets it go */
+    ut_motion(VC_EV_MOTION_STOPPED);
+    for (int32_t n = 0; n < VC_UTURN_VERIFY_SAMPLES; n++)
+    {
+        ut_sample_now(0); /* both white, between C and R */
+    }
+}
+
+static void test_uturn(void)
+{
+    int32_t h;
+
+    /* settings */
+    CHECK("UT-01", (VC_UTURN_FAST_DEG >= 90) &&
+          (VC_UTURN_FAST_DEG < VC_UTURN_CMD_DEG) &&
+          (VC_UTURN_SLOW_MMS < 120) && (VC_TURN_GATE_DEG == 60) &&
+          (VC_TURN_MAX_DEG == 135) && (VC_TURN_CMD_DEG == 135),
+          "U-turn settings: fast part past 90 deg, short of the expected "
+          "heading, slow pivot slower than the turn speed; LEFT/RIGHT "
+          "tuning unchanged");
+
+    /* 1. clean turn: no correction */
+    ut_begin();
+    CHECK("UT-02", has_move(VC_MOVE_U_TURN, VC_UTURN_FAST_DEG, 1) &&
+          logged(VC_UT_START, VC_UTURN_FAST_DEG, 1),
+          "start: fast pivot asked for VC_UTURN_FAST_DEG and logged");
+    ut_fast();
+    CHECK("UT-03", (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
+          has_move(VC_MOVE_PIVOT, VC_UTURN_SLOW_MMS, 1) &&
+          logged(VC_UT_FAST_DONE, 0, 0) &&
+          logged(VC_UT_SWEEP, VC_UT_APPROACH, 1),
+          "fast pivot done: slow pivot left at VC_UTURN_SLOW_MMS (approach)");
+    tally_clear();
+    for (int32_t n = 0; n < 10; n++)
+    {
+        ut_tick();
+    }
+    CHECK("UT-04", (g_tally[VC_MOVE_PIVOT] >= 1) && (g_tally[VC_MOVE_PIVOT] <= 3) &&
+          (VC_EXEC_UT_SWEEP == g_sm.exec_phase),
+          "slow pivot is refreshed about every VC_UTURN_REFRESH_MS (S2 drive timeout)");
+    ut_turn_seeing((uint32_t)UT_DEG(25), 8u, 0);
+    tally_clear();
+    ut_log_clear();
+    ut_turn_seeing(8u, 8u, VC_LINE_C);
+    CHECK("UT-05", (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
+          (0 == g_tally[VC_MOVE_STOP_CONFIRM]),
+          "one black sample is not yet a sighting");
+    h = g_sm.ut.heading + 8;
+    ut_turn_seeing(8u, 8u, VC_LINE_C);
+    CHECK("UT-06", (VC_EXEC_UT_BRAKE == g_sm.exec_phase) &&
+          (1 == g_tally[VC_MOVE_STOP_CONFIRM]) &&
+          logged(VC_UT_SIGHT, VC_LINE_C, 1) && logged(VC_UT_BRAKE, 1, 1) &&
+          (VC_LINE_C == g_sm.ut.sight) && (h == g_sm.ut.sight_h),
+          "two black samples on C: sighting logged with its heading, stop asked");
+    ut_turn_seeing(24u, 8u, VC_LINE_C);
+    ut_turn_seeing(16u, 8u, 0);
+    ut_log_clear();
+    ut_motion(VC_EV_MOTION_STOPPED);
+    CHECK("UT-07", (VC_EXEC_UT_VERIFY == g_sm.exec_phase) &&
+          logged(VC_UT_SETTLED, 40, 1),
+          "S2 confirms the stop: settled counts after the request logged (40)");
+    tally_clear();
+    ut_sample_now(0);
+    ut_sample_now(0);
+    CHECK("UT-08", VC_EXEC_UT_VERIFY == g_sm.exec_phase,
+          "alignment needs VC_UTURN_VERIFY_SAMPLES fresh samples");
+    ut_sample_now(0);
+    CHECK("UT-09", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+          logged(VC_UT_VERDICT, VC_UT_V_BETWEEN, 1) && logged(VC_UT_DONE, 0, 0) &&
+          (0 == g_tally[VC_MOVE_PIVOT]) && (0 == g_tally[VC_MOVE_DRIVE_DIST]) &&
+          has_move(VC_MOVE_FORWARD, VC_SPEED_SLOW_MMS, 1) &&
+          has_move(VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS, 1) &&
+          !has_move(VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS, 1) &&
+          (VC_REJOIN_STEER_SAMPLES == g_sm.rejoin_steer_left) &&
+          (NAV_NONE == g_sm.pending_nav) &&
+          has_request(VC_SRC_LINE, VC_REQ_LINE_FOLLOW),
+          "clean turn: C let the tape go, R never saw it = between C and R; "
+          "no correction, no straight drive, slow line following");
+    tally_clear();
+    for (int32_t n = 0; n < VC_REJOIN_STEER_SAMPLES; n++)
+    {
+        feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_STEER, 0);
+    }
+    CHECK("UT-10", has_move(VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS, 1) &&
+          (0u == g_sm.rejoin_steer_left),
+          "after VC_REJOIN_STEER_SAMPLES fresh steering samples: cruise");
+    tally_clear();
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    CHECK("UT-11", (0 == g_tally[VC_MOVE_U_TURN]) &&
+          has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1),
+          "the U-turn is used once: the next junction goes straight");
+
+    /* 2. early sightings (the junction, its 90 deg side arm) are ignored */
+    ut_begin();
+    tally_clear();
+    ut_turn_seeing((uint32_t)UT_DEG(10), 8u, VC_LINE_C | VC_LINE_R); /* crossing */
+    ut_turn_seeing((uint32_t)UT_DEG(55), 8u, 0);
+    ut_turn_seeing((uint32_t)UT_DEG(20), 8u, VC_LINE_C);              /* side arm */
+    feed(VC_SRC_LINE, VC_EV_LINE_FOUND, 0, (int32_t)g_ut_odo);
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    CHECK("UT-12", (VC_EXEC_UTURN == g_sm.exec_phase) &&
+          (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+          (0 == g_tally[VC_MOVE_STOP_CONFIRM]) && (0 == g_tally[VC_MOVE_PIVOT]) &&
+          logged(VC_UT_EARLY, VC_LINE_C | VC_LINE_R, 1) &&
+          (0u == g_sm.ut.sight),
+          "line on the crossing and on the 90 deg arm during the fast pivot: "
+          "logged once, ignored, nothing stops or ends the U-turn");
+
+    /* 3. overshoot: the line passes C and R while braking -> pivot back */
+    ut_begin();
+    ut_fast();
+    ut_turn_seeing((uint32_t)UT_DEG(30), 8u, 0);
+    ut_turn_seeing(16u, 8u, VC_LINE_C);    /* sighting, stop asked */
+    h = g_sm.ut.sight_h;
+    ut_turn_seeing(48u, 8u, 0);            /* between, still turning */
+    ut_turn_seeing(48u, 8u, VC_LINE_R);    /* under R */
+    ut_turn_seeing(40u, 8u, 0);            /* out past R */
+    ut_motion(VC_EV_MOTION_STOPPED);
+    tally_clear();
+    ut_log_clear();
+    ut_sample_now(0);
+    ut_sample_now(0);
+    ut_sample_now(0);
+    CHECK("UT-13", (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
+          logged(VC_UT_VERDICT, VC_UT_V_PASSED, 1) &&
+          logged(VC_UT_SWEEP, -(int32_t)VC_UT_CORRECT, 1) &&
+          has_move(VC_MOVE_PIVOT, -VC_UTURN_SLOW_MMS, 1) &&
+          (g_sm.ut.bound == h - UT_DEG(VC_UTURN_CORRECT_DEG)) &&
+          (VC_ST_EXECUTE_ACTION == g_sm.st.state),
+          "overshoot: R let the line go = turned past it; pivot back slowly "
+          "(right), bounded at the sighting minus VC_UTURN_CORRECT_DEG");
+    tally_clear();
+    ut_log_clear();
+    ut_motion(VC_EV_MANOEUVRE_DONE); /* late completion of the fast pivot */
+    CHECK("UT-14", (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
+          (VC_ST_EXECUTE_ACTION == g_sm.st.state) && (0 == g_actions.n),
+          "a late MANOEUVRE_DONE does not finish the corrective pivot");
+    ut_turn_seeing(40u, 8u, 0);
+    tally_clear();
+    ut_turn_seeing(16u, 8u, VC_LINE_R);    /* the line comes back under R */
+    CHECK("UT-15", (VC_EXEC_UT_BRAKE == g_sm.exec_phase) &&
+          (1 == g_tally[VC_MOVE_STOP_CONFIRM]) && (VC_LINE_R == g_sm.ut.sight) &&
+          (g_sm.ut.heading > g_sm.ut.bound),
+          "correction: R sees the line, stop asked, heading counted backwards");
+    ut_motion(VC_EV_MOTION_STOPPED);
+    tally_clear();
+    ut_sample_now(VC_LINE_R);
+    ut_sample_now(VC_LINE_R);
+    ut_sample_now(VC_LINE_R);
+    CHECK("UT-16", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+          has_move(VC_MOVE_FORWARD, VC_SPEED_SLOW_MMS, 1) &&
+          (NAV_NONE == g_sm.pending_nav),
+          "R on the tape after the correction: aligned, slow line following");
+
+    /* 4. undershoot: the fast pivot stops short; the approach finds the
+          line ahead, past the expected heading, without turning back */
+    ut_begin();
+    ut_fast();
+    tally_clear();
+    ut_turn_seeing((uint32_t)UT_DEG(VC_UTURN_APPROACH_DEG + 8), 8u, 0);
+    CHECK("UT-17", VC_EXEC_UT_SWEEP == g_sm.exec_phase,
+          "approach goes on past the expected heading (inside the sector)");
+    ut_turn_seeing(16u, 8u, VC_LINE_C);
+    ut_turn_seeing(16u, 8u, VC_LINE_C);
+    ut_motion(VC_EV_MOTION_STOPPED);
+    ut_sample_now(VC_LINE_C);
+    ut_sample_now(VC_LINE_C);
+    ut_sample_now(VC_LINE_C);
+    CHECK("UT-18", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+          (0 == count_moves(VC_MOVE_PIVOT, -VC_UTURN_SLOW_MMS)),
+          "undershoot: line found ahead under C, aligned, never pivoted back");
+
+    /* 5. stale samples and brief noise do not confirm alignment */
+    ut_begin();
+    ut_fast();
+    ut_turn_seeing((uint32_t)UT_DEG(20), 8u, 0);
+    tally_clear();
+    ut_sample_old(VC_LINE_C, 1000u); /* before the sweep began */
+    ut_sample_old(VC_LINE_C, 990u);
+    ut_turn(8u);
+    ut_sample_now(VC_LINE_C);
+    ut_turn(8u);
+    ut_sample_now(0);
+    ut_turn(8u);
+    ut_sample_now(VC_LINE_R);
+    ut_turn(8u);
+    ut_sample_now(0);
+    CHECK("UT-19", (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
+          (0 == g_tally[VC_MOVE_STOP_CONFIRM]) && (0u == g_sm.ut.sight),
+          "samples older than the sweep, and single black blips, are no sighting");
+    ut_turn_seeing(16u, 8u, VC_LINE_C);
+    ut_turn_seeing(16u, 8u, VC_LINE_C);
+    ut_motion(VC_EV_MOTION_STOPPED);
+    tally_clear();
+    ut_sample_old(VC_LINE_C, 30u);  /* taken before the wheels stopped */
+    ut_sample_old(VC_LINE_C, 20u);
+    ut_sample_old(VC_LINE_C, 10u);
+    CHECK("UT-20", VC_EXEC_UT_VERIFY == g_sm.exec_phase,
+          "samples from before the stop confirmation do not confirm alignment");
+    ut_sample_now(VC_LINE_C);
+    ut_sample_now(VC_LINE_C);
+    ut_sample_now(0);          /* C goes white: still deciding (unsure) */
+    ut_sample_now(VC_LINE_C);
+    ut_sample_now(0);
+    CHECK("UT-21", (VC_EXEC_UT_VERIFY == g_sm.exec_phase) &&
+          (VC_ST_EXECUTE_ACTION == g_sm.st.state),
+          "flickering fresh samples do not confirm alignment");
+    ut_sample_now(VC_LINE_C);
+    ut_sample_now(VC_LINE_C);
+    ut_sample_now(VC_LINE_C);
+    CHECK("UT-22", VC_ST_FOLLOW_LINE == g_sm.st.state,
+          "three agreeing fresh samples do");
+
+    /* 6. missing tape: approach to the sector edge, search back, then a
+          bounded stop with line recovery failure */
+    ut_begin();
+    ut_fast();
+    ut_log_clear();
+    ut_turn_seeing((uint32_t)UT_DEG(VC_UTURN_APPROACH_DEG + VC_UTURN_SECTOR_DEG) + 16u,
+                   8u, 0);
+    CHECK("UT-23", (VC_EXEC_UT_BRAKE == g_sm.exec_phase) &&
+          logged(VC_UT_BRAKE, 2, 1),
+          "no line by VC_UTURN_CMD_DEG + VC_UTURN_SECTOR_DEG: stop (bound)");
+    ut_motion(VC_EV_MOTION_STOPPED);
+    tally_clear();
+    ut_sample_now(0);
+    ut_sample_now(0);
+    ut_sample_now(0);
+    CHECK("UT-24", (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
+          has_move(VC_MOVE_PIVOT, -VC_UTURN_SLOW_MMS, 1) &&
+          logged(VC_UT_VERDICT, VC_UT_V_NONE, 1) &&
+          logged(VC_UT_SWEEP, -(int32_t)VC_UT_SEARCH, 1) &&
+          (g_sm.ut.bound == UT_DEG(VC_UTURN_CMD_DEG) - UT_DEG(VC_UTURN_SECTOR_DEG)),
+          "then search back across the expected heading to its other side");
+    {
+        int32_t guard = 0;
+
+        /* nothing anywhere: every sweep runs to its bound */
+        while ((VC_ST_EXECUTE_ACTION == g_sm.st.state) && (guard < 2000))
+        {
+            guard++;
+            if (VC_EXEC_UT_SWEEP == g_sm.exec_phase)
+            {
+                ut_turn(8u);
+                ut_sample_now(0);
+            }
+            else if (VC_EXEC_UT_BRAKE == g_sm.exec_phase)
+            {
+                ut_motion(VC_EV_MOTION_STOPPED);
+            }
+            else
+            {
+                ut_sample_now(0);
+            }
+        }
+    }
+    CHECK("UT-25", (VC_ST_FAULT == g_sm.st.state) &&
+          (VC_FC_LINE_RECOVERY == g_sm.st.last_fault_code) &&
+          (VC_UTURN_MAX_SWEEPS == g_sm.ut.sweeps) &&
+          has_move(VC_MOVE_SAFE_STOP, 0, 0) && logged(VC_UT_FAIL, 1, 1) &&
+          (NAV_NONE == g_sm.pending_nav),
+          "missing tape: bounded sweeps, then FAULT line recovery 0x0003, motors stopped");
+    tally_clear();
+    for (int32_t n = 0; n < 20; n++)
+    {
+        ut_tick();
+    }
+    CHECK("UT-26", 0 == g_tally[VC_MOVE_PIVOT],
+          "no pivot after the failure");
+
+    /* 7. time bound: S2 never finishes the fast pivot */
+    ut_begin();
+    ut_log_clear();
+    for (uint32_t t = 0u; t <= VC_UTURN_MS; t += HOST_TICK_MS)
+    {
+        ut_tick();
+    }
+    CHECK("UT-27", (VC_ST_FAULT == g_sm.st.state) &&
+          (VC_FC_LINE_RECOVERY == g_sm.st.last_fault_code) && logged(VC_UT_FAIL, 4, 1),
+          "a U-turn that never ends stops at VC_UTURN_MS with line recovery failure");
+
+    /* 8. S2 never confirms the stop */
+    ut_begin();
+    ut_fast();
+    ut_turn_seeing(16u, 8u, VC_LINE_C);
+    ut_log_clear();
+    for (uint32_t t = 0u; t <= VC_UTURN_SETTLE_MS; t += HOST_TICK_MS)
+    {
+        ut_tick();
+    }
+    CHECK("UT-28", (VC_ST_FAULT == g_sm.st.state) && logged(VC_UT_FAIL, 2, 1),
+          "no stop confirmation within VC_UTURN_SETTLE_MS: FAULT, not a drive-off");
+
+    /* 9. Stop, lift and obstacle interrupt the recovery */
+    ut_begin();
+    ut_fast();
+    tally_clear();
+    feed(VC_SRC_COMMS, VC_EV_CMD_STOP, 0, 0);
+    CHECK("UT-29", (VC_ST_FAULT == g_sm.st.state) &&
+          (VC_FC_OPERATOR_STOP == g_sm.st.last_fault_code) &&
+          has_move(VC_MOVE_SAFE_STOP, 0, 0),
+          "Stop during the slow approach: FAULT operator stop, safe stop");
+    tally_clear();
+    ut_tick();
+    ut_turn_seeing(16u, 8u, VC_LINE_C);
+    CHECK("UT-30", (0 == g_tally[VC_MOVE_PIVOT]) && (0 == g_tally[VC_MOVE_STOP_CONFIRM]),
+          "after Stop: no pivot refresh, line samples do nothing");
+
+    ut_begin();
+    ut_fast();
+    ut_turn_seeing((uint32_t)UT_DEG(30), 8u, 0);
+    ut_turn_seeing(16u, 8u, VC_LINE_C);
+    ut_turn_seeing(40u, 8u, VC_LINE_R);
+    ut_turn_seeing(40u, 8u, 0);
+    ut_motion(VC_EV_MOTION_STOPPED);
+    ut_sample_now(0);
+    ut_sample_now(0);
+    ut_sample_now(0); /* correcting now */
+    tally_clear();
+    feed(VC_SRC_IMU, VC_EV_LIFTED, 1, VC_FC_IMU_SAFETY);
+    CHECK("UT-31", (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
+          has_move(VC_MOVE_STOP, 0, 0),
+          "lift during the correction: MISSION_COMPLETE, motors stopped");
+    tally_clear();
+    ut_tick();
+    ut_tick();
+    ut_tick();
+    ut_tick();
+    ut_tick();
+    ut_tick();
+    CHECK("UT-32", 0 == g_tally[VC_MOVE_PIVOT],
+          "after a lift: no pivot refresh");
+
+    ut_begin();
+    ut_fast();
+    tally_clear();
+    feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
+    CHECK("UT-33", (VC_ST_AVOID_OBSTACLE == g_sm.st.state) &&
+          has_move(VC_MOVE_STOP_CONFIRM, 0, 0) && (NAV_NONE == g_sm.pending_nav),
+          "obstacle during the U-turn: avoidance takes over, U-turn dropped");
+    tally_clear();
+    ut_tick();
+    CHECK("UT-34", 0 == g_tally[VC_MOVE_PIVOT],
+          "after the obstacle: no pivot refresh");
+
+    /* 10. only the controller moves the robot during the U-turn */
+    ut_begin();
+    ut_fast();
+    tally_clear();
+    {
+        uint32_t rejected = g_sm.st.moves_rejected;
+
+        feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_STEER, 500);
+        feed(VC_SRC_OBST, VC_EV_MOVE_REQUEST, VC_MOVE_PIVOT, 60);
+        CHECK("UT-35", (0 == g_tally[VC_MOVE_STEER]) &&
+              (0 == g_tally[VC_MOVE_PIVOT]) &&
+              (rejected + 2u == g_sm.st.moves_rejected),
+              "steering or pivot requests from S3 / S5 are refused during the U-turn");
+    }
+
+    /* 11. LEFT / RIGHT are unchanged: no line watch, no slow pivot */
+    start_mission();
+    tally_clear();
+    feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_LEFT, 0);
+    junction_to_execute();
+    CHECK("UT-36", has_move(VC_MOVE_TURN_LEFT, VC_TURN_CMD_DEG, 1) &&
+          !has_request(VC_SRC_LINE, VC_REQ_LINE_WATCH) &&
+          (0 == g_tally[VC_MOVE_PIVOT]) && (0 == g_tally[VC_MOVE_U_TURN]),
+          "LEFT: same turn request as before, no U-turn watch or pivot");
+    CHECK("UT-37", (0 == strcmp("LINE_SAMPLE", vc_event_name(VC_EV_LINE_SAMPLE))) &&
+          (0 == strcmp("CMD_CONFIG", vc_event_name(VC_EV_CMD_CONFIG))),
+          "event names cover the new LINE_SAMPLE (tables size-checked at compile time)");
+    start_mission();
+    {
+        uint32_t rejected = g_sm.st.moves_rejected;
+
+        tally_clear();
+        feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_PIVOT, 60);
+        CHECK("UT-38", (0 == g_tally[VC_MOVE_PIVOT]) &&
+              (rejected + 1u == g_sm.st.moves_rejected),
+              "PIVOT is the controller's own: refused even from the motion owner");
+    }
+    CHECK("UT-39", 0 == g_overflows,
+          "no action list overflowed in any test (VC_MAX_ACTIONS)");
+}
+
 /* A junction: S3 reports it, S2 confirms the stop, the axle advance (if any)
    completes.  Returns with the controller in EXECUTE_ACTION. */
 static void junction_to_execute(void)
@@ -932,12 +1467,13 @@ static void check_letter_maneuver(const char *id, const char *letter,
               "stops at the junction, then issues the maneuver exactly once");
     if (VC_MOVE_U_TURN == move)
     {
-        NAV_CHECK("c", has_move(VC_MOVE_U_TURN, 0, 0) && (0u == g_sm.turn_gate),
-                  "U-turn request is VC_MOVE_U_TURN (bridge sends VC_UTURN_CMD_DEG: S6-U01)");
-        feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0); /* pivot done */
-        NAV_CHECK("u", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-                           has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1),
-                  "then straight on before line following");
+        NAV_CHECK("c", has_move(VC_MOVE_U_TURN, VC_UTURN_FAST_DEG, 1) &&
+                           (0u == g_sm.turn_gate),
+                  "U-turn request is VC_MOVE_U_TURN, fast part (S6-U01)");
+        uturn_clean(); /* aligned on the return line, slow follow */
+        NAV_CHECK("u", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                           (0 == g_tally[VC_MOVE_DRIVE_DIST]),
+                  "then the line, not a straight drive, ends it");
     }
     else if (VC_MOVE_DRIVE_DIST == move)
     {
@@ -950,7 +1486,10 @@ static void check_letter_maneuver(const char *id, const char *letter,
                   "turn request carries the encoder turn angle");
     }
 
-    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    if (VC_MOVE_U_TURN != move)
+    {
+        feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    }
     NAV_CHECK("d", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
                        (NAV_NONE == g_sm.pending_nav) &&
                        ('\0' == g_sm.pending_barcode[0]),
@@ -1507,6 +2046,7 @@ int main(void)
     test_line_search();
     test_pause_resume();
     test_stop_cause();
+    test_uturn();
 
     printf("[TEST] vehicle_controller host SUMMARY %d passed, %d failed\n", g_passed,
            g_failed);

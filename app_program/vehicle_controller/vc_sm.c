@@ -33,13 +33,15 @@
 /*  Names, for console and telemetry                                   */
 /* ------------------------------------------------------------------ */
 
-static const char * const g_state_names[VC_ST_COUNT] = {
+static const char * const g_state_names[] = {
     "IDLE",           "MISSION_START",   "FOLLOW_LINE",    "JUNCTION_STOP",
     "LOST_LINE",      "AVOID_OBSTACLE",  "DECODE_BARCODE", "EXECUTE_ACTION",
     "TERRAIN_CHECK",  "FAULT",           "MISSION_COMPLETE"
 };
+_Static_assert(sizeof(g_state_names) / sizeof(g_state_names[0]) == VC_ST_COUNT,
+               "one name per vc_state_t");
 
-static const char * const g_event_names[VC_EV_COUNT] = {
+static const char * const g_event_names[] = {
     "NONE",          "READY",          "MOVE_REQUEST",    "FAULT",
     "CMD_START",     "CMD_STOP",       "CMD_RESET",       "CMD_PAUSE",
     "CMD_RESUME",    "WIFI_DOWN",      "WIFI_UP",         "MANOEUVRE_DONE",
@@ -47,8 +49,11 @@ static const char * const g_event_names[VC_EV_COUNT] = {
     "LINE_FOUND",    "JUNCTION",       "BARCODE_START",  "BARCODE_DECODED",
     "BARCODE_FAILED", "END_OF_COURSE", "HUMP_START",     "HUMP_CLEARED",
     "LIFTED",        "OBSTACLE",       "AVOID_DONE",     "AVOID_FAILED",
-    "TICK",          "CMD_CONFIG"
+    "TICK",          "CMD_CONFIG",     "LINE_SAMPLE"
 };
+/* A new event needs its name here too (a missing one was a null name). */
+_Static_assert(sizeof(g_event_names) / sizeof(g_event_names[0]) == VC_EV_COUNT,
+               "one name per vc_event_type_t");
 
 const char * vc_state_name(vc_state_t state)
 {
@@ -92,15 +97,15 @@ vc_source_t vc_sm_motion_owner(vc_state_t state)
     return owner;
 }
 
-static void emit(vc_actions_t * p_out, vc_action_kind_t kind,
-                 vc_source_t target, int32_t param1, int32_t param2)
+static vc_action_t * emit(vc_actions_t * p_out, vc_action_kind_t kind,
+                          vc_source_t target, int32_t param1, int32_t param2)
 {
     vc_action_t * p_action;
 
     if (p_out->n >= VC_MAX_ACTIONS)
     {
         p_out->overflow = true;
-        return;
+        return (vc_action_t *)0; /* <stddef.h> clashes with the kernel's size_t */
     }
     p_action         = &p_out->a[p_out->n++];
     p_action->kind   = (uint8_t)kind;
@@ -108,17 +113,18 @@ static void emit(vc_actions_t * p_out, vc_action_kind_t kind,
     p_action->rsv    = 0;
     p_action->p1     = param1;
     p_action->p2     = param2;
+    return p_action;
 }
 
 static void move(vc_actions_t * p_out, vc_move_t move_cmd, int32_t value)
 {
-    emit(p_out, VC_ACT_MOVE, VC_SRC_MOTION, (int32_t)move_cmd, value);
+    (void)emit(p_out, VC_ACT_MOVE, VC_SRC_MOTION, (int32_t)move_cmd, value);
 }
 
 static void request(vc_actions_t * p_out, vc_source_t target, vc_request_t req,
                     int32_t arg)
 {
-    emit(p_out, VC_ACT_REQUEST, target, (int32_t)req, arg);
+    (void)emit(p_out, VC_ACT_REQUEST, target, (int32_t)req, arg);
 }
 
 static bool run_ended(vc_state_t state)
@@ -148,7 +154,7 @@ static void report(vc_sm_t * p_sm, vc_actions_t * p_out, vc_source_t src,
     {
         set_cause(p_sm, src, sev, code);
     }
-    emit(p_out, VC_ACT_REPORT, src, (int32_t)sev, (int32_t)code);
+    (void)emit(p_out, VC_ACT_REPORT, src, (int32_t)sev, (int32_t)code);
 }
 
 static uint32_t elapsed(uint32_t now_ms, uint32_t since_ms)
@@ -216,7 +222,8 @@ static void junction_note(const vc_sm_t * p_sm, vc_actions_t * p_out,
     {
         code = 0;
     }
-    emit(p_out, VC_ACT_JUNCTION, VC_SRC_VC, (int32_t)note, (letter << 8) | code);
+    (void)emit(p_out, VC_ACT_JUNCTION, VC_SRC_VC, (int32_t)note,
+               (letter << 8) | code);
 }
 
 /* Cancel a pending junction action inside a run, and say so when there was
@@ -231,9 +238,10 @@ static void drop_pending(vc_sm_t * p_sm, vc_actions_t * p_out)
     p_sm->pending_barcode[0] = '\0';
 }
 
+static void ut_start(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out);
+
 static void enter_execute(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
 {
-    (void)now_ms;
     p_sm->exec_phase = VC_EXEC_TURN;
     p_sm->turn_gate  = 0u;
     switch (p_sm->pending_nav)
@@ -256,15 +264,9 @@ static void enter_execute(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
             }
             break;
         case NAV_U_TURN:
-#if VC_UTURN_FULL_PIVOT
-            /* full 180 deg pivot; S2's MANOEUVRE_DONE ends it, then the
-               straight drive (on_execute_action).  turn_gate stays 0, so
-               no line reading can cut the pivot short. */
-            p_sm->exec_phase = VC_EXEC_UTURN;
-            move(p_out, VC_MOVE_U_TURN, 0);
-#else
-            start_turn(p_sm, VC_MOVE_U_TURN, 0, VC_UTURN_GATE_DEG, p_out);
-#endif
+            /* fast pivot, slow approach, line-confirmed end (vc_sm.h).
+               turn_gate stays 0: LINE_FOUND never ends a U-turn. */
+            ut_start(p_sm, now_ms, p_out);
             break;
         case NAV_STRAIGHT:
         case NAV_NONE:
@@ -287,7 +289,7 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
     p_sm->pause_stopped     = false;
     p_sm->st.state_since_ms = now_ms;
     p_sm->attempt_since_ms  = now_ms;
-    emit(p_out, VC_ACT_STATE, VC_SRC_VC, (int32_t)next, (int32_t)prev);
+    (void)emit(p_out, VC_ACT_STATE, VC_SRC_VC, (int32_t)next, (int32_t)prev);
 
     switch (next)
     {
@@ -317,11 +319,21 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
 
         case VC_ST_FOLLOW_LINE:
             p_sm->retries = 0;
-            p_sm->rejoin_steer_left = (VC_ST_AVOID_OBSTACLE == prev)
+            p_sm->rejoin_steer_left = ((VC_ST_AVOID_OBSTACLE == prev) ||
+                                       p_sm->ut.handover)
                                          ? VC_REJOIN_STEER_SAMPLES : 0u;
             request(p_out, VC_SRC_OBST, VC_REQ_OBST_MONITOR, 0);
             request(p_out, VC_SRC_LINE, VC_REQ_LINE_FOLLOW, 0);
-            if (0u != p_sm->rejoin_steer_left)
+            if (p_sm->ut.handover)
+            {
+                /* U-turn aligned on the line: slow line following for
+                   VC_REJOIN_STEER_SAMPLES fresh steering samples, then
+                   cruise (move_request()) */
+                p_sm->ut.handover = false;
+                move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS);
+                move(p_out, VC_MOVE_FORWARD, VC_SPEED_SLOW_MMS);
+            }
+            else if (0u != p_sm->rejoin_steer_left)
             {
                 /* S5 finished at rest. The first fresh steering sample
                    starts the car moving. */
@@ -398,6 +410,412 @@ static void go_fault(vc_sm_t * p_sm, vc_source_t src, uint32_t code,
 }
 
 /* ------------------------------------------------------------------ */
+/*  U-turn: fast pivot, slow approach, line-confirmed end (vc_sm.h)     */
+/* ------------------------------------------------------------------ */
+
+#define UT_C 0u /* index into vc_uturn_t's per-sensor arrays */
+#define UT_R 1u
+
+/* S2 counts (L + R) for `deg` S2 command degrees, signed */
+static int32_t ut_counts(int32_t deg)
+{
+    /* Cast: a few hundred degrees is a few thousand counts */
+    return (deg >= 0) ? (int32_t)VC_PIVOT_COUNTS(deg)
+                      : -(int32_t)VC_PIVOT_COUNTS(-deg);
+}
+
+static bool ut_active(const vc_sm_t * p_sm)
+{
+    return (VC_ST_EXECUTE_ACTION == p_sm->st.state) &&
+           (p_sm->exec_phase >= VC_EXEC_UTURN) &&
+           (p_sm->exec_phase <= VC_EXEC_UT_VERIFY);
+}
+
+static void ut_trace(const vc_sm_t * p_sm, vc_actions_t * p_out,
+                     vc_ut_trace_t what, int32_t detail)
+{
+    vc_action_t * p_action = emit(p_out, VC_ACT_TRACE, VC_SRC_VC,
+                                  (int32_t)what, p_sm->ut.heading);
+
+    if ((vc_action_t *)0 != p_action)
+    {
+        /* Cast: details are small (sensor, verdict, a few hundred counts) */
+        p_action->rsv = (int16_t)((detail > 32767) ? 32767
+                                  : ((detail < -32768) ? -32768 : detail));
+    }
+}
+
+/* S2's odometer moved: the wheels turned that many counts the way the
+   current pivot goes (they also coast that way after a stop request). */
+static void ut_track_odo(vc_sm_t * p_sm, uint32_t odo_now)
+{
+    uint32_t delta = odo_now - p_sm->odo;
+
+    if (ut_active(p_sm) && (delta < 0x80000000u))
+    {
+        /* Cast: delta < 2^31 */
+        p_sm->ut.heading += (int32_t)p_sm->ut.dir * (int32_t)delta;
+    }
+}
+
+static void ut_clear_edges(vc_sm_t * p_sm)
+{
+    uint32_t idx;
+
+    for (idx = 0u; idx < 2u; idx++)
+    {
+        p_sm->ut.run_black[idx] = 0u;
+        p_sm->ut.run_white[idx] = 0u;
+        p_sm->ut.seen[idx]      = 0u;
+        p_sm->ut.left[idx]      = 0u;
+    }
+    p_sm->ut.sight   = 0u;
+    p_sm->ut.sight_h = 0;
+}
+
+/* One fresh sample into the sweep's edge history.  A sensor has SEEN the
+   line after VC_UTURN_SIGHT_SAMPLES black samples in a row, and has LET IT
+   GO after as many white ones since.  Returns true on the sweep's first
+   credible sighting. */
+static bool ut_edges(vc_sm_t * p_sm, int32_t mask)
+{
+    static const int32_t k_bit[2] = { VC_LINE_C, VC_LINE_R };
+    bool                 b_first  = false;
+    uint32_t             idx;
+
+    for (idx = 0u; idx < 2u; idx++)
+    {
+        vc_uturn_t * p_ut = &p_sm->ut;
+
+        if (0 != (mask & k_bit[idx]))
+        {
+            p_ut->run_white[idx] = 0u;
+            if (p_ut->run_black[idx] < 255u)
+            {
+                p_ut->run_black[idx]++;
+            }
+            if (p_ut->run_black[idx] >= VC_UTURN_SIGHT_SAMPLES)
+            {
+                p_ut->seen[idx] = 1u;
+                p_ut->left[idx] = 0u;
+                if (0u == p_ut->sight)
+                {
+                    /* Cast: VC_LINE_C / VC_LINE_R */
+                    p_ut->sight   = (uint8_t)k_bit[idx];
+                    p_ut->sight_h = p_ut->heading;
+                    b_first       = true;
+                }
+            }
+        }
+        else
+        {
+            p_ut->run_black[idx] = 0u;
+            if (p_ut->run_white[idx] < 255u)
+            {
+                p_ut->run_white[idx]++;
+            }
+            if ((0u != p_ut->seen[idx]) &&
+                (p_ut->run_white[idx] >= VC_UTURN_SIGHT_SAMPLES))
+            {
+                p_ut->left[idx] = 1u;
+            }
+        }
+    }
+    return b_first;
+}
+
+/* Where is the line, from this sample and the sweep's history?  The tape
+   runs BETWEEN C and R when the robot follows it, so both white alone
+   proves nothing (on the line, or off the track).  Pivoting left the line
+   moves across the sensors from C to R, pivoting right from R to C.  So
+   both white means between them only if the sensor the line reaches first
+   has let it go and the other has not; if the other one let it go, the
+   robot turned past the line. */
+static vc_ut_verdict_t ut_verdict(const vc_sm_t * p_sm, int32_t mask)
+{
+    uint32_t        first = (p_sm->ut.dir > 0) ? UT_C : UT_R;
+    uint32_t        other = (p_sm->ut.dir > 0) ? UT_R : UT_C;
+    vc_ut_verdict_t v;
+
+    if (0 != (mask & (VC_LINE_C | VC_LINE_R)))
+    {
+        v = VC_UT_V_ON_LINE;
+    }
+    else if (0u != p_sm->ut.left[other])
+    {
+        v = VC_UT_V_PASSED;
+    }
+    else if (0u != p_sm->ut.left[first])
+    {
+        v = VC_UT_V_BETWEEN;
+    }
+    else if ((0u != p_sm->ut.seen[first]) || (0u != p_sm->ut.seen[other]))
+    {
+        v = VC_UT_V_UNSURE; /* a sensor is just going white: wait */
+    }
+    else
+    {
+        v = VC_UT_V_NONE;
+    }
+    return v;
+}
+
+static void ut_start(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
+{
+    vc_uturn_t zero = { 0 };
+
+    p_sm->ut          = zero;
+    p_sm->ut.dir      = 1; /* S2 TURN +angle = left */
+    p_sm->ut.t0_ms    = now_ms;
+    p_sm->ut.phase_ms = now_ms;
+    p_sm->exec_phase  = VC_EXEC_UTURN;
+    move(p_out, VC_MOVE_U_TURN, VC_UTURN_FAST_DEG);
+    request(p_out, VC_SRC_LINE, VC_REQ_LINE_WATCH, 1);
+    ut_trace(p_sm, p_out, VC_UT_START, VC_UTURN_FAST_DEG);
+}
+
+static void ut_sweep(vc_sm_t * p_sm, vc_ut_sweep_t kind, int8_t dir,
+                     int32_t bound, uint32_t now_ms, vc_actions_t * p_out)
+{
+    p_sm->ut.sweep    = (uint8_t)kind;
+    p_sm->ut.dir      = dir;
+    p_sm->ut.bound    = bound;
+    p_sm->ut.phase_ms = now_ms;
+    p_sm->ut.cmd_ms   = now_ms;
+    p_sm->exec_phase  = VC_EXEC_UT_SWEEP;
+    ut_clear_edges(p_sm);
+    move(p_out, VC_MOVE_PIVOT, (int32_t)dir * VC_UTURN_SLOW_MMS);
+    ut_trace(p_sm, p_out, VC_UT_SWEEP, (int32_t)kind * (int32_t)dir);
+}
+
+/* Ask S2 to stop; the wheels keep turning the same way until it confirms */
+static void ut_brake(vc_sm_t * p_sm, int32_t reason, uint32_t now_ms,
+                     vc_actions_t * p_out)
+{
+    p_sm->ut.stop_h   = p_sm->ut.heading;
+    p_sm->ut.phase_ms = now_ms;
+    p_sm->exec_phase  = VC_EXEC_UT_BRAKE;
+    move(p_out, VC_MOVE_STOP_CONFIRM, 0);
+    ut_trace(p_sm, p_out, VC_UT_BRAKE, reason);
+}
+
+static void ut_done(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
+{
+    ut_trace(p_sm, p_out, VC_UT_DONE, 0);
+    request(p_out, VC_SRC_LINE, VC_REQ_LINE_WATCH, 0);
+    junction_note(p_sm, p_out, VC_JX_COMPLETED);
+    p_sm->pending_nav        = NAV_NONE; /* the U-turn is used up */
+    p_sm->pending_barcode[0] = '\0';
+    p_sm->ut.handover        = true;
+    enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
+}
+
+static void ut_fail(vc_sm_t * p_sm, int32_t reason, uint32_t now_ms,
+                    vc_actions_t * p_out)
+{
+    ut_trace(p_sm, p_out, VC_UT_FAIL, reason);
+    request(p_out, VC_SRC_LINE, VC_REQ_LINE_WATCH, 0);
+    p_sm->pending_nav        = NAV_NONE; /* never repeated after Reset */
+    p_sm->pending_barcode[0] = '\0';
+    go_fault(p_sm, VC_SRC_VC, VC_FC_LINE_RECOVERY, now_ms, p_out);
+}
+
+/* The wheels have stopped and the fresh samples agree */
+static void ut_decide(vc_sm_t * p_sm, vc_ut_verdict_t v, uint32_t now_ms,
+                      vc_actions_t * p_out)
+{
+    int8_t back = (int8_t)(-p_sm->ut.dir);
+
+    ut_trace(p_sm, p_out, VC_UT_VERDICT, (int32_t)v);
+    if ((VC_UT_V_ON_LINE == v) || (VC_UT_V_BETWEEN == v))
+    {
+        ut_done(p_sm, now_ms, p_out);
+    }
+    else if (p_sm->ut.sweeps >= VC_UTURN_MAX_SWEEPS)
+    {
+        ut_fail(p_sm, 1, now_ms, p_out);
+    }
+    else if (VC_UT_V_PASSED == v)
+    {
+        /* turned past the line: slowly back toward where it was seen, at
+           most VC_UTURN_CORRECT_DEG beyond that */
+        p_sm->ut.sweeps++;
+        ut_sweep(p_sm, VC_UT_CORRECT, back,
+                 p_sm->ut.sight_h + ((int32_t)back * ut_counts(VC_UTURN_CORRECT_DEG)),
+                 now_ms, p_out);
+    }
+    else
+    {
+        /* no line in this sweep: the other way across the expected
+           heading, up to VC_UTURN_SECTOR_DEG past it */
+        p_sm->ut.sweeps++;
+        ut_sweep(p_sm, VC_UT_SEARCH, back,
+                 ut_counts(VC_UTURN_CMD_DEG) +
+                     ((int32_t)back * ut_counts(VC_UTURN_SECTOR_DEG)),
+                 now_ms, p_out);
+    }
+}
+
+/* Slow sweep reached its encoder bound without a sighting */
+static void ut_check_bound(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
+{
+    if ((VC_EXEC_UT_SWEEP == p_sm->exec_phase) &&
+        (((int32_t)p_sm->ut.dir * (p_sm->ut.heading - p_sm->ut.bound)) >= 0))
+    {
+        ut_brake(p_sm, 2, now_ms, p_out);
+    }
+}
+
+static void ut_sample(vc_sm_t * p_sm, const vc_event_t * p_event,
+                      uint32_t now_ms, vc_actions_t * p_out)
+{
+    int32_t mask = p_event->p1;
+
+    /* taken before this step began (before the pivot, or while the wheels
+       were still turning): stale, it proves nothing now */
+    if ((int32_t)(p_event->time_ms - p_sm->ut.phase_ms) < 0)
+    {
+        return;
+    }
+    switch (p_sm->exec_phase)
+    {
+        case VC_EXEC_UTURN:
+            /* the junction, its side arm: logged once, never acted on */
+            if ((0 != (mask & (VC_LINE_C | VC_LINE_R))) && (0u == p_sm->ut.early))
+            {
+                p_sm->ut.early = 1u;
+                ut_trace(p_sm, p_out, VC_UT_EARLY, mask);
+            }
+            break;
+        case VC_EXEC_UT_SWEEP:
+            if ((VC_UT_APPROACH == p_sm->ut.sweep) &&
+                (p_sm->ut.heading < ut_counts(VC_UTURN_FAST_DEG)))
+            {
+                break; /* not yet past the gate */
+            }
+            if (ut_edges(p_sm, mask))
+            {
+                ut_trace(p_sm, p_out, VC_UT_SIGHT, p_sm->ut.sight);
+                ut_brake(p_sm, 1, now_ms, p_out);
+            }
+            else
+            {
+                ut_check_bound(p_sm, now_ms, p_out);
+            }
+            break;
+        case VC_EXEC_UT_BRAKE:
+            /* still turning: did the line pass under the sensors? */
+            if (ut_edges(p_sm, mask))
+            {
+                ut_trace(p_sm, p_out, VC_UT_SIGHT, p_sm->ut.sight);
+            }
+            break;
+        case VC_EXEC_UT_VERIFY:
+        {
+            vc_ut_verdict_t v;
+            bool            b_same;
+
+            (void)ut_edges(p_sm, mask);
+            v      = ut_verdict(p_sm, mask);
+            /* on the line and between C and R both mean aligned */
+            b_same = (v == (vc_ut_verdict_t)p_sm->ut.verdict) ||
+                     (((VC_UT_V_ON_LINE == v) || (VC_UT_V_BETWEEN == v)) &&
+                      ((VC_UT_V_ON_LINE == p_sm->ut.verdict) ||
+                       (VC_UT_V_BETWEEN == p_sm->ut.verdict)));
+            if (VC_UT_V_UNSURE == v)
+            {
+                p_sm->ut.verdict_n = 0u;
+            }
+            else if (b_same && (0u != p_sm->ut.verdict_n))
+            {
+                p_sm->ut.verdict_n++;
+            }
+            else
+            {
+                p_sm->ut.verdict_n = 1u;
+            }
+            p_sm->ut.verdict = (uint8_t)v;
+            if (p_sm->ut.verdict_n >= VC_UTURN_VERIFY_SAMPLES)
+            {
+                ut_decide(p_sm, v, now_ms, p_out);
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+/* EXECUTE_ACTION while a U-turn runs (OBSTACLE is handled before) */
+static void ut_handle(vc_sm_t * p_sm, const vc_event_t * p_event,
+                      vc_event_type_t type, uint32_t now_ms,
+                      vc_actions_t * p_out)
+{
+    if ((VC_EV_TICK == type) &&
+        (elapsed(now_ms, p_sm->ut.t0_ms) >= VC_UTURN_MS))
+    {
+        ut_fail(p_sm, 4, now_ms, p_out);
+    }
+    else if ((VC_EV_MANOEUVRE_DONE == type) && (VC_EXEC_UTURN == p_sm->exec_phase))
+    {
+        /* fast pivot done: the slow approach, same way */
+        ut_trace(p_sm, p_out, VC_UT_FAST_DONE, 0);
+        ut_sweep(p_sm, VC_UT_APPROACH, 1,
+                 ut_counts(VC_UTURN_CMD_DEG + VC_UTURN_SECTOR_DEG), now_ms,
+                 p_out);
+    }
+    else if ((VC_EV_MOTION_STOPPED == type) && (VC_EXEC_UT_BRAKE == p_sm->exec_phase))
+    {
+        /* standing: how far did the wheels run on after the request? */
+        ut_trace(p_sm, p_out, VC_UT_SETTLED,
+                 (int32_t)p_sm->ut.dir * (p_sm->ut.heading - p_sm->ut.stop_h));
+        p_sm->exec_phase   = VC_EXEC_UT_VERIFY;
+        p_sm->ut.phase_ms  = now_ms;
+        p_sm->ut.verdict   = (uint8_t)VC_UT_V_UNSURE;
+        p_sm->ut.verdict_n = 0u;
+    }
+    else if (VC_EV_LINE_SAMPLE == type)
+    {
+        ut_sample(p_sm, p_event, now_ms, p_out);
+    }
+    else if (VC_EV_TICK == type)
+    {
+        uint32_t in_phase = elapsed(now_ms, p_sm->ut.phase_ms);
+
+        if (VC_EXEC_UT_SWEEP == p_sm->exec_phase)
+        {
+            ut_check_bound(p_sm, now_ms, p_out);
+            if ((VC_EXEC_UT_SWEEP == p_sm->exec_phase) &&
+                (elapsed(now_ms, p_sm->ut.cmd_ms) >= VC_UTURN_REFRESH_MS))
+            {
+                p_sm->ut.cmd_ms = now_ms;
+                move(p_out, VC_MOVE_PIVOT,
+                     (int32_t)p_sm->ut.dir * VC_UTURN_SLOW_MMS);
+            }
+        }
+        else if ((VC_EXEC_UT_BRAKE == p_sm->exec_phase) &&
+                 (in_phase >= VC_UTURN_SETTLE_MS))
+        {
+            ut_fail(p_sm, 2, now_ms, p_out);
+        }
+        else if ((VC_EXEC_UT_VERIFY == p_sm->exec_phase) &&
+                 (in_phase >= VC_UTURN_VERIFY_MS))
+        {
+            ut_fail(p_sm, 3, now_ms, p_out);
+        }
+        else
+        {
+            /* fast pivot running */
+        }
+    }
+    else
+    {
+        /* a late MANOEUVRE_DONE (it can never end a slow sweep or a
+           correction), LINE_FOUND, JUNCTION, barcodes: ignored */
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Events handled the same way in every state                         */
 /*  Returns TRUE if the event is fully handled.                        */
 /* ------------------------------------------------------------------ */
@@ -427,7 +845,8 @@ static void move_request(vc_sm_t * p_sm, const vc_event_t * p_event,
         !((VC_ST_AVOID_OBSTACLE == state) && p_sm->avoid_wait_stop) &&
         (p_event->p1 >= 0) && (p_event->p1 < (int32_t)VC_MOVE_COUNT) &&
         (p_event->p1 != (int32_t)VC_MOVE_RESET) &&
-        (p_event->p1 != (int32_t)VC_MOVE_STOP_CONFIRM))
+        (p_event->p1 != (int32_t)VC_MOVE_STOP_CONFIRM) &&
+        (p_event->p1 != (int32_t)VC_MOVE_PIVOT)) /* the U-turn's own */
     {
         /* Cast: p1 was range-checked against VC_MOVE_COUNT. */
         vc_move_t move_cmd = (vc_move_t)p_event->p1;
@@ -614,8 +1033,8 @@ static bool handle_common(vc_sm_t * p_sm, const vc_event_t * p_event,
         case VC_EV_CMD_CONFIG:
             /* Barcode map edits only while no mission is running (also
                paused: still active).  The state does not change. */
-            emit(p_out, VC_ACT_CONFIG, VC_SRC_COMMS, b_active ? 0 : 1,
-                 p_event->p1);
+            (void)emit(p_out, VC_ACT_CONFIG, VC_SRC_COMMS, b_active ? 0 : 1,
+                       p_event->p1);
             b_handled = true;
             break;
 
@@ -929,12 +1348,15 @@ static void on_execute_action(vc_sm_t * p_sm, const vc_event_t * p_event,
                               vc_event_type_t type, uint32_t in_state,
                               uint32_t now_ms, vc_actions_t * p_out)
 {
-    (void)p_event;
-    if ((VC_EV_MANOEUVRE_DONE == type) && (VC_EXEC_UTURN == p_sm->exec_phase))
+    if (VC_EV_OBSTACLE == type)
     {
-        /* the 180 deg pivot is done: now straight on before line following */
-        p_sm->exec_phase = VC_EXEC_UTURN_GO;
-        move(p_out, VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM);
+        /* obstacle safety first, also in the middle of a U-turn */
+        drop_pending(p_sm, p_out);
+        enter(p_sm, VC_ST_AVOID_OBSTACLE, now_ms, p_out);
+    }
+    else if (ut_active(p_sm))
+    {
+        ut_handle(p_sm, p_event, type, now_ms, p_out);
     }
     else if ((VC_EV_MANOEUVRE_DONE == type) && (VC_EXEC_ADVANCE == p_sm->exec_phase))
     {
@@ -964,11 +1386,6 @@ static void on_execute_action(vc_sm_t * p_sm, const vc_event_t * p_event,
         p_sm->pending_nav = NAV_NONE;
         p_sm->pending_barcode[0] = '\0';
         enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
-    }
-    else if (VC_EV_OBSTACLE == type)
-    {
-        drop_pending(p_sm, p_out);
-        enter(p_sm, VC_ST_AVOID_OBSTACLE, now_ms, p_out);
     }
     else if ((VC_EV_TICK == type) && (in_state >= VC_EXECUTE_MS))
     {
@@ -1022,12 +1439,17 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
     {
         p_sm->st.events_handled++;
     }
-    /* S2 odometer (L + R counts) rides in p2 of TICK and of the LINE_FOUND
-       sent during a junction turn; 0 = not given */
-    if (((VC_EV_TICK == type) || (VC_EV_LINE_FOUND == type)) &&
+    /* S2 odometer (L + R counts) rides in p2 of TICK, of the LINE_FOUND /
+       LINE_SAMPLE sent during a junction turn, and of S2's MANOEUVRE_DONE
+       and MOTION_STOPPED; 0 = not given */
+    if (((VC_EV_TICK == type) || (VC_EV_LINE_FOUND == type) ||
+         (VC_EV_LINE_SAMPLE == type) ||
+         (((VC_EV_MANOEUVRE_DONE == type) || (VC_EV_MOTION_STOPPED == type)) &&
+          (VC_SRC_MOTION == p_event->src))) &&
         (0 != p_event->p2))
     {
-        p_sm->odo = (uint32_t)p_event->p2; /* Cast: counts, sent as int32 */
+        ut_track_odo(p_sm, (uint32_t)p_event->p2); /* Cast: counts, sent as int32 */
+        p_sm->odo = (uint32_t)p_event->p2;
     }
 
     /* a hump may also be crossed while reading a barcode or turning:

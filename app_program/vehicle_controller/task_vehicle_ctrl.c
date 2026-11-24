@@ -106,6 +106,45 @@ static void run_actions(const vc_actions_t * p_acts)
                 s1_bridge_junction((uint8_t)kind, letter, code);
                 break;
             }
+            case VC_ACT_TRACE:
+            {
+                /* "vc: ut sight C h=1052 (137 deg)": h = counts turned
+                   since the U-turn began (+ = left), deg = the same in S2
+                   command degrees, x = detail (vc_sm.h vc_ut_trace_t) */
+                static const char * const k_what[] = {
+                    "?", "start", "early-line-ignored", "fast-done", "sweep",
+                    "sight", "brake", "settled", "verdict", "done", "FAIL"
+                };
+                static const char * const k_verdict[] = {
+                    "unsure", "on-line", "between-C-R", "turned-past", "no-line"
+                };
+                const uint32_t what = (uint32_t)p_action->p1;
+                const int32_t  h    = p_action->p2;
+                const int32_t  x    = (int32_t)p_action->rsv;
+                const int32_t  deg  = (h * 180) / (int32_t)VC_PIVOT_COUNTS(180);
+
+                if ((uint32_t)VC_UT_VERDICT == what)
+                {
+                    tm_printf((uint8_t *)"vc: ut verdict %s h=%d (%d deg)\n",
+                              k_verdict[((uint32_t)x <= 4u) ? (uint32_t)x : 0u],
+                              h, deg);
+                }
+                else if (((uint32_t)VC_UT_SIGHT == what) ||
+                         ((uint32_t)VC_UT_EARLY == what))
+                {
+                    tm_printf((uint8_t *)"vc: ut %s %s h=%d (%d deg)\n",
+                              k_what[what],
+                              (VC_LINE_C == x) ? "C"
+                              : ((VC_LINE_R == x) ? "R" : "C+R"),
+                              h, deg);
+                }
+                else
+                {
+                    tm_printf((uint8_t *)"vc: ut %s h=%d (%d deg) x=%d\n",
+                              k_what[(what <= 10u) ? what : 0u], h, deg, x);
+                }
+                break;
+            }
             default:
                 break;
         }
