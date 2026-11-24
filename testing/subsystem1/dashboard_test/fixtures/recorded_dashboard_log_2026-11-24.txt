@@ -1,0 +1,281 @@
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":4,"sev":2,"code":16389}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":4,"sev":2,"code":16389}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":4,"sev":2,"code":16389}
+[mqtt robot/g10/ack] ack unknown command: queued (seq 41)
+[mqtt robot/g10/fault] {"src":6,"sev":2,"code":2}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack unknown command: queued (seq 42)
+[mqtt robot/g10/ack] ack unknown command: queued (seq 43)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack unknown command: queued (seq 44)
+[mqtt robot/g10/ack] ack unknown command: queued (seq 45)
+[mqtt robot/g10/ack] ack unknown command: queued (seq 46)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack unknown command: queued (seq 47)
+[mqtt robot/g10/ack] ack unknown command: queued (seq 48)
+[mqtt robot/g10/ack] ack unknown command: queued (seq 49)
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":4,"sev":2,"code":16389}
+[mqtt robot/g10/ack] ack unknown command: queued (seq 50)
+[mqtt robot/g10/fault] {"src":6,"sev":2,"code":2}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack unknown command: queued (seq 51)
+[mqtt robot/g10/ack] ack unknown command: queued (seq 53)
+[mqtt robot/g10/ack] ack unknown command: queued (seq 54)
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack unknown command: queued (seq 55)
+[mqtt robot/g10/ack] ack unknown command: queued (seq 56)
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack unknown command: queued (seq 57)
+[mqtt robot/g10/ack] ack unknown command: queued (seq 58)
+[mqtt robot/g10/barcode] barcode: T
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/ack] ack unknown command: queued (seq 59)
+[mqtt robot/g10/fault] {"src":1,"sev":2,"code":1}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack unknown command: queued (seq 60)
+[mqtt robot/g10/ack] ack unknown command: queued (seq 61)
+[mqtt robot/g10/ack] ack unknown command: queued (seq 62)
+[mqtt robot/g10/ack] ack unknown command: queued (seq 63)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/ack] ack unknown command: queued (seq 0)
+[mqtt robot/g10/fault] {"src":1,"sev":2,"code":1}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack unknown command: queued (seq 1)
+[mqtt robot/g10/ack] ack unknown command: queued (seq 2)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/ack] ack unknown command: queued (seq 3)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":4,"sev":2,"code":16389}
+[mqtt robot/g10/ack] ack reset: queued (seq 1)
+[mqtt robot/g10/ack] ack unknown command: queued (seq 4)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack unknown command: rejected (seq 5)
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":4,"sev":2,"code":16389}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":4,"sev":2,"code":16389}
+[mqtt robot/g10/ack] ack start: queued (seq 2)
+[mqtt robot/g10/fault] {"src":6,"sev":2,"code":2}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 3)
+[mqtt robot/g10/ack] ack start: queued (seq 4)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack stop: queued (seq 5)
+[mqtt robot/g10/ack] ack stop: queued (seq 6)
+[mqtt robot/g10/ack] ack stop: queued (seq 7)
+[mqtt robot/g10/ack] ack reset: queued (seq 8)
+[mqtt robot/g10/ack] ack start: queued (seq 9)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/barcode] barcode: X
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 10)
+[mqtt robot/g10/ack] ack start: queued (seq 11)
+[mqtt robot/g10/barcode] barcode: K
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 12)
+[mqtt robot/g10/ack] ack start: queued (seq 13)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 14)
+[mqtt robot/g10/ack] ack start: queued (seq 15)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 16)
+[mqtt robot/g10/ack] ack start: queued (seq 17)
+[mqtt robot/g10/barcode] barcode: Q
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 18)
+[mqtt robot/g10/ack] ack start: queued (seq 19)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack pause: rejected (seq 20)
+[mqtt robot/g10/ack] ack reset: queued (seq 21)
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":4,"sev":2,"code":16389}
+[mqtt robot/g10/ack] ack start: queued (seq 22)
+[mqtt robot/g10/fault] {"src":6,"sev":2,"code":2}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack start: queued (seq 23)
+[mqtt robot/g10/ack] ack reset: queued (seq 24)
+[mqtt robot/g10/ack] ack start: queued (seq 25)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 26)
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":4,"sev":2,"code":16389}
+[mqtt robot/g10/ack] ack start: queued (seq 27)
+[mqtt robot/g10/fault] {"src":6,"sev":2,"code":2}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 28)
+[mqtt robot/g10/ack] ack start: queued (seq 29)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/ack] ack stop: queued (seq 30)
+[mqtt robot/g10/fault] {"src":1,"sev":2,"code":1}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 31)
+[mqtt robot/g10/ack] ack start: queued (seq 32)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 33)
+[mqtt robot/g10/ack] ack reset: queued (seq 34)
+[mqtt robot/g10/ack] ack start: queued (seq 35)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack stop: queued (seq 36)
+[mqtt robot/g10/ack] ack reset: queued (seq 37)
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":4,"sev":2,"code":16389}
+[mqtt robot/g10/ack] ack start: queued (seq 38)
+[mqtt robot/g10/fault] {"src":6,"sev":2,"code":2}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 39)
+[mqtt robot/g10/ack] ack start: queued (seq 40)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/ack] ack stop: queued (seq 41)
+[mqtt robot/g10/fault] {"src":1,"sev":2,"code":1}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 42)
+[mqtt robot/g10/ack] ack reset: queued (seq 43)
+[mqtt robot/g10/ack] ack start: queued (seq 44)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 45)
+[mqtt robot/g10/ack] ack start: queued (seq 46)
+[mqtt robot/g10/barcode] barcode: N
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack stop: queued (seq 47)
+[mqtt robot/g10/ack] ack reset: queued (seq 48)
+[mqtt robot/g10/ack] ack start: queued (seq 49)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/ack] ack reset: queued (seq 50)
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":4,"sev":2,"code":16389}
+[mqtt robot/g10/ack] ack stop: queued (seq 51)
+[mqtt robot/g10/ack] ack start: queued (seq 52)
+[mqtt robot/g10/ack] ack reset: queued (seq 53)
+[mqtt robot/g10/ack] ack start: queued (seq 54)
+[mqtt robot/g10/barcode] barcode: P
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 55)
+[mqtt robot/g10/ack] ack start: queued (seq 56)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 57)
+[mqtt robot/g10/ack] ack start: queued (seq 58)
+[mqtt robot/g10/fault] {"src":6,"sev":2,"code":2}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 59)
+[mqtt robot/g10/ack] ack start: queued (seq 60)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 61)
+[mqtt robot/g10/ack] ack start: queued (seq 62)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 63)
+[mqtt robot/g10/ack] ack start: queued (seq 0)
+[mqtt robot/g10/barcode] barcode: M
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 1)
+[mqtt robot/g10/ack] ack start: queued (seq 2)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/ack] ack pause: queued (seq 3)
+[mqtt robot/g10/ack] ack stop: queued (seq 4)
+[mqtt robot/g10/fault] {"src":1,"sev":2,"code":1}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 5)
+[mqtt robot/g10/ack] ack start: queued (seq 6)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack stop: queued (seq 7)
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 8)
+[mqtt robot/g10/ack] ack reset: queued (seq 9)
+[mqtt robot/g10/ack] ack start: queued (seq 10)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/ack] ack reset: queued (seq 11)
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 12)
+[mqtt robot/g10/ack] ack start: queued (seq 13)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/ack] ack stop: queued (seq 14)
+[mqtt robot/g10/fault] {"src":1,"sev":2,"code":1}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/ack] ack reset: queued (seq 15)
+[mqtt robot/g10/ack] ack start: queued (seq 16)
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":3,"sev":0,"code":7}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}
+[mqtt robot/g10/fault] {"src":2,"sev":2,"code":8209}

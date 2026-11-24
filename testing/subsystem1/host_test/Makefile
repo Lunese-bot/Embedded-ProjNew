@@ -11,6 +11,7 @@ run: s1_host_test s1_capture_test s1_queue_test s1_mqtt_test
 	else \
 	    echo "[TEST] subsystem1 seqcheck SKIPPED (python3 not found; not a pass)"; \
 	fi
+	$(MAKE) -C ../dashboard_test run
 
 s1_host_test: test_codec.c $(SRC)/s1_codec.c $(SRC)/s1_codec.h
 	$(CC) $(CFLAGS) -o $@ test_codec.c $(SRC)/s1_codec.c
@@ -34,5 +35,6 @@ s1_mqtt_test: test_mqtt_utk.c $(PORT)/mqtt_utk.c $(PORT)/mqtt_utk.h $(wildcard $
 clean:
 	rm -f s1_host_test s1_host_test.exe s1_capture_test s1_capture_test.exe
 	rm -f s1_queue_test s1_queue_test.exe s1_mqtt_test s1_mqtt_test.exe
+	$(MAKE) -C ../dashboard_test clean
 
 .PHONY: run clean
