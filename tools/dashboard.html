@@ -140,8 +140,47 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size: 13px; }
 .kv dt { color: var(--muted); } .kv dd { margin: 0; }
 .fabstop { display: none; }
+/* views: Run, Barcode mapping, Diagnostics */
+.cmdgroup { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+.tabs { display: flex; gap: 4px; max-width: 1400px; margin: 10px auto 0; border-bottom: 1px solid var(--line); }
+.tabs [role=tab] { border: 1px solid transparent; border-bottom: 0; background: transparent; border-radius: 6px 6px 0 0;
+  padding: 7px 14px; color: var(--muted); font-weight: 600; margin-bottom: -1px; }
+.tabs [role=tab][aria-selected=true] { background: var(--panel); color: var(--text); border-color: var(--line); border-bottom: 2px solid var(--work); }
+.tabmark { margin-left: 6px; font-size: 12px; color: var(--attn); }
+.view { display: grid; gap: 16px; min-width: 0; }
+.view[hidden] { display: none; }
+.phead { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+.phead h2 { margin: 0; }
+.live { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.live.stale .v { color: var(--muted); }
+.tile .m { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.obprof { display: grid; grid-template-columns: max-content 1fr; gap: 0 8px; font-size: 13px; margin: 6px 0 0; }
+.obprof dt { color: var(--muted); } .obprof dd { margin: 0; font-variant-numeric: tabular-nums; }
+.small3 { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); margin-bottom: 10px; }
+.reads, .runs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.reads li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.reads li:last-child { border-bottom: 0; }
+.reads .when { color: var(--muted); font-size: 12px; min-width: 7.5em; }
+.stage { padding: 1px 8px; border-radius: 10px; border: 1px solid currentColor; white-space: nowrap; }
+.arrow { color: var(--muted); }
+.runs li { font-size: 13px; }
+.hist { margin-top: 8px; }
+.hist summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.grp > summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; list-style: none; }
+.grp > summary::-webkit-details-marker { display: none; }
+.grp > summary::before { content: "▸"; color: var(--muted); }
+.grp[open] > summary::before { content: "▾"; }
+.card .grp { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin-top: 6px; background: var(--panel); }
+
+.grp .times { font: 12px/1.5 var(--mono); color: var(--muted); margin-top: 4px; }
+.chart { position: relative; }
+.chart .empty { position: absolute; left: 0; right: 0; top: 40%; text-align: center; margin: 0; }
+.chk { display: inline-flex; gap: 6px; align-items: center; margin-left: auto; }
+.changes { margin: 0 0 10px; padding: 8px 12px; border: 1px dashed var(--attn); border-radius: 8px; }
+.changes h3 { font-size: 13px; margin: 0 0 4px; }
+.changes ul { margin: 0; padding-left: 18px; font-size: 13px; columns: 3 220px; }
 /* barcode junction actions: an edited row has a dashed border AND the text "Edited" */
-.mapstatus { padding: 6px 10px; border-radius: 6px; margin: 0 0 8px; font-weight: 600; border: 1px solid currentColor; }
+.mapstatus { padding: 6px 10px; border-radius: 6px; margin: 0 0 8px; border: 1px solid currentColor; }
 .mapgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 10px; }
 .maprow { display: grid; grid-template-columns: 1.8em 1fr; align-items: center; gap: 2px 8px; padding: 5px 8px;
   border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
@@ -164,11 +203,12 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
   .cmd.stop { flex: 1 1 100%; font-size: 17px; padding: 10px; }
   main { padding: 12px; }
   .kv { grid-template-columns: 1fr; }
-  #bcTable thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  #bcTable tr, #bcTable td { display: block; }
-  #bcTable tr { border-bottom: 1px solid var(--line); padding: 4px 0; }
-  #bcTable td { border: 0; padding: 1px 0; }
-  #bcTable td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); font-size: 12px; }
+  .live { grid-template-columns: 1fr 1fr; }
+  .live .obst { grid-column: 1 / -1; }
+  .tabs [role=tab] { flex: 1 1 0; padding: 8px 4px; font-size: 13px; }
+  .cmdgroup { display: contents; }
+  .chk { margin-left: 0; }
+  .reads .when { min-width: 0; width: 100%; }
   .mapgrid { grid-template-columns: 1fr; }
   .maprow select { padding: 8px 6px; }
 }
@@ -180,41 +220,76 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     <h1>Robot Dashboard</h1>
     <div id="banner" class="banner tone-idle">
       <span class="ico" id="bIco" aria-hidden="true">○</span>
-      <div><div class="word" id="bWord">Not connected</div><div class="bsub" id="bSub">Connect MQTT or USB below.</div></div>
+      <div><div class="word" id="bWord">No robot data</div><div class="bsub" id="bSub">Connect in Run › Connection details.</div></div>
     </div>
-    <div class="pills" aria-label="Connections and data">
-      <span class="pill tone-idle" id="pUsb">USB: off</span>
-      <span class="pill tone-idle" id="pMqtt">MQTT: off</span>
-      <span class="pill tone-idle" id="pAge">Data: none</span>
-      <span class="pill tone-idle" id="pLoss" title="Frames missing / (received + missing), last 60 s, from the telemetry sequence">Loss 60 s: no data</span>
+    <div class="pills" aria-label="Signals: broker, robot data, commands, USB">
+      <span class="pill tone-idle" id="pMqtt" title="This page's connection to the MQTT broker. Says nothing about the robot.">Broker: off</span>
+      <span class="pill tone-idle" id="pAge" title="Age of the newest robot telemetry frame.">Robot data: none</span>
+      <span class="pill tone-idle" id="pAck" title="The robot's acknowledgement of the newest command sent from this page.">Commands: none sent</span>
+      <span class="pill tone-idle" id="pUsb" title="USB is read-only: console and state, no commands.">USB: off</span>
     </div>
   </div>
-  <div class="cmdrow" role="group" aria-label="Robot commands" aria-describedby="why">
+  <div class="cmdrow" role="group" aria-label="Robot commands">
     <button class="cmd stop" data-cmd="stop" aria-describedby="why_stop">■ Stop</button>
-    <button class="cmd go" data-cmd="start" aria-describedby="why_start">▶ Start</button>
-    <button class="cmd" data-cmd="reset" aria-describedby="why_reset">↺ Reset</button>
-    <button class="cmd" data-cmd="pause" aria-describedby="why_pause">❚❚ Pause</button>
-    <button class="cmd" data-cmd="resume" aria-describedby="why_resume">▶ Resume</button>
+    <span class="cmdgroup">
+      <button class="cmd go" data-cmd="start" aria-describedby="why_start">▶ Start</button>
+      <button class="cmd" data-cmd="reset" aria-describedby="why_reset">↺ Reset</button>
+      <button class="cmd" data-cmd="pause" aria-describedby="why_pause">❚❚ Pause</button>
+      <button class="cmd" data-cmd="resume" aria-describedby="why_resume">▶ Resume</button>
+    </span>
+    <span class="sr"><span id="why_stop"></span><span id="why_start"></span><span id="why_reset"></span><span id="why_pause"></span><span id="why_resume"></span></span>
   </div>
-  <div class="why" id="why">
-    <span id="why_stop"></span><span id="why_start"></span><span id="why_reset"></span><span id="why_pause"></span><span id="why_resume"></span><span id="why_latch"></span>
-  </div>
+  <div class="why" id="why" aria-label="Why commands are unavailable"></div>
   <div class="cmdlog" id="cmdlog" aria-label="Command results"></div>
+  <div class="tabs" role="tablist" aria-label="Views">
+    <button role="tab" id="tab_run" aria-controls="view_run" aria-selected="true">Run</button>
+    <button role="tab" id="tab_map" aria-controls="view_map" aria-selected="false" tabindex="-1">Barcode mapping<span class="tabmark" id="tabMapMark"></span></button>
+    <button role="tab" id="tab_diag" aria-controls="view_diag" aria-selected="false" tabindex="-1">Diagnostics</button>
+  </div>
 </div>
 <div class="fabstop" id="fab" aria-hidden="true"><span class="st" id="fabState"></span><button class="cmd stop" data-cmd="stop" tabindex="-1">■ Stop</button></div>
 <div class="sr" aria-live="polite" id="announce"></div>
 
 <main>
-  <section class="panel" aria-labelledby="h_out">
-    <h2 id="h_out">Last run</h2>
-    <div class="outcome">
-      <div class="card" id="outNow"><div class="t">No finished run yet</div><div class="m">A run's end reason, time and distance stay here until the next run starts.</div></div>
-      <div class="card" id="outPrev" hidden></div>
+<div class="view" id="view_run" role="tabpanel" aria-labelledby="tab_run">
+  <section class="panel" aria-labelledby="h_live">
+    <div class="phead"><h2 id="h_live">Live</h2><span class="note" id="liveAge"></span></div>
+    <div class="live" id="liveGrid">
+      <div class="tile"><div class="k">Distance this run</div><div class="v"><span id="t_odo">–</span> <span class="u">mm</span></div></div>
+      <div class="tile"><div class="k">Wheel speeds</div><div class="v"><span class="u">L</span> <span id="t_vl">–</span> <span class="u">R</span> <span id="t_vr">–</span> <span class="u">mm/s</span></div></div>
+      <div class="tile"><div class="k">Line position</div><div class="v"><span id="t_line">–</span> <span class="u">of ±1000</span></div>
+        <div class="linebar" aria-hidden="true"><b></b><i id="t_linebar"></i></div></div>
+      <div class="tile"><div class="k">Latest barcode</div><div class="v"><span id="t_barcode">–</span> <span class="u" id="t_nav"></span></div>
+        <div class="m"><span id="t_bc">–</span> read this run</div></div>
+      <div class="tile"><div class="k">Highest hump</div><div class="v"><span id="t_maxhump">–</span> <span class="u">mm</span></div>
+        <div class="m">now <span id="t_hump">–</span> mm</div></div>
+      <div class="tile obst" id="obstTile"><div class="k">Obstacle</div><div class="v small" id="t_obs">–</div>
+        <div class="m">Ultrasonic <span id="t_us">–</span> <span id="t_us_u">mm</span></div>
+        <dl class="obprof" aria-label="Obstacle profile">
+          <dt>Front</dt><dd id="ob_front">–</dd><dt>Width</dt><dd id="ob_width">–</dd><dt>Length</dt><dd id="ob_length">–</dd>
+        </dl>
+        <div class="m"><span id="ob_id"></span> <span id="ob_detail">Profile not reported</span></div></div>
     </div>
   </section>
 
-  <section class="panel" aria-labelledby="h_conn">
-    <h2 id="h_conn">Connection</h2>
+  <section class="panel" aria-labelledby="h_jx">
+    <div class="phead"><h2 id="h_jx">Barcodes and junctions</h2><span class="note">Each stage appears only when the robot reports it.</span></div>
+    <ol class="reads" id="barcodes"></ol>
+  </section>
+
+  <section class="panel" aria-labelledby="h_out">
+    <h2 id="h_out">Last run</h2>
+    <div class="card" id="outNow"></div>
+    <details class="hist" id="histWrap" hidden><summary id="histSum">History</summary><ol class="runs" id="runHist"></ol></details>
+  </section>
+
+  <section class="panel" aria-labelledby="h_faults">
+    <div class="phead"><h2 id="h_faults">Faults</h2><span class="note">Repeats in a run are grouped; every report stays in the log.</span></div>
+    <div class="list" id="faults"></div>
+  </section>
+
+  <details class="panel" id="connPanel">
+    <summary>Connection details</summary>
     <div class="conn">
       <label class="sr" for="mqttUrl">Broker WebSocket address</label>
       <input id="mqttUrl" type="text" placeholder="ws://192.168.1.10:9001" autocomplete="off" spellcheck="false">
@@ -223,73 +298,44 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       <button id="btnFile">Open log file</button>
       <input id="fileIn" type="file" accept=".txt,.log,text/plain" hidden>
     </div>
-    <p class="note" id="connNote">Commands go over MQTT. USB only reads the console.</p>
-  </section>
+    <p class="note" id="connNote">Commands and barcode mapping go over MQTT. USB only reads the console.</p>
+  </details>
+</div>
 
-  <section class="panel" aria-labelledby="h_live">
-    <h2 id="h_live">Live</h2>
-    <div class="groups">
-      <div class="group"><h3>Motion (S2)</h3><div class="tiles">
-        <div class="tile"><div class="k">Speed left</div><div class="v"><span id="t_vl">–</span> <span class="u">mm/s</span></div></div>
-        <div class="tile"><div class="k">Speed right</div><div class="v"><span id="t_vr">–</span> <span class="u">mm/s</span></div></div>
-        <div class="tile"><div class="k">Distance this run</div><div class="v"><span id="t_odo">–</span> <span class="u">mm</span></div></div>
-      </div></div>
-      <div class="group"><h3>Line and barcode (S3)</h3><div class="tiles">
-        <div class="tile"><div class="k">Line position</div><div class="v"><span id="t_line">–</span> <span class="u">of ±1000</span></div>
-          <div class="linebar" aria-hidden="true"><b></b><i id="t_linebar"></i></div></div>
-        <div class="tile"><div class="k">Barcodes this run</div><div class="v" id="t_bc">–</div></div>
-        <div class="tile"><div class="k">Last barcode / pending turn</div><div class="v"><span id="t_barcode">–</span> <span class="u" id="t_nav"></span></div></div>
-      </div></div>
-      <div class="group"><h3>IMU (S4)</h3><div class="tiles">
-        <div class="tile"><div class="k">Pitch</div><div class="v"><span id="t_pitch">–</span> <span class="u">°</span></div></div>
-        <div class="tile"><div class="k">Hump now / max</div><div class="v"><span id="t_hump">–</span> / <span id="t_maxhump">–</span> <span class="u">mm</span></div></div>
-        <div class="tile"><div class="k">IMU stop latch</div><div class="v small" id="t_latch">Latch status unavailable</div></div>
-      </div></div>
-      <div class="group"><h3>Obstacle (S5)</h3><div class="tiles">
-        <div class="tile"><div class="k">Ultrasonic</div><div class="v"><span id="t_us">–</span> <span class="u" id="t_us_u">mm</span></div></div>
-        <div class="tile"><div class="k">Obstacle state</div><div class="v small" id="t_obs">–</div></div>
-      </div></div>
-    </div>
-  </section>
-
-  <section class="panel" aria-labelledby="h_charts">
-    <h2 id="h_charts">Last 60 seconds</h2>
-    <div class="charts">
-      <div class="chart"><div class="k"><span>Speed (mm/s): left solid, right dashed</span><span id="c_speed_v"></span></div><canvas id="c_speed" aria-label="Wheel speed chart"></canvas></div>
-      <div class="chart"><div class="k"><span>Line position (−1000 left … +1000 right)</span><span id="c_line_v"></span></div><canvas id="c_line" aria-label="Line position chart"></canvas></div>
-      <div class="chart"><div class="k"><span>Ultrasonic distance (mm)</span><span id="c_us_v"></span></div><canvas id="c_us" aria-label="Ultrasonic chart"></canvas></div>
-      <div class="chart"><div class="k"><span>Pitch (°)</span><span id="c_pitch_v"></span></div><canvas id="c_pitch" aria-label="Pitch chart"></canvas></div>
-    </div>
-  </section>
-
-  <div class="cols">
-    <section class="panel" aria-labelledby="h_faults">
-      <h2 id="h_faults">Faults</h2>
-      <div class="list" id="faults"><p class="note">No faults reported.</p></div>
-    </section>
-    <section class="panel" aria-labelledby="h_bc">
-      <h2 id="h_bc">Barcodes</h2>
-      <div class="tablewrap"><table id="bcTable">
-        <thead><tr><th>Received</th><th>Text</th><th>Scan direction</th><th>Assigned action</th><th>Pending (robot)</th><th>Junction action seen</th></tr></thead>
-        <tbody id="barcodes"><tr><td colspan="6" class="note">No barcode reads yet.</td></tr></tbody>
-      </table></div>
-    </section>
-  </div>
-
+<div class="view" id="view_map" role="tabpanel" aria-labelledby="tab_map" hidden>
   <section class="panel" aria-labelledby="h_map">
     <h2 id="h_map">Barcode junction actions</h2>
     <p class="note">What the robot does at the next junction after it reads each letter. The robot keeps this map in its own flash and uses it
-      without the dashboard. Changes reach the robot only with Save to robot, only while no mission is running, and count as saved only
-      when the robot reads all 26 letters back. Reading and saving need MQTT; USB is monitor-only.</p>
+      without the dashboard. Editing here changes only a draft: nothing reaches the robot until Save to robot, which works only while no mission is running
+      and counts only when the robot reads all 26 letters back. Reading and saving need MQTT; USB is monitor-only.</p>
+    <div class="mapstatus tone-idle" id="mapStatus" role="status"><strong id="mapWord">Not read yet</strong> <span id="mapText"></span></div>
+    <p class="note" id="mapSource"></p>
     <div class="row" role="group" aria-label="Barcode map actions">
       <button id="mapRead">Read from robot</button>
       <button id="mapSave" class="primary" aria-describedby="mapWhy">Save to robot</button>
-      <button id="mapRestore">Restore defaults</button>
-      <button id="mapDiscard" hidden>Discard changes</button>
+      <button id="mapDiscard">Discard edits</button>
+      <button id="mapRestore" aria-describedby="mapWhy">Restore factory defaults</button>
+      <label class="chk"><input type="checkbox" id="mapEditedOnly"> Edited only</label>
     </div>
-    <p class="mapstatus tone-idle" id="mapStatus" role="status">Not read yet. Press Read from robot.</p>
     <p class="note" id="mapWhy"></p>
+    <div class="changes" id="mapChangesWrap" hidden>
+      <h3 id="h_changes">Changes to save</h3>
+      <ul id="mapChanges" aria-labelledby="h_changes"></ul>
+    </div>
     <div class="mapgrid" id="mapGrid" role="group" aria-label="Action for each letter, A to Z"></div>
+    <p class="note" id="mapEmpty" hidden>No edited letters.</p>
+  </section>
+</div>
+
+<div class="view" id="view_diag" role="tabpanel" aria-labelledby="tab_diag" hidden>
+  <section class="panel" aria-labelledby="h_charts">
+    <h2 id="h_charts">Last 60 seconds</h2>
+    <div class="charts">
+      <div class="chart"><div class="k"><span>Speed (mm/s): left solid, right dashed</span><span id="c_speed_v"></span></div><canvas id="c_speed" aria-label="Wheel speed chart"></canvas><p class="note empty" id="c_speed_e">No samples in the last 60 s.</p></div>
+      <div class="chart"><div class="k"><span>Line position (−1000 left … +1000 right)</span><span id="c_line_v"></span></div><canvas id="c_line" aria-label="Line position chart"></canvas><p class="note empty" id="c_line_e">No samples in the last 60 s.</p></div>
+      <div class="chart"><div class="k"><span>Ultrasonic distance (mm)</span><span id="c_us_v"></span></div><canvas id="c_us" aria-label="Ultrasonic chart"></canvas><p class="note empty" id="c_us_e">No samples in the last 60 s.</p></div>
+      <div class="chart"><div class="k"><span>Pitch (°)</span><span id="c_pitch_v"></span></div><canvas id="c_pitch" aria-label="Pitch chart"></canvas><p class="note empty" id="c_pitch_e">No samples in the last 60 s.</p></div>
+    </div>
   </section>
 
   <div class="cols">
@@ -306,10 +352,20 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     </section>
   </div>
 
-  <details class="panel" id="diag">
-    <summary>Diagnostics</summary>
+  <section class="panel" aria-labelledby="h_diag">
+    <h2 id="h_diag">Transport and robot details</h2>
+    <div class="tiles small3">
+      <div class="tile"><div class="k">Pitch</div><div class="v"><span id="t_pitch">–</span> <span class="u">°</span></div></div>
+      <div class="tile"><div class="k">IMU stop latch</div><div class="v small" id="t_latch">Latch status unavailable</div></div>
+      <div class="tile"><div class="k">Telemetry loss, 60 s</div><div class="v small" id="pLoss">no data</div></div>
+    </div>
     <dl class="kv" id="diagKv"></dl>
-  </details>
+  </section>
+
+  <section class="panel" aria-labelledby="h_obh">
+    <h2 id="h_obh">Obstacle profiles</h2>
+    <div class="list" id="ob_history"><p class="note">Profile not reported.</p></div>
+  </section>
 
   <details class="panel" id="selftests">
     <summary>Self-tests (TEST=1 build)</summary>
@@ -319,7 +375,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
   </details>
 
   <section class="panel" aria-labelledby="h_save">
-    <h2 id="h_save">Save and history</h2>
+    <h2 id="h_save">Export and history</h2>
     <div class="row">
       <button id="btnSave">Save log (.txt)</button>
       <button id="btnCsv">Download telemetry CSV</button>
@@ -327,6 +383,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
     </div>
     <p class="note" id="retention"></p>
   </section>
+</div>
 </main>
 <script>
 /* CORE-BEGIN: pure logic, no DOM. testing/subsystem1/dashboard_test loads
@@ -363,9 +420,6 @@ const DashCore = (() => {
   const ACK_TIMEOUT_MS = 2000;
   const CONFIRM_MS = 4000;
 
-  /* Letter -> action, copied from vc_barcode_config.h.  The dashboard check
-     compares this with the firmware table, so the two cannot drift apart. */
-  const BARCODE_RULES = { H: "Left", Z: "Right" };
 
   function staleAfterMs(source) {
     /* 1 s, or two periods of a slower source (USB prints once a second) */
@@ -795,15 +849,25 @@ const DashCore = (() => {
   }
 
   /* ---------- run outcome: frozen until a confirmed new run ---------- */
+  const RUN_HISTORY_MAX = 10;
   class RunTracker {
     constructor(saved) {
       this.current = saved && saved.current || null;
       this.previous = saved && saved.previous || null;
+      /* earlier runs, newest first (previous is history[0]) */
+      this.history = saved && Array.isArray(saved.history) ? saved.history.slice(0, RUN_HISTORY_MAX) : this.previous ? [this.previous] : [];
       this.lastState = null; /* only live states can confirm a transition */
       this.recent = [];
     }
-    snapshot() { return { current: this.current, previous: this.previous, lastState: this.lastState }; }
+    snapshot() { return { current: this.current, previous: this.previous, history: this.history, lastState: this.lastState }; }
+    retire() {
+      if (!this.current) return;
+      this.previous = this.current;
+      this.history.unshift(this.current); this.history.length = Math.min(this.history.length, RUN_HISTORY_MAX);
+      this.current = null;
+    }
     onFault(f, now) {
+      f = { ...f, t: f.t ?? now };
       this.recent.push({ f, t: now });
       this.recent = this.recent.filter(r => now - r.t < 5000);
       const c = this.current;
@@ -832,7 +896,7 @@ const DashCore = (() => {
       if (!st || st === prev) return null;
       const wasActive = prev && ACTIVE.has(prev);
       if (ACTIVE.has(st) && (!prev || !ACTIVE.has(prev))) {
-        if (this.current) { this.previous = this.current; this.current = null; return "new-run"; }
+        if (this.current) { this.retire(); return "new-run"; }
         return null;
       }
       if (st === "FAULT" || st === "MISSION_COMPLETE") {
@@ -840,7 +904,7 @@ const DashCore = (() => {
           distanceMm: tlm && tlm.distance != null ? tlm.distance : null,
           tlmFault: tlm && tlm.fault ? tlm.fault : null, causes: [], secondary: [] };
         if (this.current && !wasActive) return null; /* first frame after reload: keep the saved outcome */
-        if (this.current) this.previous = this.current;
+        this.retire();
         this.current = c;
         for (const r of this.recent) if (now - r.t <= 1500) this.attach(c, r.f);
         return "ended";
@@ -853,7 +917,8 @@ const DashCore = (() => {
     if (o.kind === "complete") {
       return { tone: "good", title: "Mission complete: robot lifted",
         detail: "In this build only a lift ends a run as Mission complete (vc_sm.c:450; END_OF_COURSE has no sender).",
-        secondary: o.secondary.map(f => describeFault(f).name + " " + hex4(f.code) + " followed (expected after a lift)") };
+        secondary: groupFaults(o.secondary).map(g => describeFault(g).name + " " + hex4(g.code) + (g.times.length > 1 ? " ×" + g.times.length : "") + " followed (expected after a lift)"),
+        groups: groupFaults(o.secondary) };
     }
     const prim = o.causes.find(f => f.code !== SAFE_STOP) || o.causes[0];
     let title, detail = "", action = "";
@@ -872,38 +937,30 @@ const DashCore = (() => {
     } else {
       title = "Fault: cause not reported"; detail = "No fault message or telemetry code was received for this stop.";
     }
-    return { tone: "fault", title, detail, action,
-      secondary: o.secondary.filter(f => f.code === SAFE_STOP).map(() => "Motors safe-stopped " + hex4(SAFE_STOP) + " followed") };
-  }
-
-  /* ---------- barcode records ---------- */
-  /* the action the robot assigns to a decoded text: its active map when this
-     page has read it, else the factory map; any other text has no action */
-  function configuredAction(text, robotCodes) {
-    const i = typeof text === "string" && text.length === 1 ? MAP_LETTERS.indexOf(text) : -1;
-    if (i < 0) return "None (no rule for \"" + text + "\")";
-    if (validCodes(robotCodes)) return MAP_ACTIONS[robotCodes[i]];
-    return MAP_ACTIONS[factoryMap()[i]] + " (factory default; robot map not read)";
+    const groups = groupFaults(o.secondary);
+    return { tone: "fault", title, detail, action, groups,
+      secondary: groups.map(g => describeFault(g).name + " " + hex4(g.code) + (g.times.length > 1 ? " ×" + g.times.length : "") + " also reported after the stop") };
   }
 
   /* ---------- barcode letter map, read and replaced on the robot ----------
      Protocol v1, app_program/subsystem1/s1_cfg.h; packing and wire codes,
      app_program/vehicle_controller/vc_barcode_map.h.  The robot owns the
-     map: this page only shows a draft, and a save counts only when the
-     robot's reply to THIS request carries all 26 letters as sent. */
-  const CFG_TOPIC = "robot/g10/cfg", CFG_REPLY_TOPIC = "robot/g10/cfgr";
-  const CFG_MARKER = 0xC1, CFG_OP_READ = 1, CFG_OP_WRITE = 2, CFG_OP_REPLY = 0x80;
+     map AND its factory defaults (READ_FACTORY): this page has no letter
+     table of its own.  A save counts only when the robot's reply to THIS
+     request carries all 26 letters as sent. */
+  const CFG_TOPIC = "robot/g10/cfg", CFG_REPLY_TOPIC = "robot/g10/cfgr", JX_TOPIC = "robot/g10/jx";
+  const CFG_MARKER = 0xC1, CFG_OP_READ = 1, CFG_OP_WRITE = 2, CFG_OP_FACTORY = 3, CFG_OP_REPLY = 0x80;
   const CFG_REPLY_MS = 5000; /* flash erase is at most 0.4 s; the rest is margin */
   const MAP_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   /* wire code -> label; the codes are fixed forever (VC_BCW_*) */
   const MAP_ACTIONS = ["Go straight", "Turn left", "Turn right", "U-turn (180°)"];
+  const ACTION_PENDING = ["Go straight pending", "Left turn pending", "Right turn pending", "U-turn pending"];
+  const ACTION_DONE = ["Went straight", "Left turn completed", "Right turn completed", "U-turn completed"];
+  const ACTION_DROPPED = ["Go straight cancelled", "Left turn cancelled", "Right turn cancelled", "U-turn cancelled"];
   const MAP_RESULTS = ["ok", "unchanged", "mission-active", "stale", "malformed", "storage", "busy"];
   const MAP_FLAGS = { SAVED: 1, MISSION_ACTIVE: 2, FACTORY_EQUAL: 4, NO_STORAGE: 8 };
-  /* factory map = BARCODE_RULES, every other letter straight (as the robot) */
-  const RULE_TO_WIRE = { Straight: 0, Left: 1, Right: 2, "U-turn": 3 };
-  function factoryMap() {
-    return [...MAP_LETTERS].map(l => Object.prototype.hasOwnProperty.call(BARCODE_RULES, l) ? RULE_TO_WIRE[BARCODE_RULES[l]] : 0);
-  }
+  /* telemetry nav (firmware enum NONE, LEFT, RIGHT, STRAIGHT, U_TURN) -> wire code */
+  const NAV_TO_WIRE = [null, 1, 2, 0, 3];
   const validCodes = c => Array.isArray(c) && c.length === 26 && c.every(v => v === 0 || v === 1 || v === 2 || v === 3);
   const sameMap = (a, b) => validCodes(a) && validCodes(b) && a.every((v, i) => v === b[i]);
   /* letter i: byte i >> 2, bits 7-6 / 5-4 / 3-2 / 1-0 */
@@ -919,6 +976,7 @@ const DashCore = (() => {
   }
   const be16 = v => [(v >> 8) & 255, v & 255];
   function encodeCfgRead(id) { return new Uint8Array([CFG_MARKER, CFG_OP_READ, ...be16(id)]); }
+  function encodeCfgFactory(id) { return new Uint8Array([CFG_MARKER, CFG_OP_FACTORY, ...be16(id)]); }
   function encodeCfgWrite(id, gen, codes) {
     const m = packMap(codes);
     return m ? new Uint8Array([CFG_MARKER, CFG_OP_WRITE, ...be16(id), ...be16(gen), ...m]) : null;
@@ -926,11 +984,24 @@ const DashCore = (() => {
   function decodeCfgReply(bytes) {
     if (!bytes || bytes.length !== 15 || bytes[0] !== CFG_MARKER || !(bytes[1] & CFG_OP_REPLY)) return null;
     const op = bytes[1] & 0x7F, flags = bytes[7];
-    return { op: op === CFG_OP_READ ? "read" : op === CFG_OP_WRITE ? "write" : null,
+    return { op: { [CFG_OP_READ]: "read", [CFG_OP_WRITE]: "write", [CFG_OP_FACTORY]: "factory" }[op] || null,
       id: (bytes[2] << 8) | bytes[3], result: MAP_RESULTS[bytes[4]] || "unknown", gen: (bytes[5] << 8) | bytes[6],
       flags, saved: !!(flags & MAP_FLAGS.SAVED), missionActive: !!(flags & MAP_FLAGS.MISSION_ACTIVE),
       factoryEqual: !!(flags & MAP_FLAGS.FACTORY_EQUAL), noStorage: !!(flags & MAP_FLAGS.NO_STORAGE),
       codes: unpackMap(bytes.subarray(8, 15)) };
+  }
+  /* robot/g10/jx: D1 kind letter code gen(BE) */
+  const JX_KINDS = { 1: "assigned", 2: "completed", 3: "dropped" };
+  function decodeJunction(bytes) {
+    if (!bytes || bytes.length !== 6 || bytes[0] !== 0xD1 || !JX_KINDS[bytes[1]] || bytes[3] > 3) return null;
+    const l = bytes[2];
+    if (l !== 0 && (l < 65 || l > 90)) return null;
+    return { kind: JX_KINDS[bytes[1]], letter: l ? String.fromCharCode(l) : null, code: bytes[3], gen: (bytes[4] << 8) | bytes[5] };
+  }
+  /* USB console form: "vc: jx completed B 1" */
+  function parseJunctionLine(line) {
+    const m = /^vc: jx (assigned|completed|dropped) ([A-Z-]) ([0-3])$/.exec(line);
+    return m ? { kind: m[1], letter: m[2] === "-" ? null : m[2], code: +m[3], gen: null } : null;
   }
   const MAP_REJECT_TEXT = {
     "mission-active": "Not saved: a mission is running. Stop or finish the run, then Save again.",
@@ -940,46 +1011,63 @@ const DashCore = (() => {
     busy: "Not saved: the robot was busy with another save. Try again.",
     unknown: "Not saved: the robot replied with an unknown result."
   };
+  const DRAFT_KEY = "robot.dash.mapdraft.v1";
 
   /* Draft vs robot.  Rules (checked by dashboard_test):
-     - nothing is ever sent except by read() and save(); connecting sends a read
+     - nothing is sent except by read(), readFactory() and save(); opening
+       the view or connecting sends reads only
      - only a reply with the id of our pending request counts
      - a save is verified only when that reply's map equals all 26 sent letters
      - a reply never replaces an unsaved draft; if the robot's map differs
-       from the one the draft started from, the draft is flagged (conflict) */
+       from the one the draft started from, the draft is flagged (conflict)
+     - a draft kept in this browser comes back after a reload as a draft,
+       never as a save */
   class MapEditor {
     constructor(firstId) {
       this.nextId = (firstId & 0xFFFF) || 1;
-      this.robot = null;     /* { gen, codes, saved, noStorage, factoryEqual, missionActive, at } */
+      this.robot = null;     /* { gen, codes, saved, noStorage, factoryEqual, missionActive, at, verifiedAt } */
       this.base = null;      /* robot map the draft started from */
       this.draft = null;     /* codes, or null = follow the robot */
       this.pending = null;   /* { kind, id, codes, gen, sentAt, late } */
-      this.last = null;      /* { kind: verified|rejected|mismatch|noreply|read, text, at, gen } */
-      this.conflict = null;  /* { letters, gen } */
+      this.factory = null;   /* codes from the robot (READ_FACTORY) */
+      this.factoryState = "unknown"; /* unknown | pending | ok | unsupported */
+      this.factoryReq = null; /* { id, sentAt } */
+      this.last = null;      /* { kind: verified|rejected|mismatch|noreply|read|unsupported, text, at, gen } */
+      this.conflict = null;  /* { letters, gen, prevGen } */
       this.outdated = false; /* another client's reply showed a different map */
+      this.unsupported = false; /* robot alive but no map replies: older firmware */
+      this.restoredDraftAt = null;
     }
     takeId() { const id = this.nextId; this.nextId = (this.nextId % 0xFFFF) + 1; return id; }
     shown() { return this.draft || (this.robot && this.robot.codes) || null; }
     dirtyLetters() {
       const d = this.draft, r = this.robot && this.robot.codes;
-      if (!d || !r) return [];
+      if (!d) return [];
+      if (!r) return [...MAP_LETTERS].filter((l, i) => this.base && d[i] !== this.base.codes[i]);
       return [...MAP_LETTERS].filter((l, i) => d[i] !== r[i]);
     }
-    dirty() { return this.dirtyLetters().length > 0; }
+    dirty() { return !!this.draft && (this.dirtyLetters().length > 0 || !this.robot); }
+    /* [{ letter, from, to }] against the robot's active map */
+    changes() {
+      const ref = (this.robot && this.robot.codes) || (this.base && this.base.codes);
+      if (!this.draft || !ref) return [];
+      return [...MAP_LETTERS].map((l, i) => ({ letter: l, from: ref[i], to: this.draft[i] })).filter(c => c.from !== c.to);
+    }
     edit(index, code) {
       if (!this.robot || index < 0 || index > 25 || !(code >= 0 && code <= 3)) return false;
       const d = (this.draft || this.robot.codes).slice(); d[index] = code;
       this.draft = d; if (!this.base) this.base = this.robot;
-      if (!this.dirty()) { this.draft = null; this.base = null; this.conflict = null; }
+      this.restoredDraftAt = null;
+      if (!this.dirty()) this.discard();
       return true;
     }
     restoreDefaults() {
-      if (!this.robot) return false;
-      this.draft = factoryMap(); if (!this.base) this.base = this.robot;
-      if (!this.dirty()) { this.draft = null; this.base = null; this.conflict = null; }
+      if (!this.robot || !validCodes(this.factory)) return false;
+      this.draft = this.factory.slice(); if (!this.base) this.base = this.robot;
+      if (!this.dirty()) this.discard();
       return true;
     }
-    discard() { this.draft = null; this.base = null; this.conflict = null; }
+    discard() { this.draft = null; this.base = null; this.conflict = null; this.restoredDraftAt = null; }
     busy() { return !!(this.pending && !this.pending.late); }
     read(now) {
       if (this.busy()) return null;
@@ -987,9 +1075,16 @@ const DashCore = (() => {
       this.pending = { kind: "read", id, sentAt: now, late: false };
       return { id, payload: encodeCfgRead(id) };
     }
+    readFactory(now) {
+      if (this.factoryState === "ok" || (this.factoryReq && now - this.factoryReq.sentAt < CFG_REPLY_MS)) return null;
+      const id = this.takeId();
+      this.factoryReq = { id, sentAt: now }; this.factoryState = "pending";
+      return { id, payload: encodeCfgFactory(id) };
+    }
     /* why Save is refused, or null.  ctx: { mqtt, missionActive: true / false / null = unknown } */
     saveBlock(ctx) {
       if (!ctx.mqtt) return "Saving needs MQTT.";
+      if (this.unsupported) return "This robot's firmware does not support barcode mapping.";
       if (!this.robot) return "Read the robot's map first.";
       if (this.busy()) return this.pending.kind === "write" ? "A save is in progress." : "Reading the robot's map.";
       /* fresh telemetry decides; without it, the robot's last reply (the robot checks again anyway) */
@@ -1007,22 +1102,31 @@ const DashCore = (() => {
     setRobot(r, now) {
       const prev = this.robot;
       this.robot = { gen: r.gen, codes: r.codes, saved: r.saved, noStorage: r.noStorage, factoryEqual: r.factoryEqual,
-        missionActive: r.missionActive, at: now };
+        missionActive: r.missionActive, at: now, verifiedAt: null };
       this.outdated = false;
       if (this.draft && this.base && !sameMap(this.base.codes, r.codes)) {
         const letters = [...MAP_LETTERS].filter((l, i) => this.base.codes[i] !== r.codes[i]);
         this.conflict = { letters, gen: r.gen, prevGen: this.base.gen };
         this.base = this.robot;
       } else if (this.draft && this.base && this.base.gen !== r.gen) this.base = this.robot;
+      else if (this.draft && !this.base) this.base = this.robot;
       if (this.draft && !this.dirty()) this.discard();
       return prev;
     }
     /* returns { kind: matched|late|other|invalid, text } */
     onReply(rep, now) {
       if (!rep) return { kind: "invalid", text: "Unreadable barcode map reply" };
+      this.unsupported = false;
+      if (this.factoryReq && rep.id === this.factoryReq.id) {
+        this.factoryReq = null;
+        if (rep.op === "factory" && rep.result === "ok" && rep.codes) { this.factory = rep.codes; this.factoryState = "ok";
+          return { kind: "matched", text: "Read the robot's factory map" }; }
+        this.factoryState = "unsupported";
+        return { kind: "matched", text: "This robot's firmware cannot report its factory map (Restore factory defaults unavailable)" };
+      }
       const p = this.pending;
       if (!p || rep.id !== p.id || rep.op !== p.kind) {
-        if (rep.codes && this.robot && (rep.gen !== this.robot.gen || !sameMap(rep.codes, this.robot.codes))) this.outdated = true;
+        if (rep.codes && this.robot && rep.op !== "factory" && (rep.gen !== this.robot.gen || !sameMap(rep.codes, this.robot.codes))) this.outdated = true;
         return { kind: "other", text: "Barcode map reply #" + rep.id + " is not for a request from this page (ignored)" };
       }
       const late = p.late;
@@ -1039,6 +1143,7 @@ const DashCore = (() => {
         this.last = { kind: "read", at: now, gen: rep.gen, text: "Read the robot's map (" + (rep.gen ? "save " + rep.gen : "factory defaults") + ")" };
       } else if ((rep.result === "ok" || rep.result === "unchanged") && sameMap(rep.codes, p.codes)) {
         this.discard();
+        this.robot.verifiedAt = now;
         this.last = { kind: "verified", at: now, gen: rep.gen,
           text: "Saved and verified: the robot's active map matches all 26 letters (save " + rep.gen + (rep.result === "unchanged" ? ", already the robot's map" : "") + ")" + (rep.noStorage ? ". Not kept after power off: this build has no flash storage." : "") };
       } else if (rep.result === "ok" || rep.result === "unchanged") {
@@ -1049,43 +1154,192 @@ const DashCore = (() => {
       }
       return { kind: late ? "late" : "matched", text: this.last.text };
     }
-    /* a request without a reply: keep its id so a late reply still counts */
-    tick(now) {
+    /* a request without a reply: keep its id so a late reply still counts.
+       ctx.robotAlive: fresh MQTT telemetry, so the robot is there but silent */
+    tick(now, ctx) {
+      const f = this.factoryReq;
+      if (f && now - f.sentAt >= CFG_REPLY_MS) { this.factoryReq = null; if (this.factoryState === "pending") this.factoryState = "unknown"; }
       const p = this.pending;
       if (!p || p.late || now - p.sentAt < CFG_REPLY_MS) return false;
       p.late = true;
+      if (p.kind === "read" && !this.robot && ctx && ctx.robotAlive) {
+        this.unsupported = true;
+        this.last = { kind: "unsupported", at: now, text: "The robot sends telemetry but does not answer barcode map requests. Flash a build with barcode mapping (main-v2-mapping or later)." };
+        return true;
+      }
       this.last = { kind: "noreply", at: now, text: p.kind === "write"
-        ? "Robot unavailable: no reply to the save within " + CFG_REPLY_MS / 1000 + " s. It may or may not have been saved: Read from robot to check."
-        : "Robot unavailable: no reply within " + CFG_REPLY_MS / 1000 + " s." };
+        ? "Offline: no reply to the save within " + CFG_REPLY_MS / 1000 + " s. It may or may not have been saved: Read from robot to check."
+        : "Offline: no reply from the robot within " + CFG_REPLY_MS / 1000 + " s." };
       return true;
     }
     connectionLost(now) {
+      if (this.factoryReq) { this.factoryReq = null; if (this.factoryState === "pending") this.factoryState = "unknown"; }
       if (this.pending && !this.pending.late) { this.pending.late = true;
         this.last = { kind: "noreply", at: now, text: this.pending.kind === "write"
-          ? "Robot unavailable: MQTT dropped during the save. Read from robot to check what it holds." : "Robot unavailable: MQTT dropped." }; }
+          ? "Offline: MQTT dropped during the save. Read from robot to check what it holds." : "Offline: MQTT dropped." }; }
+    }
+    /* draft kept in this browser across a reload (never sent by itself) */
+    exportDraft(now) {
+      if (!this.draft) return null;
+      return JSON.stringify({ v: 1, at: now, draft: this.draft, base: this.base ? { gen: this.base.gen, codes: this.base.codes } : null });
+    }
+    importDraft(json) {
+      let d; try { d = JSON.parse(json); } catch (e) { return false; }
+      if (!d || d.v !== 1 || !validCodes(d.draft) || (d.base && (!validCodes(d.base.codes) || !Number.isInteger(d.base.gen)))) return false;
+      this.draft = d.draft.slice(); this.base = d.base ? { gen: d.base.gen, codes: d.base.codes.slice() } : null;
+      this.restoredDraftAt = typeof d.at === "number" ? d.at : 0;
+      return true;
     }
   }
-  /* one status line for the panel: { tone, text } */
+  /* one status line for the mapping view: { tone, word, text } */
   function describeMap(ed, ctx) {
+    if (ed.unsupported) return { tone: "attn", word: "Unsupported firmware", text: ed.last ? ed.last.text : "" };
+    if (ed.busy()) return { tone: "work", word: ed.pending.kind === "write" ? "Saving…" : "Reading…",
+      text: ed.pending.kind === "write" ? "Waiting for the robot to save and read back all 26 letters." : "Asking the robot for its active map." };
+    const n = ed.dirtyLetters().length;
+    const kept = ed.restoredDraftAt != null ? " Draft restored from this browser (" + new Date(ed.restoredDraftAt).toLocaleString() + "): not on the robot." : "";
     if (!ctx.mqtt) {
-      return { tone: "idle", text: "Robot unavailable: reading and saving the map need MQTT." + (ctx.usb ? " USB is monitor-only." : "") +
-        (ed.dirty() ? " Your unsaved changes are kept on this page." : "") };
+      return { tone: "idle", word: "Offline", text: (ed.last && ed.last.kind === "noreply" && ed.last.text.includes("save") ? ed.last.text.replace(/^Offline: /, "") + " " : "") +
+        "Reading and saving the map need MQTT." + (ctx.usb ? " USB is monitor-only." : "") +
+        (ed.draft ? " Your unsaved changes are kept on this page." : "") + kept };
     }
-    if (ed.busy()) return { tone: "work", text: ed.pending.kind === "write" ? "Saving…" : "Reading the robot's map…" };
     if (ed.conflict && ed.dirty())
-      return { tone: "attn", text: "Unsaved changes, and the robot's map changed meanwhile (save " + ed.conflict.prevGen + " → " + ed.conflict.gen +
-        ", letters " + ed.conflict.letters.join(", ") + "). Check them, then Save or Discard." };
+      return { tone: "attn", word: "Unsaved changes", text: "The robot's map changed meanwhile (save " + ed.conflict.prevGen + " → " + ed.conflict.gen +
+        ", letters " + ed.conflict.letters.join(", ") + "). Check them, then Save or Discard edits." + kept };
     if (ed.dirty()) {
-      const n = ed.dirtyLetters().length;
-      return { tone: "attn", text: "Unsaved changes: " + n + " letter" + (n > 1 ? "s" : "") + " (" + ed.dirtyLetters().join(", ") + ")." +
+      return { tone: "attn", word: "Unsaved changes", text: (ed.robot ? n + (n === 1 ? " letter differs" : " letters differ") + " from the robot." : "Waiting for the robot's map.") + kept +
         (ed.last && (ed.last.kind === "rejected" || ed.last.kind === "mismatch" || ed.last.kind === "noreply") ? " " + ed.last.text : "") };
     }
-    if (ed.last && ed.last.kind !== "read") return { tone: ed.last.kind === "verified" ? "good" : "attn", text: ed.last.text };
-    if (!ed.robot) return { tone: "idle", text: "Not read yet. Press Read from robot." };
+    if (ed.last && ed.last.kind === "verified") return { tone: "good", word: "Saved and verified", text: ed.last.text.replace(/^Saved and verified: the/, "The") };
+    if (ed.last && ed.last.kind !== "read") return { tone: "attn", word: ed.last.kind === "noreply" ? "Offline" : "Not saved", text: ed.last.text };
+    if (!ed.robot) return { tone: "idle", word: "Not read yet", text: "Press Read from robot." };
     const r = ed.robot;
-    return { tone: ed.outdated ? "attn" : "idle", text: (ed.outdated ? "Another client changed the map: Read from robot. " : "") +
-      "Robot map: " + (r.saved ? "saved map, save " + r.gen : "factory defaults") + (r.factoryEqual && r.saved ? " (equal to the defaults)" : "") +
-      (r.noStorage ? ". This build has no flash storage: the map resets at power off." : ".") };
+    return { tone: ed.outdated ? "attn" : "idle", word: ed.outdated ? "Changed elsewhere" : "Matches the robot",
+      text: (ed.outdated ? "Another client changed the map: Read from robot. " : "") + "Showing the robot's active map." };
+  }
+  /* where the shown map came from, for the source line */
+  function mapSource(ed) {
+    const r = ed.robot;
+    if (!r) return "Source: not read from the robot yet.";
+    return "Source: robot, " + (r.saved ? "saved map (save " + r.gen + ")" : "factory defaults (nothing saved)") +
+      (r.factoryEqual && r.saved ? ", equal to the factory map" : "") + ", read " + new Date(r.at).toLocaleTimeString() +
+      (r.verifiedAt ? " · verified by readback" : "") + (r.noStorage ? " · this build has no flash storage: the map resets at power off" : "");
+  }
+  /* the action the robot assigns to a decoded text, from its map as read */
+  function configuredAction(text, robotCodes) {
+    const i = typeof text === "string" && text.length === 1 ? MAP_LETTERS.indexOf(text) : -1;
+    if (i < 0) return "None (not a single letter A–Z: the junction goes straight)";
+    if (validCodes(robotCodes)) return MAP_ACTIONS[robotCodes[i]];
+    return "Not known (robot map not read)";
+  }
+
+  /* ---------- barcode read -> junction, from robot evidence only ----------
+     A record: { t, text, letter, source, mapCode (from the map read at that
+     time, a hint), assigned: {code, t, by: "robot"|"telemetry"}, done:
+     {code, t, by}, dropped: {code, t}, ended: {t, state}, replaced: t }.
+     Later map edits never change a record.  Junctions without a barcode
+     are records with junction: true. */
+  const JX_MATCH_MS = 3000;
+  const isOpen = r => !r.junction && !r.done && !r.dropped && !r.ended && !r.replaced;
+  function newRead(list, text, source, t, robotCodes) {
+    const letter = text.length === 1 && MAP_LETTERS.includes(text) ? text : null;
+    const twin = list.slice().reverse().find(r => !r.junction && r.text === text && !r.seenBarcode && Math.abs(r.t - t) < JX_MATCH_MS);
+    if (twin) { twin.seenBarcode = true; return { rec: twin, created: false }; }
+    for (const r of list) if (isOpen(r) && r.t < t) r.replaced = t; /* the robot keeps only the newest pending action */
+    const i = letter ? MAP_LETTERS.indexOf(letter) : -1;
+    const rec = { t, text, letter, source, seenBarcode: true, mapCode: i >= 0 && validCodes(robotCodes) ? robotCodes[i] : letter ? null : 0,
+      assigned: null, done: null, dropped: null, ended: null, replaced: null };
+    list.push(rec);
+    return { rec, created: true };
+  }
+  function applyJunction(list, n, t) {
+    const textOk = r => n.letter ? r.letter === n.letter : !r.letter;
+    if (n.kind === "assigned") {
+      let r = list.slice().reverse().find(x => !x.junction && textOk(x) && !(x.assigned && x.assigned.by === "robot") && Math.abs(x.t - t) < JX_MATCH_MS && !x.done && !x.dropped);
+      if (!r) {
+        for (const x of list) if (isOpen(x)) x.replaced = t;
+        r = { t, text: n.letter || "?", letter: n.letter, source: "jx", seenBarcode: false, mapCode: null, assigned: null, done: null, dropped: null, ended: null, replaced: null };
+        list.push(r);
+      }
+      r.assigned = { code: n.code, t, by: "robot", gen: n.gen };
+      return r;
+    }
+    const r = list.slice().reverse().find(x => isOpen(x) && x.assigned && textOk(x));
+    if (n.kind === "completed") {
+      if (r) { r.done = { code: n.code, t, by: "robot" }; return r; }
+      const j = { t, junction: true, text: null, letter: null, done: { code: n.code, t, by: "robot" } };
+      list.push(j); return j;
+    }
+    if (r) { r.dropped = { code: n.code, t }; return r; }
+    return null;
+  }
+  /* telemetry fallback for firmware without robot/g10/jx */
+  function applyTelemetry(list, tl, t) {
+    const r = list.length ? list[list.length - 1] : null;
+    if (!r || !isOpen(r) || r.restored) return false;
+    let changed = false;
+    if (!r.assigned && tl.nav && NAV_TO_WIRE[tl.nav] != null && t - r.t < 1500) { r.assigned = { code: NAV_TO_WIRE[tl.nav], t, by: "telemetry" }; changed = true; }
+    if (tl.state === "EXECUTE_ACTION" && t > r.t && !r.manoeuvreSeen && !(r.assigned && r.assigned.by === "robot")) { r.manoeuvreSeen = t; changed = true; }
+    return changed;
+  }
+  function applyRunEnd(list, state, t) {
+    let n = 0;
+    for (const r of list) if (isOpen(r) && r.t <= t) { r.ended = { t, state }; n++; }
+    return n;
+  }
+  /* stages to show: [{ text, tone, t }] - only what the robot evidenced */
+  function describeRead(r) {
+    if (r.junction) return [{ text: "Junction without a barcode", tone: "idle", t: r.t }, { text: ACTION_DONE[r.done.code], tone: "good", t: r.done.t }];
+    const s = [{ text: r.letter || r.text === "?" ? "Read " + r.text : "Read \"" + r.text + "\"", tone: "work", t: r.t }];
+    if (r.configured && !("assigned" in r)) { /* saved by an older dashboard */
+      s.push({ text: "Configured: " + r.configured, tone: "idle", t: r.t });
+      if (r.executed) s.push({ text: r.executed, tone: "idle", t: r.t });
+      return s;
+    }
+    if (r.assigned) s.push({ text: ACTION_PENDING[r.assigned.code] + (r.assigned.by === "telemetry" ? " (from telemetry)" : ""), tone: "attn", t: r.assigned.t });
+    if (r.done) s.push({ text: ACTION_DONE[r.done.code], tone: "good", t: r.done.t });
+    else if (r.dropped) s.push({ text: ACTION_DROPPED[r.dropped.code] + " (obstacle, timeout or lift)", tone: "attn", t: r.dropped.t });
+    else if (r.manoeuvreSeen) s.push({ text: "Junction manoeuvre seen (completion not reported by this firmware)", tone: "idle", t: r.manoeuvreSeen });
+    else if (r.replaced) s.push({ text: "Replaced by a later read before a junction", tone: "idle", t: r.replaced });
+    else if (r.ended) s.push({ text: "Not executed: run ended (" + (STATE_LABEL[r.ended.state] || r.ended.state) + ")", tone: "idle", t: r.ended.t });
+    return s;
+  }
+
+  /* ---------- fault grouping: "Motors safe-stopped 0x2011 ×3" ---------- */
+  function groupFaults(list) {
+    const out = [], by = new Map();
+    for (const f of list) {
+      const k = (f.run ?? "") + "/" + f.src + "/" + f.sev + "/" + f.code;
+      let g = by.get(k);
+      if (!g) { g = { key: k, src: f.src, sev: f.sev, code: f.code, run: f.run ?? null, times: [], first: f.t, last: f.t, records: [] }; by.set(k, g); out.push(g); }
+      g.times.push(f.t); g.records.push(f); g.last = Math.max(g.last, f.t); g.first = Math.min(g.first, f.t);
+    }
+    return out;
+  }
+  /* "Commands: …" signal, from the newest command only */
+  function commandSignal(list, now) {
+    const e = list.length ? list[list.length - 1] : null;
+    if (!e) return { tone: "idle", text: "Commands: none sent" };
+    const d = describeCommand(e);
+    const age = Math.round((now - e.sentAt) / 1000);
+    return { tone: d.tone === "good" ? "good" : d.tone === "work" ? "work" : "attn",
+      text: "Last command: " + CMD_LABEL[e.cmd] + " #" + e.seq + " " + (e.status === "waiting" ? "waiting for ack" : e.status === "noack" ? "no ack" : "ack " + e.result) + (age >= 60 ? " (" + Math.round(age / 60) + " min ago)" : "") };
+  }
+  /* several commands blocked by the same reason: one line per reason */
+  function groupReasons(av) {
+    const by = new Map();
+    for (const k of ["stop", "start", "reset", "pause", "resume"]) {
+      if (!av[k] || av[k].ok) continue;
+      (by.get(av[k].why) || by.set(av[k].why, []).get(av[k].why)).push(CMD_LABEL[k]);
+    }
+    return [...by].map(([why, cmds]) => ({ why, cmds, text: (cmds.length === 5 ? "All commands" : cmds.join(", ")) + ": " + why }));
+  }
+  function fmtAge(ms) {
+    if (ms == null) return "never";
+    if (ms < 1000) return ms + " ms ago";
+    if (ms < 60000) return (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + " s ago";
+    if (ms < 3600000) return Math.round(ms / 60000) + " min ago";
+    return Math.round(ms / 3600000) + " h ago";
   }
 
   /* ---------- persistence ---------- */
@@ -1177,15 +1431,17 @@ const DashCore = (() => {
       " bc=" + r.barcodes + " nav=" + (NAV[r.nav] || r.nav) + " fault=" + (r.fault == null ? "-" : hex4(r.fault));
   }
 
-  return { STATES, ACTIVE, STATE_LABEL, NAV, OBS, ACK, CMD_LABEL, BARCODE_RULES, FAULTS, SUBSYS, SEV, SAFE_STOP,
+  return { STATES, ACTIVE, STATE_LABEL, NAV, OBS, ACK, CMD_LABEL, FAULTS, SUBSYS, SEV, SAFE_STOP,
     TLM_PERIOD_MS, HB_PERIOD_MS, ACK_TIMEOUT_MS, CONFIRM_MS, STORE_KEY, STORE_CAPS, CSV_COLUMNS,
     staleAfterMs, decodeTelemetry, fromUsbJson, decodeBarcode, encodeCommand, decodeCommand, decodeAck,
     parseFaultJson, parseFaultConsole, describeFault, hex4, parseHeartbeat, parseCounters, parseCountersLine, latchStatus, latchCause, latchText, latchAction, LATCH_FRESH_MS,
-    LossWindow, CommandTracker, describeCommand, commandAvailability, expectedState,
-    RunTracker, describeOutcome, configuredAction,
-    CFG_TOPIC, CFG_REPLY_TOPIC, CFG_REPLY_MS, MAP_LETTERS, MAP_ACTIONS, MAP_RESULTS, MAP_FLAGS, factoryMap, packMap, unpackMap, sameMap,
-    encodeCfgRead, encodeCfgWrite, decodeCfgReply, MapEditor, describeMap, packStore, unpackStore, writeStore,
-    telemetryCsv, parseCsv, csvCell, logLine, tlmLogText };
+    LossWindow, CommandTracker, describeCommand, commandAvailability, expectedState, commandSignal, groupReasons, fmtAge,
+    RunTracker, describeOutcome, groupFaults,
+    CFG_TOPIC, CFG_REPLY_TOPIC, JX_TOPIC, CFG_REPLY_MS, MAP_LETTERS, MAP_ACTIONS, MAP_RESULTS, MAP_FLAGS, NAV_TO_WIRE, DRAFT_KEY,
+    packMap, unpackMap, sameMap, encodeCfgRead, encodeCfgFactory, encodeCfgWrite, decodeCfgReply, decodeJunction, parseJunctionLine,
+    MapEditor, describeMap, mapSource, configuredAction,
+    newRead, applyJunction, applyTelemetry, applyRunEnd, describeRead,
+    packStore, unpackStore, writeStore, telemetryCsv, parseCsv, csvCell, logLine, tlmLogText };
 })();
 /* CORE-END */
 </script>
@@ -1208,7 +1464,7 @@ const DashCore = (() => {
     hb: null, hbSource: null,
     rows: [], rowsDropped: 0, lines: [], linesDropped: 0,
     events: [], faults: [], barcodes: [], storeNote: "", storeOk: true, storeDropped: 0,
-    lastBarcodeIdx: -1, sawTest: false
+    sawTest: false, runNo: 0
   };
   const series = { vl: [], vr: [], line: [], us: [], pitch: [] };
   const loss = new C.LossWindow();
@@ -1354,12 +1610,8 @@ const DashCore = (() => {
       announce(r.paused ? "Robot paused" : "Robot resumed");
     }
     for (const e of cmds.onState(r.state, r.paused, t)) { announce(C.describeCommand(e).text); }
-    /* pending instruction and executed manoeuvre for the newest barcode */
-    const b = S.barcodes[S.lastBarcodeIdx];
-    if (b && !b.restored) {
-      if (b.pending == null && r.nav != null && t - b.t < 1500 && r.barcodes != null) { b.pending = C.NAV[r.nav] || String(r.nav); markDirty(); renderBarcodes(); }
-      if (!b.executed && r.state === "EXECUTE_ACTION" && t > b.t) { b.executed = "Seen at " + fmtTime(t) + " (turn direction not reported)"; markDirty(); renderBarcodes(); }
-    }
+    /* firmware without robot/g10/jx: pending from the nav field, manoeuvre from the state */
+    if (C.applyTelemetry(S.barcodes, r, t)) { markDirty(); renderBarcodes(); }
     renderLive(); renderStatus();
   }
   function keepRow(r, t) {
@@ -1369,6 +1621,9 @@ const DashCore = (() => {
   function onLiveState(st, r, t, prevSt) {
     if (st === prevSt) { run.onState(st, r, t); return; }
     const res = run.onState(st, r, t);
+    /* a run that ends leaves any pending junction action unexecuted */
+    if (prevSt && C.ACTIVE.has(prevSt) && !C.ACTIVE.has(st) && C.applyRunEnd(S.barcodes, st, t)) renderBarcodes();
+    if (st === "MISSION_START" && prevSt !== st) S.runNo++;
     if (prevSt) addEvent("State: " + (C.STATE_LABEL[prevSt] || prevSt) + " → " + (C.STATE_LABEL[st] || st), st === "FAULT" ? "fault" : st === "MISSION_COMPLETE" ? "good" : "");
     if (res === "ended") {
       const o = C.describeOutcome(run.current);
@@ -1387,63 +1642,90 @@ const DashCore = (() => {
     const dup = S.faults.find(x => x.code === f.code && x.src === f.src && x.sev === f.sev && x.source !== source && Math.abs(x.t - t) < 1500);
     if (dup) return;
     const d = C.describeFault(f);
-    const rec = { t, source, src: f.src, sev: f.sev, code: f.code, state: S.tlm && S.tlmLive ? S.tlm.state : null };
+    const rec = { t, source, src: f.src, sev: f.sev, code: f.code, run: S.runNo, state: S.tlm && S.tlmLive ? S.tlm.state : null };
     S.faults.push(rec); if (S.faults.length > FAULTS_MAX) S.faults.splice(0, S.faults.length - FAULTS_MAX);
-    const attached = run.onFault(f, t);
+    const attached = run.onFault({ ...f, t }, t);
     addEvent("Fault " + d.hex + " " + d.name + " (" + d.subsystem + ", " + d.severity.toLowerCase() + ")", f.sev === 2 ? "fault" : "");
     if (f.sev === 2) announce("Fault: " + d.name);
     markDirty(); renderFaults(); if (attached) renderOutcome(); renderStatus();
+  }
+  /* one expandable block per (run, source, severity, code): "×3" with times */
+  function faultGroupEl(g, withAction) {
+    const d = C.describeFault(g);
+    const det = document.createElement("details"); det.className = "item grp";
+    const s = document.createElement("summary"); s.className = "h";
+    const tone = g.sev === 2 ? "tone-fault" : g.sev === 1 ? "tone-attn" : "tone-idle";
+    const tag = document.createElement("span"); tag.className = "tag " + tone; tag.textContent = (g.sev === 2 ? "✖ " : "! ") + d.severity;
+    const n = document.createElement("strong"); n.textContent = d.name + " " + d.hex + (g.times.length > 1 ? " ×" + g.times.length : "");
+    const m = document.createElement("span"); m.className = "muted";
+    m.textContent = d.subsystem + " · " + fmtTime(g.first) + (g.times.length > 1 ? " – " + fmtTime(g.last) : "") + (g.records[0].restored ? " (saved)" : "");
+    s.append(tag, n, m); det.appendChild(s);
+    if (withAction) { const a = document.createElement("div"); a.textContent = d.action; det.appendChild(a); }
+    const tl = document.createElement("div"); tl.className = "times";
+    tl.textContent = g.records.map(r => fmtTime(r.t) + "  " + d.raw + " via " + r.source + (r.state ? ", robot state " + r.state : "")).join("\n");
+    tl.style.whiteSpace = "pre-wrap";
+    det.appendChild(tl);
+    return det;
   }
   function renderFaults() {
     const box = $("faults");
     if (!S.faults.length) { const p = document.createElement("p"); p.className = "note"; p.textContent = "No faults reported."; box.replaceChildren(p); return; }
     const frag = document.createDocumentFragment();
-    for (const r of S.faults.slice(-30).reverse()) {
-      const d = C.describeFault(r);
-      const it = document.createElement("div"); it.className = "item";
-      const h = document.createElement("div"); h.className = "h";
-      const tone = r.sev === 2 ? "tone-fault" : r.sev === 1 ? "tone-attn" : "tone-idle";
-      const tag = document.createElement("span"); tag.className = "tag " + tone; tag.textContent = (r.sev === 2 ? "✖ " : "! ") + d.severity;
-      const n = document.createElement("strong"); n.textContent = d.name;
-      const m = document.createElement("span"); m.className = "muted"; m.textContent = d.subsystem + " · " + fmtTime(r.t);
-      h.append(tag, n, m);
-      const a = document.createElement("div"); a.textContent = d.action;
-      const det = document.createElement("details");
-      const s = document.createElement("summary"); s.textContent = "Raw report";
-      const raw = document.createElement("div"); raw.className = "mono";
-      raw.textContent = d.raw + "  code " + d.hex + "  via " + r.source + (r.state ? "  robot state " + r.state : "");
-      det.append(s, raw); it.append(h, a, det); frag.appendChild(it);
-    }
+    for (const g of C.groupFaults(S.faults.slice(-60)).reverse().slice(0, 12)) frag.appendChild(faultGroupEl(g, true));
     box.replaceChildren(frag);
   }
 
-  /* ---------- barcodes ---------- */
+  /* ---------- barcodes and junctions (robot evidence only) ---------- */
   function onBarcode(text, source, t) {
     t = t || now();
-    const dup = S.barcodes.find(b => b.text === text && b.source !== source && Math.abs(b.t - t) < 2000);
+    const dup = S.barcodes.find(b => !b.junction && b.text === text && b.source !== source && b.source !== "jx" && Math.abs(b.t - t) < 2000);
     if (dup) return;
-    const b = { t, text, source, direction: null, configured: C.configuredAction(text, mapEd.robot && mapEd.robot.codes), pending: null, executed: null };
-    S.barcodes.push(b); if (S.barcodes.length > BARCODES_MAX) S.barcodes.splice(0, S.barcodes.length - BARCODES_MAX);
-    S.lastBarcodeIdx = S.barcodes.length - 1;
+    const { rec, created } = C.newRead(S.barcodes, text, source, t, mapEd.robot && mapEd.robot.codes);
+    if (S.barcodes.length > BARCODES_MAX) S.barcodes.splice(0, S.barcodes.length - BARCODES_MAX);
     $("t_barcode").textContent = text;
-    addEvent("Barcode \"" + text + "\" read (assigned action: " + b.configured + ")", "");
-    announce("Barcode " + text);
+    if (created) {
+      const hint = rec.mapCode != null ? " (map says " + C.MAP_ACTIONS[rec.mapCode] + ")" : "";
+      addEvent("Barcode \"" + text + "\" read" + hint, "");
+      announce("Barcode " + text);
+    }
     markDirty(); renderBarcodes();
   }
-  function renderBarcodes() {
-    const body = $("barcodes");
-    if (!S.barcodes.length) { const tr = document.createElement("tr"); const td = document.createElement("td"); td.colSpan = 6; td.className = "note"; td.textContent = "No barcode reads yet."; tr.appendChild(td); body.replaceChildren(tr); return; }
-    const frag = document.createDocumentFragment();
-    for (const b of S.barcodes.slice(-100).reverse()) {
-      const tr = document.createElement("tr");
-      const cells = [fmtTime(b.t) + (b.restored ? " (saved)" : "") + " · " + b.source, b.text, b.direction || "Not reported",
-        b.configured, b.pending ? b.pending : "Not reported", b.executed || "Not reported"];
-      const heads = ["Received", "Text", "Scan direction", "Assigned action", "Pending (robot)", "Junction action seen"];
-      cells.forEach((c, i) => { const td = document.createElement("td"); td.textContent = c; td.dataset.label = heads[i]; if (i === 1) td.className = "mono"; tr.appendChild(td); });
-      frag.appendChild(tr);
-    }
-    body.replaceChildren(frag);
+  function onJunction(n, source, t) {
+    t = t || now();
+    const r = C.applyJunction(S.barcodes, n, t);
+    if (S.barcodes.length > BARCODES_MAX) S.barcodes.splice(0, S.barcodes.length - BARCODES_MAX);
+    const action = ["Go straight", "Turn left", "Turn right", "U-turn"][n.code];
+    const who = n.letter ? n.letter : "no barcode";
+    const msg = n.kind === "assigned" ? "Robot assigned " + action + " to " + (n.letter || "the last read") + (n.gen != null ? " (map save " + n.gen + ")" : "")
+      : n.kind === "completed" ? "Junction done: " + action + " (" + who + ")" : "Pending " + action + " cancelled (" + who + ")";
+    addEvent(msg + (source === "usb" ? " [USB]" : ""), n.kind === "completed" ? "good" : "");
+    if (n.kind !== "assigned") announce(msg);
+    if (r) { markDirty(); renderBarcodes(); }
   }
+  function renderBarcodes() {
+    const box = $("barcodes");
+    const list = S.barcodes.slice(-12).reverse();
+    if (!list.length) { const li = document.createElement("li"); li.className = "note"; li.textContent = "No barcode reads yet."; box.replaceChildren(li); return; }
+    const frag = document.createDocumentFragment();
+    for (const r of list) {
+      const li = document.createElement("li");
+      const w = document.createElement("span"); w.className = "when"; w.textContent = fmtTime(r.t) + (r.restored ? " (saved)" : "");
+      li.appendChild(w);
+      C.describeRead(r).forEach((s, i) => {
+        if (i) { const a = document.createElement("span"); a.className = "arrow"; a.setAttribute("aria-hidden", "true"); a.textContent = "→"; li.appendChild(a); }
+        const el = document.createElement("span"); el.className = "stage tone-" + s.tone; el.textContent = s.text; el.title = fmtTime(s.t);
+        li.appendChild(el);
+      });
+      if (!r.junction && r.mapCode != null && !r.assigned) {
+        const h = document.createElement("span"); h.className = "muted"; h.textContent = "map at read time: " + C.MAP_ACTIONS[r.mapCode] + " (not confirmed by the robot)";
+        li.appendChild(h);
+      }
+      frag.appendChild(li);
+    }
+    box.replaceChildren(frag);
+  }
+  /* S5 obstacle profile: filled in by the S5 obstacle-size change */
+  function renderObstacleProfile() {}
 
   /* ---------- heartbeat counters (robot side) ---------- */
   function onHeartbeat(text, source) {
@@ -1465,6 +1747,8 @@ const DashCore = (() => {
     let f;
     if ((f = C.parseFaultConsole(line))) { onFault(f, "usb"); return; }
     if ((m = /^vc: barcode "([^"]+)" nav \d+$/.exec(line))) { onBarcode(m[1], "usb"); return; }
+    const jx = C.parseJunctionLine(line);
+    if (jx) { onJunction(jx, "usb"); return; }
     if ((m = /^vc: (\w+) -> (\w+)$/.exec(line)) && C.STATES.includes(m[2])) {
       /* USB state change: use it when MQTT telemetry is not fresh */
       if (!(S.tlmLive && S.tlm.source === "mqtt" && now() - S.tlmAt < C.staleAfterMs("mqtt"))) {
@@ -1526,9 +1810,13 @@ const DashCore = (() => {
       if (r.kind === "matched" || r.kind === "late") { addEvent(r.text, mapEd.last && mapEd.last.kind === "verified" ? "good" : ""); announce(r.text); }
       else if (r.kind === "invalid") addEvent(r.text + " (" + bytes.length + " bytes)", "");
       renderMap(); renderBarcodes();
+    } else if (topic === C.JX_TOPIC) {
+      const n = C.decodeJunction(bytes);
+      addLine("[mqtt " + topic + "] " + (n ? n.kind + " " + (n.letter || "-") + " " + n.code + " gen " + n.gen : "invalid junction note (" + bytes.length + " bytes)"));
+      if (n) onJunction(n, "mqtt", t);
     } else if (topic === C.CFG_TOPIC) {
       /* our own request coming back from the broker, or another client's */
-      const op = bytes.length >= 4 && bytes[0] === 0xC1 ? { 1: "read", 2: "save" }[bytes[1]] : null;
+      const op = bytes.length >= 4 && bytes[0] === 0xC1 ? { 1: "read", 2: "save", 3: "factory read" }[bytes[1]] : null;
       const id = bytes.length >= 4 ? (bytes[2] << 8) | bytes[3] : 0;
       const own = mapEd.pending && mapEd.pending.id === id;
       addLine("[mqtt " + topic + "] barcode map " + (op || "request") + " #" + id + (own ? " (this page)" : " (another client)"));
@@ -1573,7 +1861,7 @@ const DashCore = (() => {
       loss.reset(); S.mqtt = "on"; S.mqttErr = "";
       addEvent("MQTT connected" + (auto ? " (restored from last session)" : "") + ": " + url, "good"); renderStatus();
       /* connecting only READS the robot's map; it never writes one */
-      mapSend(mapEd.read(now()));
+      mapRefresh(null);
     });
     mqttClient.on("error", e => { S.mqttErr = e.message; renderStatus(); });
     mqttClient.on("close", () => { if (mqttClient) { if (S.mqtt === "on") addEvent("MQTT connection lost, retrying every 3 s", ""); S.mqtt = "reconnecting"; mapEd.connectionLost(now()); renderStatus(); } });
@@ -1609,7 +1897,7 @@ const DashCore = (() => {
     addEvent("Sent " + C.CMD_LABEL[cmd] + " #" + entry.seq, "");
     renderCmdLog(); renderStatus();
   });
-  /* ---------- barcode junction actions ---------- */
+  /* ---------- barcode mapping view ---------- */
   function mapSend(req) {
     if (!req || !mqttClient || S.mqtt !== "on") return false;
     /* QoS 0 and never retained: a stored copy could replay a write later */
@@ -1619,7 +1907,22 @@ const DashCore = (() => {
   function mapCtx() {
     const fresh = S.tlmLive && S.tlm && now() - S.tlmAt <= C.staleAfterMs(S.tlm.source);
     return { mqtt: S.mqtt === "on", usb: S.usb === "on",
+      robotAlive: !!(fresh && S.tlm.source === "mqtt"),
       missionActive: fresh ? C.ACTIVE.has(S.tlm.state) || !!S.tlm.paused : null };
+  }
+  /* reads only: the active map, and the robot's factory map once */
+  function mapRefresh(why) {
+    if (S.mqtt !== "on") return;
+    const r = mapEd.read(now()); if (mapSend(r) && why) addEvent("Asked the robot for its barcode map (" + why + ")", "");
+    mapSend(mapEd.readFactory(now()));
+    renderMap();
+  }
+  function saveDraft() {
+    try {
+      if (!storage) return;
+      const j = mapEd.exportDraft(now());
+      if (j) storage.setItem(C.DRAFT_KEY, j); else storage.removeItem(C.DRAFT_KEY);
+    } catch (e) {}
   }
   function buildMapGrid() {
     const grid = $("mapGrid"); const frag = document.createDocumentFragment();
@@ -1629,7 +1932,8 @@ const DashCore = (() => {
       const sr = document.createElement("span"); sr.className = "sr"; sr.textContent = " action"; lab.appendChild(sr);
       const sel = document.createElement("select"); sel.id = "map_" + l;
       C.MAP_ACTIONS.forEach((a, c) => { const o = document.createElement("option"); o.value = String(c); o.textContent = a; sel.appendChild(o); });
-      sel.onchange = () => { mapEd.edit(i, +sel.value); renderMap(); };
+      /* a dropdown only edits the draft: no command, no write */
+      sel.onchange = () => { mapEd.edit(i, +sel.value); saveDraft(); renderMap(); };
       const mk = document.createElement("span"); mk.className = "mk"; mk.id = "mapmk_" + l;
       sel.setAttribute("aria-describedby", mk.id);
       row.append(lab, sel, mk); frag.appendChild(row);
@@ -1638,30 +1942,51 @@ const DashCore = (() => {
   }
   function renderMap() {
     const ctx = mapCtx();
-    const shown = mapEd.shown() || C.factoryMap();
+    const shown = mapEd.shown();
     const robot = mapEd.robot && mapEd.robot.codes;
+    const ref = robot || (mapEd.base && mapEd.base.codes);
+    const editedOnly = $("mapEditedOnly").checked;
+    let visible = 0;
     [...C.MAP_LETTERS].forEach((l, i) => {
       const sel = $("map_" + l), mk = $("mapmk_" + l), row = $("maprow_" + l);
-      if (sel.value !== String(shown[i])) sel.value = String(shown[i]);
-      sel.disabled = !robot || mapEd.busy();
-      const edited = !!(robot && mapEd.draft && shown[i] !== robot[i]);
+      const want = shown ? String(shown[i]) : "";
+      if (shown && sel.value !== want) sel.value = want;
+      if (!shown) sel.selectedIndex = -1;
+      sel.disabled = !robot || mapEd.busy() || mapEd.unsupported;
+      const edited = !!(ref && mapEd.draft && mapEd.draft[i] !== ref[i]);
       row.classList.toggle("edited", edited);
-      mk.textContent = edited ? "● Edited · robot has: " + C.MAP_ACTIONS[robot[i]] : "";
+      mk.textContent = edited ? "● Edited · robot has: " + C.MAP_ACTIONS[ref[i]] : "";
+      row.hidden = editedOnly && !edited;
+      if (!row.hidden) visible++;
     });
+    $("mapEmpty").hidden = !(editedOnly && visible === 0);
     const d = C.describeMap(mapEd, ctx);
-    const st = $("mapStatus"); st.textContent = (d.tone === "good" ? "✓ " : d.tone === "attn" ? "! " : d.tone === "work" ? "… " : "○ ") + d.text; setTone(st, d.tone);
+    const st = $("mapStatus"); setTone(st, d.tone);
+    $("mapWord").textContent = (d.tone === "good" ? "✓ " : d.tone === "attn" ? "! " : d.tone === "work" ? "… " : "○ ") + d.word + ".";
+    $("mapText").textContent = d.text;
+    $("mapSource").textContent = C.mapSource(mapEd);
+    const ch = mapEd.changes();
+    $("mapChangesWrap").hidden = !ch.length;
+    const ul = $("mapChanges"); const frag = document.createDocumentFragment();
+    for (const c of ch) { const li = document.createElement("li"); li.textContent = c.letter + ": " + C.MAP_ACTIONS[c.from] + " → " + C.MAP_ACTIONS[c.to]; frag.appendChild(li); }
+    ul.replaceChildren(frag);
     const block = mapEd.saveBlock(ctx);
     $("mapSave").disabled = !!block;
+    $("mapSave").textContent = ch.length ? "Save to robot (" + ch.length + ")" : "Save to robot";
     $("mapRead").disabled = !ctx.mqtt || mapEd.busy();
-    $("mapRestore").disabled = !robot || mapEd.busy() || C.sameMap(shown, C.factoryMap());
-    $("mapDiscard").hidden = !mapEd.dirty();
-    $("mapWhy").textContent = !robot ? "The letters show the factory defaults until the robot's map is read." :
-      block && block !== "No changes to save." ? "Save unavailable: " + block : "";
+    $("mapDiscard").disabled = !mapEd.draft;
+    const facWhy = mapEd.factoryState === "unsupported" ? "Restore factory defaults is unavailable: this firmware does not report its factory map."
+      : mapEd.factoryState !== "ok" ? "Restore factory defaults needs the robot's factory map (read when connected)." : "";
+    $("mapRestore").disabled = !robot || mapEd.busy() || !!facWhy || C.sameMap(shown, mapEd.factory);
+    const why = [];
+    if (block && block !== "No changes to save.") why.push("Save unavailable: " + block);
+    if (facWhy && robot) why.push(facWhy);
+    $("mapWhy").textContent = why.join(" ");
+    $("tabMapMark").textContent = mapEd.dirty() ? "● unsaved" : "";
   }
   $("mapRead").onclick = () => {
-    if (mapEd.dirty() && !confirm("Read the robot's map? Your unsaved changes stay as a draft, and any letter the robot changed is flagged.")) return;
-    if (mapSend(mapEd.read(now()))) addEvent("Asked the robot for its barcode map", "");
-    renderMap();
+    if (mapEd.draft && !confirm("Read the robot's map? Your unsaved changes stay as a draft, and any letter the robot changed is flagged.")) return;
+    mapRefresh("Read from robot");
   };
   $("mapSave").onclick = () => {
     const ctx = mapCtx();
@@ -1670,16 +1995,41 @@ const DashCore = (() => {
       if (!confirm("The robot's map changed since you started editing (letters " + mapEd.conflict.letters.join(", ") + "). Save your draft over it?")) return;
       force = true;
     }
+    const ch = mapEd.changes();
     const req = mapEd.save(now(), ctx, force);
-    if (req && mapSend(req)) addEvent("Sent barcode map save #" + req.id + " (" + mapEd.pending.codes.length + " letters, changed " + mapEd.dirtyLetters().join(", ") + ")", "");
+    if (req && mapSend(req)) addEvent("Sent barcode map save #" + req.id + ": " + ch.map(c => c.letter + " " + C.MAP_ACTIONS[c.from] + " → " + C.MAP_ACTIONS[c.to]).join(", "), "");
     renderMap();
   };
   $("mapRestore").onclick = () => {
-    if (mapEd.restoreDefaults()) announce("Factory defaults loaded into the draft. Press Save to robot to apply them.");
+    if (mapEd.restoreDefaults()) { saveDraft(); announce("Factory defaults loaded into the draft. Press Save to robot to apply them."); }
     renderMap();
   };
-  $("mapDiscard").onclick = () => { mapEd.discard(); renderMap(); };
+  $("mapDiscard").onclick = () => { mapEd.discard(); saveDraft(); renderMap(); };
+  $("mapEditedOnly").onchange = renderMap;
   buildMapGrid();
+
+  /* ---------- views ---------- */
+  const VIEWS = ["run", "map", "diag"];
+  function showView(v, focus) {
+    if (!VIEWS.includes(v)) v = "run";
+    for (const k of VIEWS) {
+      const on = k === v, tab = $("tab_" + k);
+      tab.setAttribute("aria-selected", on ? "true" : "false"); tab.tabIndex = on ? 0 : -1;
+      $("view_" + k).hidden = !on;
+    }
+    if (focus) $("tab_" + v).focus();
+    setSetting("robot.view", v);
+    if (v === "map") mapRefresh(mapEd.robot ? null : "opened Barcode mapping");
+    if (v === "diag") { drawAll(); renderLog(); }
+  }
+  VIEWS.forEach((k, i) => {
+    const tab = $("tab_" + k);
+    tab.onclick = () => showView(k);
+    tab.onkeydown = e => {
+      const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+      if (d) { e.preventDefault(); showView(VIEWS[(i + d + VIEWS.length) % VIEWS.length], true); }
+    };
+  });
 
   function renderCmdLog() {
     const box = $("cmdlog"); const frag = document.createDocumentFragment();
@@ -1692,112 +2042,148 @@ const DashCore = (() => {
     box.replaceChildren(frag);
   }
 
-  /* ---------- status banner, pills, buttons ---------- */
+  /* ---------- top bar: headline, three separate signals, commands ---------- */
   function setTone(el, tone) { el.className = el.className.replace(/\btone-\w+/g, "").trim() + " tone-" + tone; }
+  function freshness(t) {
+    const age = S.tlm && S.tlmLive ? t - S.tlmAt : null;
+    return { age, stale: age != null && age > C.staleAfterMs(S.tlm.source) };
+  }
   function renderStatus() {
     const t = now();
-    const age = S.tlm && S.tlmLive ? t - S.tlmAt : null;
-    const stale = age != null && age > C.staleAfterMs(S.tlm.source);
-    /* pills */
-    const usbTxt = { off: "USB: off", on: "USB: connected (read-only)", unsupported: "USB: not in this browser" }[S.usb] || "USB: " + S.usb;
+    const { age, stale } = freshness(t);
+    /* signals: broker, robot data, command acks are separate facts */
+    const usbTxt = { off: "USB: off", on: "USB: read-only", unsupported: "USB: not in this browser" }[S.usb] || "USB: " + S.usb;
     $("pUsb").textContent = (S.usb === "on" ? "● " : "○ ") + usbTxt; setTone($("pUsb"), S.usb === "on" ? "good" : "idle");
-    const mq = { off: "MQTT: off", connecting: "MQTT: connecting…", on: "MQTT: connected", reconnecting: "MQTT: reconnecting…" }[S.mqtt];
+    const mq = { off: "Broker: off", connecting: "Broker: connecting…", on: "Broker: connected", reconnecting: "Broker: reconnecting…" }[S.mqtt];
     $("pMqtt").textContent = (S.mqtt === "on" ? "● " : S.mqtt === "off" ? "○ " : "◌ ") + mq;
     setTone($("pMqtt"), S.mqtt === "on" ? "good" : S.mqtt === "off" ? "idle" : "attn");
-    if (age == null) { $("pAge").textContent = S.restored ? "Data: restored, not live" : "Data: none"; setTone($("pAge"), "idle"); }
-    else { $("pAge").textContent = (stale ? "! Stale: " : "Data: ") + (age < 1000 ? age + " ms" : (age / 1000).toFixed(age < 10000 ? 1 : 0) + " s") + " ago via " + S.tlm.source.toUpperCase(); setTone($("pAge"), stale ? "attn" : "good"); }
+    if (age == null) { $("pAge").textContent = "○ Robot data: " + (S.restored ? "saved, not live" : "none"); setTone($("pAge"), "idle"); }
+    else { $("pAge").textContent = (stale ? "! Robot data stale: " : "● Robot data: ") + C.fmtAge(age) + " via " + S.tlm.source.toUpperCase(); setTone($("pAge"), stale ? "attn" : "good"); }
+    const cs = C.commandSignal(cmds.list, t);
+    $("pAck").textContent = (cs.tone === "good" ? "✓ " : cs.tone === "attn" ? "! " : cs.tone === "work" ? "… " : "○ ") + cs.text; setTone($("pAck"), cs.tone);
     const ls = loss.stats(t);
-    if (ls.loss == null) { $("pLoss").textContent = "Loss 60 s: no data"; setTone($("pLoss"), "idle"); }
-    else { $("pLoss").textContent = "Loss 60 s: " + (100 * ls.loss).toFixed(1) + "% (" + ls.missing + "/" + (ls.received + ls.missing) + ")"; setTone($("pLoss"), ls.missing ? "attn" : "good"); }
+    if (ls.loss == null) { $("pLoss").textContent = "no data"; setTone($("pLoss"), "idle"); }
+    else { $("pLoss").textContent = (100 * ls.loss).toFixed(1) + "% (" + ls.missing + " of " + (ls.received + ls.missing) + " frames)"; setTone($("pLoss"), ls.missing ? "attn" : "good"); }
 
-    /* banner */
+    /* one headline */
     let tone = "idle", word, sub = "", ico = "○";
     const st = S.tlm && S.tlm.state;
     if (!S.tlm) {
       word = "No robot data";
       sub = S.mqtt === "on" ? "Broker connected, but no telemetry from the robot yet. Is the robot on and on the same network?"
-        : S.mqtt === "connecting" || S.mqtt === "reconnecting" ? "Connecting to the broker…" : S.usb === "on" ? "USB connected: the robot prints state once a second while MQTT is down." : "Connect MQTT or USB below.";
+        : S.mqtt === "connecting" || S.mqtt === "reconnecting" ? "Connecting to the broker…" : S.usb === "on" ? "USB connected: the robot prints state once a second while MQTT is down." : "Connect in Run › Connection details.";
     } else if (S.restored || !S.tlmLive) {
-      word = "Last known: " + (C.STATE_LABEL[st] || st);
-      sub = "Restored from saved history (" + fmtTime(S.restored ? S.restored.at : S.tlmAt) + "), not live." + (S.mqtt === "on" ? " Broker connected, waiting for robot telemetry." : "");
+      tone = "idle"; ico = "○";
+      word = "No live robot data";
+      sub = "Last known: " + (C.STATE_LABEL[st] || st) + " (saved " + fmtTime(S.restored ? S.restored.at : S.tlmAt) + ")." + (S.mqtt === "on" ? " Broker connected, waiting for robot telemetry." : "");
+    } else if (stale) {
+      tone = "attn"; ico = "!";
+      word = "Robot data stale · last update " + C.fmtAge(age);
+      sub = "Last known: " + (C.STATE_LABEL[st] || st) + (S.tlm.paused ? " (paused)" : "") + ". The robot may have changed state since." + (S.mqtt === "on" ? " The broker is connected; the robot is not sending." : "");
     } else {
       const o = run.current && st === run.current.state ? C.describeOutcome(run.current) : null;
-      if (st === "FAULT") { tone = "fault"; ico = "✖"; word = o ? o.title.replace(/^Fault: /, "Fault — ") : "Fault"; sub = o ? o.action : "Press Reset, then Start."; }
+      if (st === "FAULT") { tone = "fault"; ico = "✖"; word = o ? o.title.replace(/^Fault: /, "Fault — ") : "Fault"; sub = o && o.action ? o.action : "Press Reset, then Start."; }
       else if (S.tlm.paused) { tone = "attn"; ico = "❚❚"; word = "Paused"; sub = "Stopped on the line. Resume or Stop."; }
       else if (st === "MISSION_COMPLETE") { tone = "good"; ico = "✓"; word = "Mission complete"; sub = "Robot lifted: run ended. Reset or Start for a new run."; }
       else if (st === "IDLE") { tone = "idle"; ico = "○"; word = "Idle"; sub = "Ready for Start."; }
       else if (st === "LOST_LINE") { tone = "attn"; ico = "!"; word = C.STATE_LABEL[st]; sub = "Bounded search: up to 3 attempts, then Fault."; }
       else if (C.ACTIVE.has(st)) { tone = "work"; ico = "▶"; word = C.STATE_LABEL[st]; sub = "Run in progress."; }
       else { word = C.STATE_LABEL[st] || st; }
-      if (stale) { tone = "attn"; ico = "!"; sub = "Stale: no telemetry for " + (age / 1000).toFixed(1) + " s. The robot may have changed state. " + sub; }
-      else if (S.mqtt === "on" && S.tlm.source === "usb") sub += " (state from USB)";
+      if (S.mqtt === "on" && S.tlm.source === "usb") sub += " (state from USB)";
     }
-    if (S.mqttErr) sub += " MQTT: " + S.mqttErr;
+    if (S.mqttErr) sub += " Broker: " + S.mqttErr;
     $("btnMqtt").textContent = S.mqtt === "off" ? "Connect MQTT" : "Disconnect MQTT";
     const banner = $("banner"); setTone(banner, tone);
     $("bIco").textContent = ico; $("bWord").textContent = word; $("bSub").textContent = sub;
-    $("fabState").textContent = ico + " " + word; $("fabState").className = "st tone-" + tone;
+    /* phone bar: headline plus the freshness signal, beside Stop */
+    $("fabState").textContent = ico + " " + (stale ? "Stale · " + C.fmtAge(age) : word + (age != null ? " · " + C.fmtAge(age) : "")) + (S.mqtt === "on" ? "" : " · broker off");
+    $("fabState").className = "st tone-" + tone;
 
-    /* buttons and reasons */
+    /* buttons: each keeps its own reason for assistive tech; the visible
+       list says a shared reason once */
     const av = availability();
-    const whys = new Set(Object.values(av).map(a => a.why));
-    const allSame = whys.size === 1 && !av.stop.ok;
     document.querySelectorAll(".cmd").forEach(b => {
       const k = b.dataset.cmd, a = av[k];
       b.setAttribute("aria-disabled", a.ok ? "false" : "true");
-      /* one shared reason is shown once, on Stop's line */
-      $("why_" + k).textContent = a.ok ? "" : allSame ? (k === "stop" ? "All commands: " + a.why : "") : C.CMD_LABEL[k] + ": " + a.why;
-      if (allSame) b.setAttribute("aria-describedby", "why_stop"); else b.setAttribute("aria-describedby", "why_" + k);
+      if ($("why_" + k)) $("why_" + k).textContent = a.ok ? "" : a.why;
     });
+    const why = $("why"); const frag = document.createDocumentFragment();
+    for (const g of C.groupReasons(av)) { const d = document.createElement("span"); d.textContent = g.text; frag.appendChild(d); }
     const latch = C.latchStatus(S.hb, t);
     const endState = st === "IDLE" || st === "FAULT" || st === "MISSION_COMPLETE";
-    $("why_latch").textContent = latch === "unavailable" && S.tlm && endState && av.start.ok !== undefined
-      ? "Latch status unavailable: if the robot was lifted or overturned, place it flat, hands off 2 s, press Reset, then Start." : "";
+    if (latch === "unavailable" && S.tlm && endState && !stale) {
+      const d = document.createElement("span"); d.textContent = "IMU latch status unavailable: if the robot was lifted or overturned, place it flat, hands off 2 s, press Reset, then Start."; frag.appendChild(d);
+    }
+    why.replaceChildren(frag);
     $("t_latch").textContent = C.latchText(S.hb, t);
   }
 
-  /* ---------- live tiles ---------- */
+  /* ---------- live readings (Run) ---------- */
   function txt(id, v) { $(id).textContent = v; }
   const dash = v => v == null ? "–" : v;
   function renderLive() {
-    const r = S.tlm; if (!r) return;
+    const r = S.tlm, t = now();
+    const { age, stale } = freshness(t);
+    const live = !!(r && S.tlmLive && !stale);
+    $("h_live").textContent = live ? "Live" : "Last readings";
+    $("liveGrid").classList.toggle("stale", !live);
+    $("liveAge").textContent = !r ? "No telemetry yet." : live ? "via " + r.source.toUpperCase() + ", " + C.fmtAge(age)
+      : "as of " + fmtTime(S.restored ? S.restored.at : S.tlmAt) + (age != null ? " (" + C.fmtAge(age) + ")" : " (saved, not live)");
+    if (!r) return;
     txt("t_vl", dash(r.speedL)); txt("t_vr", dash(r.speedR)); txt("t_odo", dash(r.distance));
     txt("t_line", dash(r.line));
     if (r.line != null) $("t_linebar").style.left = (50 + Math.max(-1000, Math.min(1000, r.line)) / 20) + "%";
     txt("t_bc", dash(r.barcodes));
-    txt("t_nav", r.nav == null ? "" : r.nav === 0 ? "no turn pending" : "turn: " + (C.NAV[r.nav] || r.nav));
+    const w = r.nav == null ? null : C.NAV_TO_WIRE[r.nav];
+    txt("t_nav", r.nav == null ? "" : r.nav === 0 ? "nothing pending" : w != null ? "telemetry: " + ["straight", "left", "right", "U-turn"][w] + " (last read)" : "nav " + r.nav);
     txt("t_pitch", r.pitchDeg == null ? "–" : r.pitchDeg.toFixed(1));
     txt("t_hump", dash(r.humpMm)); txt("t_maxhump", dash(r.humpMaxMm));
     if (r.obstacleMm != null) { txt("t_us", r.obstacleMm); txt("t_us_u", "mm"); }
-    else { txt("t_us", "–"); txt("t_us_u", r.obstacleNoEcho ? "no echo" : "not reported"); }
+    else { txt("t_us", "–"); txt("t_us_u", r.obstacleNoEcho ? "(no echo)" : "(not reported)"); }
     txt("t_obs", r.obstacleState == null ? "–" : (C.OBS[r.obstacleState] || "State " + r.obstacleState) + (r.obstacleDetected ? " · obstacle" : ""));
-    if (S.barcodes.length) txt("t_barcode", S.barcodes[S.barcodes.length - 1].text);
+    const lastRead = S.barcodes.slice().reverse().find(b => !b.junction);
+    if (lastRead) txt("t_barcode", lastRead.text);
+    renderObstacleProfile();
   }
 
-  /* ---------- outcome cards ---------- */
-  function fillOutcome(el, o, label) {
+  /* ---------- last run (Run) and history ---------- */
+  function fillOutcome(el, o) {
     const d = C.describeOutcome(o); el.replaceChildren();
     el.className = "card tone-" + d.tone;
     const t = document.createElement("div"); t.className = "t"; t.textContent = (d.tone === "fault" ? "✖ " : "✓ ") + d.title;
     const m = document.createElement("div"); m.className = "m";
-    m.textContent = label + (o.observed ? "ended " : "seen ") + new Date(o.at).toLocaleString() + (o.observed ? "" : " (end time not observed)") +
+    m.textContent = (o.observed ? "Ended " : "Seen ") + new Date(o.at).toLocaleString() + (o.observed ? "" : " (end time not observed)") +
       " · distance " + (o.distanceMm == null ? "not reported" : o.distanceMm + " mm");
     el.append(t, m);
-    if (d.detail) { const x = document.createElement("div"); x.className = "d"; x.textContent = d.detail; el.appendChild(x); }
     if (d.action) { const x = document.createElement("div"); x.className = "a"; x.textContent = "Next: " + d.action; el.appendChild(x); }
-    for (const s of d.secondary) { const x = document.createElement("div"); x.className = "m"; x.textContent = s; el.appendChild(x); }
+    if (d.detail) { const x = document.createElement("div"); x.className = "m"; x.textContent = d.detail; el.appendChild(x); }
+    if (d.groups && d.groups.length) {
+      const x = document.createElement("div"); x.className = "m"; x.textContent = "Also reported (not counted as the cause):"; el.appendChild(x);
+      for (const g of d.groups) el.appendChild(faultGroupEl({ ...g, records: g.records.map(f => ({ ...f, source: f.source || "robot" })) }, false));
+    }
   }
   function renderOutcome() {
-    const cur = $("outNow"), prev = $("outPrev");
-    if (run.current) fillOutcome(cur, run.current, "This run: ");
+    const cur = $("outNow");
+    if (run.current) fillOutcome(cur, run.current);
     else {
       cur.className = "card"; cur.replaceChildren();
       const t = document.createElement("div"); t.className = "t";
-      t.textContent = S.tlm && C.ACTIVE.has(S.tlm.state) && S.tlmLive ? "Run in progress" : "No finished run yet";
-      const m = document.createElement("div"); m.className = "m"; m.textContent = "A run's end reason, time and distance stay here until the next run starts.";
+      const fr = freshness(now());
+      t.textContent = S.tlm && C.ACTIVE.has(S.tlm.state) && S.tlmLive ? (fr.stale ? "Last known: run in progress (robot data stale)" : "Run in progress") : "No finished run yet";
+      const m = document.createElement("div"); m.className = "m"; m.textContent = "The end reason, time and distance appear here when a run ends.";
       cur.append(t, m);
     }
-    if (run.previous) { prev.hidden = false; fillOutcome(prev, run.previous, "Previous run: "); } else prev.hidden = true;
+    const h = run.history || [];
+    $("histWrap").hidden = !h.length;
+    $("histSum").textContent = "History: " + h.length + " earlier run" + (h.length === 1 ? "" : "s");
+    const frag = document.createDocumentFragment();
+    for (const o of h) {
+      const d = C.describeOutcome(o); const li = document.createElement("li");
+      li.textContent = (d.tone === "fault" ? "✖ " : "✓ ") + d.title + " · " + new Date(o.at).toLocaleString() + " · " + (o.distanceMm == null ? "distance not reported" : o.distanceMm + " mm") +
+        (d.secondary.length ? " · " + d.secondary.join("; ") : "");
+      frag.appendChild(li);
+    }
+    $("runHist").replaceChildren(frag);
   }
 
   /* ---------- diagnostics ---------- */
@@ -1867,6 +2253,11 @@ const DashCore = (() => {
     txt("c_speed_v", series.vl.length ? "L " + last(series.vl) + "  R " + last(series.vr) : "");
     txt("c_line_v", last(series.line)); txt("c_us_v", last(series.us));
     txt("c_pitch_v", series.pitch.length ? last(series.pitch).toFixed(1) : "");
+    /* no samples in the window: say so instead of drawing empty axes */
+    for (const [id, a] of [["c_speed", series.vl], ["c_line", series.line], ["c_us", series.us], ["c_pitch", series.pitch]]) {
+      const t0 = now() - WINDOW_MS, has = a.some(p => p[0] >= t0);
+      $(id).style.visibility = has ? "visible" : "hidden"; $(id + "_e").hidden = has;
+    }
   }
 
   /* ---------- Web Serial (read-only) ---------- */
@@ -1932,7 +2323,8 @@ const DashCore = (() => {
     const all = [];
     for (const r of S.rows) all.push([r.t, "telemetry", C.tlmLogText(r)]);
     for (const e of S.events) all.push([e.t, "event", (e.restored ? "(saved) " : "") + e.text]);
-    for (const b of S.barcodes) all.push([b.t, "barcode", b.text + " | source " + b.source + " | direction " + (b.direction || "Not reported") + " | configured " + b.configured + " | pending " + (b.pending || "Not reported") + " | junction action " + (b.executed || "Not reported")]);
+    for (const b of S.barcodes) all.push([b.t, b.junction ? "junction" : "barcode", (b.junction ? "" : "text " + b.text + " | source " + b.source + " | ") +
+      C.describeRead(b).map(x => fmtTime(x.t) + " " + x.text).join(" -> ") + (b.mapCode != null && !b.junction ? " | map at read time " + C.MAP_ACTIONS[b.mapCode] : "")]);
     for (const f of S.faults) { const d = C.describeFault(f); all.push([f.t, "fault", d.hex + " " + d.name + " | " + d.subsystem + " | " + d.severity + " | " + d.raw + " | via " + f.source]); }
     for (const o of S.lines) all.push([o.t, "console", o.line]);
     all.sort((a, b) => a[0] - b[0]);
@@ -1943,7 +2335,7 @@ const DashCore = (() => {
   $("btnCsv").onclick = () => download("robot-telemetry-" + stamp() + ".csv", C.telemetryCsv(S.rows), "text/csv");
   $("btnClear").onclick = () => {
     if (!confirm("Clear saved events, barcode reads, faults and the last run outcome? The broker address is kept.")) return;
-    S.events = []; S.faults = []; S.barcodes = []; S.rows = []; S.rowsDropped = 0; S.lastBarcodeIdx = -1;
+    S.events = []; S.faults = []; S.barcodes = []; S.rows = []; S.rowsDropped = 0;
     run = new C.RunTracker(null); if (S.tlm && S.tlmLive) run.lastState = S.tlm.state;
     if (!S.tlmLive) { S.tlm = null; S.restored = null; }
     try { if (storage) storage.removeItem(C.STORE_KEY); } catch (e) {}
@@ -1955,12 +2347,12 @@ const DashCore = (() => {
   setInterval(() => {
     const changed = cmds.tick(now());
     for (const e of changed) { const d = C.describeCommand(e); addEvent(d.text, ""); announce(d.text); }
-    if (mapEd.tick(now())) { addEvent(mapEd.last.text, ""); announce(mapEd.last.text); }
-    renderCmdLog(); renderStatus(); drawAll(); renderDiag(); renderMap();
+    if (mapEd.tick(now(), mapCtx())) { addEvent(mapEd.last.text, ""); announce(mapEd.last.text); }
+    renderCmdLog(); renderStatus(); renderLive(); if (!$("view_diag").hidden) { drawAll(); renderDiag(); } renderMap();
   }, 500);
   setInterval(renderRetention, 5000);
 
-  function renderAll() { renderEvents(); renderFaults(); renderBarcodes(); renderOutcome(); renderLive(); renderStatus(); renderDiag(); renderRetention(); renderTests(); renderCmdLog(); drawAll(); renderMap(); }
+  function renderAll() { renderEvents(); renderFaults(); renderBarcodes(); renderOutcome(); renderLive(); renderStatus(); renderDiag(); renderRetention(); renderTests(); renderCmdLog(); drawAll(); renderMap(); renderObstacleProfile(); }
 
   /* phone: show the fixed Stop bar once the top block is out of view */
   if ("IntersectionObserver" in window) {
@@ -1971,6 +2363,10 @@ const DashCore = (() => {
   restore();
   S.mqttUrl = getSetting("robot.mqttUrl") || "";
   $("mqttUrl").value = S.mqttUrl;
+  /* an unsaved mapping draft from before a reload comes back as a draft */
+  try { const j = storage && storage.getItem(C.DRAFT_KEY); if (j && !mapEd.importDraft(j)) storage.removeItem(C.DRAFT_KEY); } catch (e) {}
+  $("connPanel").open = !S.mqttUrl;
+  showView(getSetting("robot.view") || "run");
   renderAll();
   if (S.restored) addEvent("Showing saved history from " + new Date(S.restored.at).toLocaleString() + ": not live", "");
   /* reconnect once to the saved broker, unless you pressed Disconnect.
@@ -1979,7 +2375,7 @@ const DashCore = (() => {
 
   /* for the dashboard checks and bench debugging: the same entry points
      the MQTT and USB handlers use */
-  window.robotDashboard = { handleMqttMessage, handleLine, core: C, mapEditor: mapEd };
+  window.robotDashboard = { handleMqttMessage, handleLine, core: C, mapEditor: mapEd, showView };
 })();
 </script>
 </body>

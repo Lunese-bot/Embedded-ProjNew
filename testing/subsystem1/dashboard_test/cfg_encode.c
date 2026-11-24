@@ -13,6 +13,8 @@
  *   Y op id result gen flags hex7 -> reply
  *   D hex                      -> s1_cfg_decode_request: "op id gen hex7"
  *                                 or ERR
+ *   X kind letter code gen     -> robot/g10/jx note (letter as a number,
+ *                                 0 = none)
  */
 #include <stdio.h>
 #include <string.h>
@@ -87,6 +89,9 @@ int main(void)
 			if (n < 0 || s1_cfg_decode_request(out, n, &req) != 0) { printf("ERR\n"); continue; }
 			printf("%u %u %u ", req.op, req.request_id, req.expected_gen);
 			put_hex(req.map, 7); printf("\n");
+		} else if (line[0] == 'X' && sscanf(line + 1, "%ld %ld %ld %ld", &v[0], &v[1], &v[2], &v[3]) == 4) {
+			n = s1_cfg_encode_junction((uint8_t)v[0], (uint8_t)v[1], (uint8_t)v[2], (uint16_t)v[3], out);
+			put_hex(out, n); printf("\n");
 		} else {
 			printf("ERR\n");
 		}
