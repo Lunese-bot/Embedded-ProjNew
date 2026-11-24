@@ -13,7 +13,10 @@
  *        SET_SPEED v   remembered; re-sent at once while driving
  *        TURN_LEFT a   s2_cmd_turn(turn speed, +a)   (+ = left in S2)
  *        TURN_RIGHT a  s2_cmd_turn(turn speed, -a)
- *        U_TURN        s2_cmd_turn(turn speed, VC_UTURN_CMD_DEG)
+ *        U_TURN a      s2_cmd_turn(turn speed, +a), a = 0: VC_UTURN_CMD_DEG
+ *        PIVOT v       s2_cmd_drive(0, v): both wheels at |v| in opposite
+ *                      directions (+ = left), until the next command; the
+ *                      controller refreshes it within S2_CMD_TIMEOUT_MS
  *        DRIVE_DIST d  s2_cmd_drive_dist(speed, +d)
  *        REVERSE d     s2_cmd_drive_dist(speed, -d)
  *        SAFE_STOP     s2_emergency_stop()  (latched in S2)
@@ -23,8 +26,10 @@
  *      10 ms; if that stops, S2 stops and reports it.
  *
  *      S2 -> controller (g_flg_motion, polled with TWF_BITCLR, never blocks)
- *        MFLG_CMD_DONE     -> VC_EV_MANOEUVRE_DONE (p1 = 1)
+ *        MFLG_CMD_DONE     -> VC_EV_MANOEUVRE_DONE (p1 = 1, p2 = odometer)
  *        MFLG_STOPPED      -> VC_EV_MOTION_STOPPED after a requested STOP
+ *                             (p2 = odometer: the U-turn logs how far the
+ *                             wheels ran on after the stop request)
  *        MFLG_FAULT        -> CRITICAL fault 0x20nn (nn = motion_fault_t)
  *        MFLG_CMD_TIMEOUT  -> CRITICAL fault 0x2010 (steering stopped)
  *        SAFE_STOP status  -> CRITICAL fault 0x2011, once per stop, with
@@ -198,7 +203,28 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
             break;
         case VC_MOVE_U_TURN:
             g_b_driving = false;
-            ercd        = s2_cmd_turn(sent_turn_speed(), VC_UTURN_CMD_DEG);
+            ercd        = s2_cmd_turn(sent_turn_speed(),
+                                      (value > 0) ? value : VC_UTURN_CMD_DEG);
+            break;
+        case VC_MOVE_PIVOT:
+            /* Speed 0, steer v: S2 drives the left wheel at -v and the
+               right at +v (task_motion.c MSTATE_DRIVING), a pivot about
+               the axle at a speed the controller chooses.  Not scaled by
+               the dashboard's live speed: the U-turn sets it. */
+            g_b_driving = false;
+            if (value > VC_TURN_SPEED_MMS)
+            {
+                value = VC_TURN_SPEED_MMS;
+            }
+            else if (value < -VC_TURN_SPEED_MMS)
+            {
+                value = -VC_TURN_SPEED_MMS;
+            }
+            else
+            {
+                /* in range */
+            }
+            ercd = s2_cmd_drive(0, value);
             break;
         case VC_MOVE_DRIVE_DIST:
             g_b_driving = false;
@@ -296,7 +322,8 @@ bool vc_bridge_s2_next(vc_event_t * p_event)
         if (g_b_waiting_stop)
         {
             g_b_waiting_stop = false;
-            make(p_event, VC_EV_MOTION_STOPPED, 0, 0);
+            /* Cast: odometer counts, read back as uint32 */
+            make(p_event, VC_EV_MOTION_STOPPED, 0, (int32_t)g_s2_odo_ticks);
         }
         else
         {
@@ -306,7 +333,8 @@ bool vc_bridge_s2_next(vc_event_t * p_event)
     else if (0U != (g_got & MFLG_CMD_DONE))
     {
         g_got &= ~MFLG_CMD_DONE;
-        make(p_event, VC_EV_MANOEUVRE_DONE, 1, 0);
+        /* Cast: odometer counts, read back as uint32 */
+        make(p_event, VC_EV_MANOEUVRE_DONE, 1, (int32_t)g_s2_odo_ticks);
     }
     else if (g_b_ready_pending && (motion_st.loop_count != 0U) &&
              (MSTATE_IDLE == motion_st.state) && (0U == g_s2_imu_stop) &&

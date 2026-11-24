@@ -26,6 +26,11 @@
  *        BARCODE_OFF    -> S3_REQ_BC_DISABLE (while avoiding an obstacle)
  *        LINE_SEARCH    -> nothing: the controller turns the robot, S3 keeps
  *                          tracking and reports LINE_FOUND
+ *        LINE_WATCH 1/0 -> (U-turn) in EXECUTE_ACTION every NEW sample after
+ *                          the request becomes VC_EV_LINE_SAMPLE: C / R on
+ *                          black (VC_LINE_C | VC_LINE_R, white too), S2's
+ *                          odometer, the sample's own time.  Off again on 0
+ *                          or as soon as the controller leaves EXECUTE_ACTION.
  */
 
 #include "vc_bridge.h"
@@ -42,6 +47,8 @@
 
 static uint32_t g_last_seq;
 static uint32_t g_exec_seq; /* last S3 sample reported during a junction turn */
+static bool     g_b_line_watch; /* VC_REQ_LINE_WATCH: every sample to the VC */
+static uint32_t g_watch_seq;    /* last sample sent as VC_EV_LINE_SAMPLE */
 static bool     g_b_ready_pending;
 static bool     g_b_bypass_ended;
 static uint32_t g_bypass_end_ms;
@@ -259,6 +266,10 @@ bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
     s3_line_status_t line_st;
     bool             b_event = false;
 
+    if (VC_ST_EXECUTE_ACTION != state)
+    {
+        g_b_line_watch = false; /* the watch belongs to one manoeuvre */
+    }
 #if S2_WEBDEBUG
     if (live_tune_straight_at_junction())
     {
@@ -307,10 +318,32 @@ bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
         make(p_event, VC_EV_LINE_FOUND, 0, 0, line_st.time_ms);
         b_event = true;
     }
+    /* 1c'. U-turn (LINE_WATCH): every new sample, black or white, so the
+       controller sees the line arrive AND leave each sensor. */
+    else if (g_b_line_watch && (VC_ST_EXECUTE_ACTION == state) &&
+             (E_OK == s3_get_line_status(&line_st)) &&
+             (line_st.seq != g_watch_seq))
+    {
+        int32_t mask = 0;
+
+        g_watch_seq = line_st.seq;
+        if (0u != (line_st.black_mask & S3_MASK_C))
+        {
+            mask |= VC_LINE_C;
+        }
+        if (0u != (line_st.black_mask & S3_MASK_R))
+        {
+            mask |= VC_LINE_R;
+        }
+        /* Cast: the odometer is sent as int32 and read back as uint32 */
+        make(p_event, VC_EV_LINE_SAMPLE, mask, (int32_t)g_s2_odo_ticks,
+             line_st.time_ms);
+        b_event = true;
+    }
     /* 1c. Junction turn (EXECUTE_ACTION, VC_TURN_END_ON_LINE): C or R on
        black, once per new S3 sample, with S2's odometer in p2 so the
        controller can tell how far it has turned. */
-    else if ((VC_ST_EXECUTE_ACTION == state) &&
+    else if ((VC_ST_EXECUTE_ACTION == state) && !g_b_line_watch &&
              (E_OK == s3_get_line_status(&line_st)) &&
              (line_st.seq != g_exec_seq) &&
              (0u != (line_st.black_mask & (S3_MASK_C | S3_MASK_R))))
@@ -384,6 +417,14 @@ ER vc_bridge_s3_request(vc_request_t req, int32_t arg)
             break;
         case VC_REQ_BARCODE_OFF:
             ercd = s3_request(S3_REQ_BC_DISABLE);
+            break;
+        case VC_REQ_LINE_WATCH:
+            /* only samples taken after this request count */
+            g_b_line_watch = (0 != arg);
+            if (E_OK == s3_get_line_status(&line_st))
+            {
+                g_watch_seq = line_st.seq;
+            }
             break;
         default:
             break;

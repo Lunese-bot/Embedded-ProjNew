@@ -84,8 +84,10 @@ typedef enum
     VC_EV_WIFI_UP,
 
     /* S2 motion: send after every TURN_*, U_TURN, REVERSE, DRIVE_DIST */
-    VC_EV_MANOEUVRE_DONE, /* p1 = 1 completed, 0 failed (navigation_complete) */
-    VC_EV_MOTION_STOPPED,  /* S2 confirms MOTION_STOP reached zero speed */
+    VC_EV_MANOEUVRE_DONE, /* p1 = 1 completed, 0 failed (navigation_complete);
+                             p2 = S2 odometer (L + R counts), 0 = not given */
+    VC_EV_MOTION_STOPPED,  /* S2 confirms MOTION_STOP reached zero speed;
+                              p2 = S2 odometer then, 0 = not given */
 
     /* S3 line + barcode */
     VC_EV_LINE_LOST,     /* p1 = last side seen: -1 left, +1 right, 0 unknown */
@@ -117,8 +119,20 @@ typedef enum
                          p1 = request id.  Applied only when no mission is
                          active, decided by the controller itself. */
 
+    /* S3, only while the controller asked for it (VC_REQ_LINE_WATCH) in
+       EXECUTE_ACTION: one per NEW line sample, black or white.
+       p1 = VC_LINE_C | VC_LINE_R bits on black, p2 = S2 odometer (L + R
+       counts) when it was read, time_ms = the sample's own time, so the
+       controller can tell a sample taken before the wheels stopped. */
+    VC_EV_LINE_SAMPLE,
+
     VC_EV_COUNT
 } vc_event_type_t;
+
+/* VC_EV_LINE_SAMPLE p1: which line sensor reads black.  S3's own mask bits
+   stay inside the S3 bridge, so the controller compiles without S3. */
+#define VC_LINE_C 1
+#define VC_LINE_R 2
 
 /* Fault severity (FR8) */
 typedef enum
@@ -174,13 +188,13 @@ typedef struct
  *  forwards the request only if that subsystem owns motion in the
  *  current state (S3 in FOLLOW_LINE, S5 in AVOID_OBSTACLE ...).
  * --------------------------------------------------------------------- */
-/* Angle the U-turn asks S2 for, in degrees.  TUNE on the robot: the owner
-   measured ~215 deg of body turn for a 180 deg request (2026-11-24), so
-   180 x 180 / 215 = 151; at 151 the owner saw 10-15 deg over (~192),
-   so 151 x 180 / 192.5 = 141; at 141 it was ~5 deg over (185), so
-   141 x 180 / 185 = 137.  Raise it if the robot under-turns, lower it if
-   it over-turns (1 deg here = about 1.2 deg of body turn).  Only the
-   U-turn uses it: LEFT / RIGHT end on the line and are accurate.
+/* Expected return heading of the U-turn, in S2 command degrees (encoder
+   angle, VC_PIVOT_COUNTS).  The owner's runs (2026-11-24): a 180 request
+   turned the body ~215 deg, 151 ~192, 141 ~185, so 141 x 180 / 185 = 137.
+   Since 2026-11-25 the U-turn no longer ends here: the fast pivot stops
+   VC_UTURN_APPROACH_DEG short of it, a slow pivot finds the return line,
+   and VC_UTURN_SECTOR_DEG either side of it bounds the search (vc_sm.h).
+   Only the U-turn uses it: LEFT / RIGHT end on the line and are accurate.
    Build override: -DVC_UTURN_CMD_DEG=<deg>. */
 #ifndef VC_UTURN_CMD_DEG
 #define VC_UTURN_CMD_DEG 137
@@ -197,12 +211,17 @@ typedef enum
                          speed */
     VC_MOVE_TURN_LEFT,  /* value = angle (deg) */
     VC_MOVE_TURN_RIGHT, /* value = angle (deg) */
-    VC_MOVE_U_TURN,     /* value unused */
+    VC_MOVE_U_TURN,     /* value = angle (deg, left), 0 = VC_UTURN_CMD_DEG */
     VC_MOVE_REVERSE,    /* value = distance (mm) */
     VC_MOVE_SET_SPEED,  /* value = speed limit (mm/s) */
     VC_MOVE_DRIVE_DIST, /* value = distance (mm) forward at the set speed */
     VC_MOVE_SAFE_STOP,  /* motors off at once, latched (NFR8) */
     VC_MOVE_RESET,      /* clear the latch: controller only, never requested */
+    VC_MOVE_PIVOT,      /* value = wheel speed (mm/s) of a pivot on the spot,
+                           + = left (counter-clockwise), - = right.  Keeps
+                           turning until the next move: the controller
+                           refreshes it (S2 stops a DRIVE after 500 ms) and
+                           ends it with STOP_CONFIRM.  Controller only. */
     VC_MOVE_COUNT
 } vc_move_t;
 
@@ -220,7 +239,10 @@ typedef enum
     VC_REQ_OBST_AVOID,   /* S5: scan, profile and bypass */
     VC_REQ_OBST_MONITOR, /* S5: back to monitoring */
     VC_REQ_TERRAIN_MEASURE, /* S4: measure the hump */
-    VC_REQ_STOP_ALL         /* all: mission over / safe stop */
+    VC_REQ_STOP_ALL,        /* all: mission over / safe stop */
+    VC_REQ_LINE_WATCH,      /* S3: p = 1 send every new sample as
+                               VC_EV_LINE_SAMPLE (U-turn), 0 = stop */
+    VC_REQ_COUNT
 } vc_request_t;
 
 /* ---------------------------------------------------------------------

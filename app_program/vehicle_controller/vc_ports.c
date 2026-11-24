@@ -21,17 +21,24 @@
 
 vc_port_log_t g_vc_port_log;
 
-static const char * const g_move_names[VC_MOVE_COUNT] = {
+static const char * const g_move_names[] = {
     "STOP", "STOP_CONFIRM", "FORWARD", "STEER", "TURN_LEFT", "TURN_RIGHT",
-    "U_TURN", "REVERSE", "SET_SPEED", "DRIVE_DIST", "SAFE_STOP", "RESET"
+    "U_TURN", "REVERSE", "SET_SPEED", "DRIVE_DIST", "SAFE_STOP", "RESET",
+    "PIVOT"
 };
+/* A new move or request needs its name here too (a missing one used to
+   print as "?" or read past the table). */
+_Static_assert(sizeof(g_move_names) / sizeof(g_move_names[0]) == VC_MOVE_COUNT,
+               "one name per vc_move_t");
 
 static const char * const g_req_names[] = {
     "NONE",        "SELF_CHECK",   "LINE_FOLLOW",
     "LINE_SEARCH", "BARCODE_READ", "BARCODE_OFF",
     "OBST_AVOID",  "OBST_MONITOR", "TERRAIN_MEASURE",
-    "STOP_ALL"
+    "STOP_ALL",    "LINE_WATCH"
 };
+_Static_assert(sizeof(g_req_names) / sizeof(g_req_names[0]) == VC_REQ_COUNT,
+               "one name per vc_request_t");
 
 ER vc_port_move(vc_move_t move, int32_t value)
 {
@@ -40,8 +47,16 @@ ER vc_port_move(vc_move_t move, int32_t value)
     g_vc_port_log.moves++;
 
 #if VC_PORT_VERBOSE
-    /* STEER arrives every 10 ms from S3: do not flood the console */
-    if (move != VC_MOVE_STEER)
+    /* STEER arrives every 10 ms from S3, and the U-turn refreshes the same
+       PIVOT every 100 ms: do not flood the console */
+    static vc_move_t s_prev_move  = VC_MOVE_COUNT;
+    static int32_t   s_prev_value = 0;
+    bool b_repeat = (VC_MOVE_PIVOT == move) && (s_prev_move == move) &&
+                    (s_prev_value == value);
+
+    s_prev_move  = move;
+    s_prev_value = value;
+    if ((move != VC_MOVE_STEER) && !b_repeat)
     {
         tm_printf((uint8_t *)"vc: move %s %d\n",
                   ((uint32_t)move < VC_MOVE_COUNT) ? g_move_names[move] : "?",
@@ -82,7 +97,7 @@ ER vc_port_request(vc_source_t target, vc_request_t req, int32_t arg)
     if ((req != VC_REQ_LINE_FOLLOW) || (arg != 0))
     {
         tm_printf((uint8_t *)"vc: request S%d %s (%d)\n", (int32_t)target,
-                  ((uint32_t)req <= (uint32_t)VC_REQ_STOP_ALL)
+                  ((uint32_t)req < (uint32_t)VC_REQ_COUNT)
                       ? g_req_names[req]
                       : "?",
                   arg);

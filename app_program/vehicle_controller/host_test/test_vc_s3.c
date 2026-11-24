@@ -131,5 +131,42 @@ int main(void)
     assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
     assert(event.type == VC_EV_BARCODE_DECODED && barcode_error == E_TMOUT);
     puts("[TEST] S6-BC01 PASS  barcode publish and failure reporting preserve controller event");
+    /* U-turn watch: every new sample (black or white) with the odometer,
+       only after the request, only in EXECUTE_ACTION */
+    g_lt_bc_en = 1;
+    event_ready = false;
+    line_status = (s3_line_status_t){ .seq = 50, .time_ms = 700,
+                                     .line_state = LINE_STATE_FOLLOW,
+                                     .black_mask = S3_MASK_C };
+    assert(E_OK == vc_bridge_s3_request(VC_REQ_LINE_WATCH, 1));
+    assert(!vc_bridge_s3_next(&event, VC_ST_EXECUTE_ACTION)); /* seq 50 predates the request */
+    line_status.seq = 51; line_status.time_ms = 710;
+    line_status.black_mask = 0u;
+    g_s2_odo_ticks = 1234u;
+    assert(vc_bridge_s3_next(&event, VC_ST_EXECUTE_ACTION));
+    assert(VC_EV_LINE_SAMPLE == event.type && 0 == event.p1 &&
+           1234 == event.p2 && 710u == event.time_ms);
+    assert(!vc_bridge_s3_next(&event, VC_ST_EXECUTE_ACTION)); /* same sample: once */
+    line_status.seq = 52; line_status.time_ms = 720;
+    line_status.black_mask = (uint8_t)(S3_MASK_R | S3_MASK_L);
+    assert(vc_bridge_s3_next(&event, VC_ST_EXECUTE_ACTION));
+    assert(VC_EV_LINE_SAMPLE == event.type && VC_LINE_R == event.p1);
+    line_status.seq = 53;
+    line_status.black_mask = (uint8_t)(S3_MASK_C | S3_MASK_R);
+    assert(vc_bridge_s3_next(&event, VC_ST_EXECUTE_ACTION));
+    assert((VC_LINE_C | VC_LINE_R) == event.p1);
+    /* leaving EXECUTE_ACTION ends the watch: back there, only LINE_FOUND */
+    line_status.seq = 54;
+    (void)vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE);
+    line_status.seq = 55;
+    assert(vc_bridge_s3_next(&event, VC_ST_EXECUTE_ACTION) &&
+           VC_EV_LINE_FOUND == event.type);
+    assert(E_OK == vc_bridge_s3_request(VC_REQ_LINE_WATCH, 1));
+    assert(E_OK == vc_bridge_s3_request(VC_REQ_LINE_WATCH, 0));
+    line_status.seq = 56;
+    assert(vc_bridge_s3_next(&event, VC_ST_EXECUTE_ACTION) &&
+           VC_EV_LINE_FOUND == event.type);
+    puts("[TEST] S6-U04 PASS  LINE_WATCH: each new sample after the request, white too, C/R bits + odometer + sample time; off with 0 or outside EXECUTE_ACTION");
+
     return 0;
 }

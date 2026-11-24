@@ -28,10 +28,15 @@ static int reset_count;
 static int status_errors;
 static ER status_result;
 
+volatile uint32_t g_s2_odo_ticks; /* S2's odometer, read by the bridge */
+static UINT flg_pending; /* S2 event flags the next tk_wai_flg returns */
 static ER tk_wai_flg(ID id, UINT bits, UINT mode, UINT *out, int timeout)
 {
-    (void)id; (void)bits; (void)mode; (void)out; (void)timeout;
-    return E_TMOUT;
+    (void)id; (void)mode; (void)timeout;
+    if (0U == (flg_pending & bits)) return E_TMOUT;
+    *out = flg_pending & bits;
+    flg_pending &= ~bits;
+    return E_OK;
 }
 static ER tk_clr_flg(ID id, UINT bits) { (void)id; (void)bits; return E_OK; }
 static void app_check(ER result, const char *what)
@@ -42,8 +47,9 @@ static void app_check(ER result, const char *what)
 ER s2_get_status(motion_status_t *out) { *out = status; return status_result; }
 uint32_t s2_stop_epoch(void) { return stop_epoch; }
 ER s2_cmd_stop(void) { return E_OK; }
+static int32_t last_drive_speed, last_drive_steer, drives;
 ER s2_cmd_drive(int32_t speed, int32_t steer)
-{ (void)speed; (void)steer; return E_OK; }
+{ last_drive_speed = speed; last_drive_steer = steer; drives++; return E_OK; }
 static int32_t last_turn_angle;
 ER s2_cmd_turn(int32_t speed, int32_t angle)
 { (void)speed; last_turn_angle = angle; return E_OK; }
@@ -120,6 +126,39 @@ int main(void)
     assert(vc_bridge_s2_move(VC_MOVE_TURN_LEFT, 90) == E_OK && last_turn_angle == 90);
     assert(vc_bridge_s2_move(VC_MOVE_TURN_RIGHT, 90) == E_OK && last_turn_angle == -90);
     puts("[TEST] S6-U01 PASS  U-turn asks S2 for VC_UTURN_CMD_DEG (137, tuned on the robot); left +90, right -90 unchanged");
+
+    /* U-turn recovery: the fast part asks for its own angle, the slow part
+       pivots by wheel speed until the controller stops it */
+    assert(vc_bridge_s2_move(VC_MOVE_U_TURN, 97) == E_OK && last_turn_angle == 97);
+    drives = 0;
+    assert(vc_bridge_s2_move(VC_MOVE_PIVOT, 60) == E_OK && drives == 1 &&
+           last_drive_speed == 0 && last_drive_steer == 60);
+    assert(vc_bridge_s2_move(VC_MOVE_PIVOT, -60) == E_OK &&
+           last_drive_speed == 0 && last_drive_steer == -60);
+    assert(vc_bridge_s2_move(VC_MOVE_PIVOT, 5000) == E_OK &&
+           last_drive_steer == VC_TURN_SPEED_MMS);
+    assert(vc_bridge_s2_move(VC_MOVE_PIVOT, -5000) == E_OK &&
+           last_drive_steer == -VC_TURN_SPEED_MMS);
+    /* SET_SPEED must not turn a pivot back into a forward drive */
+    drives = 0;
+    assert(vc_bridge_s2_move(VC_MOVE_SET_SPEED, 120) == E_OK && drives == 0);
+    puts("[TEST] S6-U02 PASS  U_TURN carries its angle (0 = VC_UTURN_CMD_DEG); PIVOT = drive(0, +-v), clamped to the turn speed, not resumed by SET_SPEED");
+
+    /* the controller logs how far the wheels ran on after a stop request */
+    status.state = MSTATE_IDLE;
+    status.stop_epoch = stop_epoch;
+    g_s2_odo_ticks = 4321U;
+    flg_pending = MFLG_CMD_DONE;
+    assert(vc_bridge_s2_next(&event) && event.type == VC_EV_MANOEUVRE_DONE &&
+           event.p1 == 1 && event.p2 == 4321);
+    assert(vc_bridge_s2_move(VC_MOVE_STOP_CONFIRM, 0) == E_OK);
+    g_s2_odo_ticks = 4400U;
+    flg_pending = MFLG_STOPPED;
+    assert(vc_bridge_s2_next(&event) && event.type == VC_EV_MOTION_STOPPED &&
+           event.p2 == 4400);
+    flg_pending = MFLG_STOPPED; /* not asked for: not forwarded */
+    assert(!vc_bridge_s2_next(&event));
+    puts("[TEST] S6-U03 PASS  MANOEUVRE_DONE and MOTION_STOPPED carry S2's odometer in p2");
 
     puts("[TEST] S6-SAFE03 PASS  motion readiness follows applied stop and reset");
 
