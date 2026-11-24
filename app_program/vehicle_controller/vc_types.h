@@ -205,6 +205,8 @@ typedef struct
     vc_fault_severity_t  last_fault_sev;
     uint8_t              last_fault_src;
     navigation_command_t last_nav;    /* last barcode command */
+    char                 last_barcode[16]; /* last decoded text ("A", "Z"); a letter
+                                              that goes straight is still recorded */
     int32_t              max_hump_um; /* highest hump this run, micrometres */
     uint32_t             barcodes_read;
     uint32_t             events_handled;
