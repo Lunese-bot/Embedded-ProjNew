@@ -103,4 +103,13 @@ Add a new row for every run. Never edit or delete old rows.
 | 2026-11-19 | Four recovery searches extended by 25 mm | working tree | Codex | PASS | `host_test/test_navigation.c`, `subsystem5_test.c` | 8 packing tests and 20 navigation groups passed. Both directions verify 65 mm, 175 mm, 30 mm and 35 mm search limits and fresh IR sampling after a stop at either final endpoint. The ARM test source passed a syntax check and Wi-Fi/lwIP firmware built. Floor testing is pending. |
 | 2026-11-19 | Inward retry extended to 75 mm | working tree | Codex | PASS | `host_test/test_navigation.c` | 8 packing tests and 20 navigation groups passed. Both directions verify a 75 mm same-heading retry after a miss and skip it after a lost sighting. Wi-Fi/lwIP firmware built. Floor testing is pending. |
 | 2026-11-19 | Inward retry extended to 85 mm | working tree | Codex | PASS | `host_test/test_navigation.c` | 8 packing tests and 20 navigation groups passed. Both directions verify the 85 mm same-heading retry, 40° return turn and 175 mm, 30 mm and 35 mm recovery moves. Wi-Fi/lwIP firmware built. Floor testing is pending. |
+| 2026-11-24 | Measured pass: tracker, side look, fallback, stop paths (S5-M01..M10, off by default) | working tree on fa51404 | Claude coder | PASS (host only) | `host_test/test_side_pass.c`, `host_test/test_side_task.c` | Linux gcc. 8 packing, 20 navigation, side-pass 35722 checks, side-pass task 6 groups. Firmware builds clean with NET=lwip and NET=lwip MQTT=1. **No robot run: hardware acceptance pending the owner's dated evidence.** |
 | YYYY-MM-DD | S5-U01 | `abc1234` | | PASS / FAIL | `logs/YYYY-MM-DD_….txt` | |
+
+### Measured pass: robot rows (owner fills in; nothing here is a result yet)
+
+One robot at a time, after a power cycle.  Engineering targets, not course requirements.
+
+| Date | Step | Firmware commit | Power-cycled | Obstacle depth x width, offset (mm) | Side / mode | True depth vs observed (mm, partial or assumed?) | Min clearance (mm) | Turn-in point (travel mm) | Tape sighting | Rejoin confirmed | VC state after | Followed after VC resumed (mm) | Result |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| | | | | | | | | | | | | | |

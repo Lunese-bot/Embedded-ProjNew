@@ -277,7 +277,11 @@ int main(void)
     step_result_t r = run(&st, &stop_x);
     CHECK(r == STEP_DONE && g_pass_why == S5_PASS_FALLBACK);
     CHECK(iabs((stop_x + 400) - st.m.distance_mm) <= 5 && w.stops == 1 && w.side_ends == 1);
-    CHECK(strstr(w.log[0], "depth assumed") != NULL);
+    {
+        bool found = false;
+        for (int i = 0; i < w.logn; i++) { found |= (strstr(w.log[i], "depth assumed") != NULL); }
+        CHECK(found);
+    }
     puts("[TEST] S5-M07 PASS  task: no side echo -> fixed distance from the pass start, logs 'depth assumed'");
 
     /* never cleared -> stop at the cap, reported as BLOCKED, no turn-in */

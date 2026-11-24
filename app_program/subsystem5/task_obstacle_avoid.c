@@ -337,6 +337,8 @@ static step_result_t run_pass_step(const s5_step_t * p_step)
         return run_motion(&fixed);
     }
     g_pass.odo0_mm = s5_port_odo_mm();
+    tm_printf((uint8_t *)"s5: pass: side look %d deg, fixed fallback %d mm, cap %d mm\n",
+              p_step->look_deg, p_step->m.distance_mm, p_step->cap_mm);
     result = run_motion_ex(p_step, true);
     s5_side_end(); /* the servo returns to centre; never delays the stop */
     if ((STEP_PASS_END == result) || (STEP_PASS_BLOCKED == result))
