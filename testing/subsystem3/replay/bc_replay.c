@@ -18,14 +18,22 @@
  * (the dashboard CSV columns).  Position = 2 x left wheel = sum(fwd - yaw),
  * the same as s3_bc_pos() with S3_BC_DIST_WHEEL 1.
  *
- * usage: bc_replay [-v] [-prime] [-norearm] trace.txt [trace.txt ...]
- * After every failed read the white level is relearned, as the robot's
- * retry rearm does; -norearm turns that off.
- * Sample numbers count from the first record of the file; with -prime they
- * include the PRIME_N records put in front (see prime()).
+ * usage: bc_replay [-v] [-eof-decode] [-white-lead-in] [-rearm] trace.txt ...
+ * The default replays the shipped controller: VC_BARCODE_MAX_RETRY 0, so a
+ * failed read is not rearmed (white is not relearned), and a read still
+ * open when the trace ends is reported as out=incomplete, not decoded.
+ * Diagnostic modes (not what the robot does):
+ *   -eof-decode     decode a read still open at the end of the trace
+ *   -white-lead-in  put PRIME_N records of the pass's own white in front
+ *                   (see white_lead_in()); sample numbers then include them
+ *   -rearm          relearn white after every failed read (a retry rearm)
  * One line per read:
- *   <file> start=<sample> end=<sample> why=<..> elems=<n> path=<..> out=<..>
- * and one summary line per file.
+ *   <file> start=<sample> end=<sample> why=<..> elems=<n> span=<counts>
+ *          white=<raw> margin=<raw> path=<..> out=<..>
+ * span = encoder counts from the read start to its end; white / margin =
+ * the edge finder's learned white and noise margin at the end (frozen while
+ * the read is open); out=reject:<first element-decoder gate>+shape:<..>.
+ * One summary line per file.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,10 +53,13 @@ static uint8_t  g_f[NMAX];
 static int8_t   g_y[NMAX];
 static int      g_n;
 static int      g_verbose;
-static int      g_prime; /* -prime: see prime() */
+static int      g_lead_in; /* -white-lead-in: see white_lead_in() */
 static int      g_primed_n; /* records added in front */
 static int32_t  g_margin;   /* bc_edge_margin() now (adaptive path) */
-static int      g_norearm;  /* -norearm: no white relearn after a failed read */
+static int      g_eof_decode; /* -eof-decode: decode a read open at trace end */
+static int      g_rearm_mode; /* -rearm: relearn white after a failed read */
+static int32_t  g_white;    /* learned white now (adaptive path) */
+static uint32_t g_pos, g_start_pos; /* encoder position now / at read start */
 static int      g_rearm;    /* a failed read asked for a rearm */
 static const char * g_name;
 
@@ -63,7 +74,7 @@ static uint32_t W[S3_BC_MAX_ELEMENTS], WP[S3_BC_MAX_ELEMENTS];
 static uint32_t nw, widest, total_pos, last_run_pos, last_run_t, white_ms;
 static int      st_read; /* 0 idle, 1 read */
 static int      read_start;
-static int      n_starts, n_letters, n_fail;
+static int      n_starts, n_letters, n_fail, n_open;
 static char     letters[64];
 
 static uint32_t quiet_us(void)
@@ -184,8 +195,9 @@ static void decode(int idx, const char * why)
         n_fail++;
         g_rearm = 1;
     }
-    printf("%s start=%d end=%d why=%s elems=%u path=%s out=%s\n", g_name,
-           read_start, idx, why, nw, path, out);
+    printf("%s start=%d end=%d why=%s elems=%u span=%u white=%d margin=%d path=%s out=%s\n",
+           g_name, read_start, idx, why, nw, g_pos - g_start_pos, (int)g_white, (int)g_margin,
+           path, out);
     if (g_verbose)
     {
         uint32_t k;
@@ -206,14 +218,15 @@ static void on_run(const run_t * r, int idx)
         if (!r->black && (r->width_us >= (uint32_t)S3_BC_START_WHITE_MS * 1000u))
         {
             st_read = 1; read_start = idx; nw = 0; widest = 0; total_pos = 0;
+            g_start_pos = g_pos;
             n_starts++;
         }
         return;
     }
     if (r->black && (r->width_us > (uint32_t)S3_BC_ELEMENT_MAX_MS * 1000u))
     {
-        printf("%s start=%d end=%d why=black-too-long elems=%u path=none out=abort\n",
-               g_name, read_start, idx, nw);
+        printf("%s start=%d end=%d why=black-too-long elems=%u span=%u white=%d margin=%d path=none out=abort\n",
+               g_name, read_start, idx, nw, g_pos - g_start_pos, (int)g_white, (int)g_margin);
         n_fail++;
         g_rearm = 1;
         go_idle();
@@ -253,7 +266,7 @@ static void replay(void)
     uint8_t   level = 0u;
     int       i;
 
-    n_starts = n_letters = n_fail = 0; letters[0] = 0; g_rearm = 0;
+    n_starts = n_letters = n_fail = n_open = 0; letters[0] = 0; g_rearm = 0;
     go_idle();
     bc_edge_reset_pos(&e, (int32_t)g_l[0], 0u, 0u);
     for (i = 0; i < g_n; i++)
@@ -261,19 +274,20 @@ static void replay(void)
         uint32_t t = (uint32_t)i * T_US;
         uint32_t eu = t, ep;
         pos += (uint32_t)((int32_t)g_f[i] - (int32_t)g_y[i]);
-        ep = pos;
+        ep = pos; g_pos = pos;
         /* task_line.c barcode_runs_step() */
 #if S3_BC_EDGE_ADAPT
-        /* vc_sm.c barcode_retry() asks for BARCODE_READ again after a failed
-           read; task_barcode.c then bumps g_s3_bc_relearn_seq and
-           task_line.c relearns white on its next step (inferred timing:
-           the next record). */
-        if ((0 != g_rearm) && (0 == g_norearm)) { bc_edge_relearn(&e); }
+        /* -rearm only: a retry (VC_BARCODE_MAX_RETRY > 0) would send
+           BARCODE_READ again; task_barcode.c then bumps g_s3_bc_relearn_seq
+           and task_line.c relearns white on its next step.  The shipped
+           controller has VC_BARCODE_MAX_RETRY 0: no rearm. */
+        if ((0 != g_rearm) && (0 != g_rearm_mode)) { bc_edge_relearn(&e); }
         g_rearm = 0;
         e.hold = (uint8_t)S3_BC_ADAPT_HOLD;
         uint8_t b_edge = bc_edge_step_adapt(&e, (int32_t)g_l[i], t, pos, (1 == st_read),
                                             &eu, &ep);
         g_margin = bc_edge_margin(&e);
+        g_white  = (0U != e.w_valid) ? (e.w_x16 / 16) : -1;
         if (0U != b_edge)
 #else
         e.hold = (S3_BC_EDGE_SWING <= S3_BC_WEAK_SWING_MAX) ? (uint8_t)S3_BC_WEAK_HOLD : 0U;
@@ -318,8 +332,8 @@ static void replay(void)
             }
             else if ((0U != level) && ((t - last_run_t) >= (uint32_t)S3_BC_ELEMENT_MAX_MS * 1000u))
             {
-                printf("%s start=%d end=%d why=black-too-long elems=%u path=none out=abort\n",
-                       g_name, read_start, i, nw);
+                printf("%s start=%d end=%d why=black-too-long elems=%u span=%u white=%d margin=%d path=none out=abort\n",
+                       g_name, read_start, i, nw, g_pos - g_start_pos, (int)g_white, (int)g_margin);
                 n_fail++;
                 g_rearm = 1;
                 go_idle();
@@ -327,22 +341,35 @@ static void replay(void)
             }
         }
     }
-    if (1 == st_read)
+    if ((1 == st_read) && (0 != g_eof_decode))
     {
-        /* The dashboard froze the trace when the robot decoded, so the
-           read the robot made ends at the last record: decode it there. */
+        /* -eof-decode: decode the open read at the last record (the
+           dashboard may have frozen the trace when the robot decoded) */
         decode(g_n - 1, "trace-end");
     }
-    printf("%s SUMMARY starts=%d letters=%d [%s] rejected=%d\n", g_name,
-           n_starts, n_letters, letters, n_fail);
+    else if (1 == st_read)
+    {
+        /* the robot had not ended this read when the trace stops: what
+           the firmware decided is not in the trace */
+        char text[S3_BC_TEXT_MAX + 2] = { 0 };
+        bool rev = false;
+        const char * path = "none";
+        code39_result_t res = try_decode(text, &rev, &path);
+        printf("%s start=%d end=%d why=open-at-trace-end elems=%u span=%u white=%d margin=%d path=none out=incomplete(elements-now:%s)\n",
+               g_name, read_start, g_n - 1, nw, g_pos - g_start_pos, (int)g_white, (int)g_margin,
+               c39_err(res));
+        n_open++;
+    }
+    printf("%s SUMMARY starts=%d letters=%d [%s] rejected=%d incomplete=%d\n", g_name,
+           n_starts, n_letters, letters, n_fail, n_open);
 }
 
-/* -prime: the robot learns white before a barcode, but many saved traces
+/* -white-lead-in: the robot learns white before a barcode, but many saved traces
    start only a few records before (or inside) one.  Put in front a copy of
    this pass's own steadiest low 40-record stretch, so the learner has the
    approach it would have had.  Diagnostic only: the copy is inferred. */
 #define PRIME_N 40
-static void prime(void)
+static void white_lead_in(void)
 {
     int best = -1, best_spread = 1 << 30, i, k;
     int sorted_q;
@@ -390,8 +417,9 @@ int main(int argc, char ** argv)
         FILE * f;
         int x, y, z;
         if (0 == strcmp(argv[a], "-v")) { g_verbose++; continue; }
-        if (0 == strcmp(argv[a], "-prime")) { g_prime = 1; continue; }
-        if (0 == strcmp(argv[a], "-norearm")) { g_norearm = 1; continue; }
+        if (0 == strcmp(argv[a], "-eof-decode")) { g_eof_decode = 1; continue; }
+        if (0 == strcmp(argv[a], "-white-lead-in")) { g_lead_in = 1; continue; }
+        if (0 == strcmp(argv[a], "-rearm")) { g_rearm_mode = 1; continue; }
         f = fopen(argv[a], "r");
         if (NULL == f) { perror(argv[a]); return 1; }
         g_n = 0;
@@ -402,7 +430,7 @@ int main(int argc, char ** argv)
         fclose(f);
         g_name = strrchr(argv[a], '/') ? strrchr(argv[a], '/') + 1 : argv[a];
         g_primed_n = 0;
-        if (0 != g_prime) { prime(); }
+        if (0 != g_lead_in) { white_lead_in(); }
         replay();
     }
     return 0;

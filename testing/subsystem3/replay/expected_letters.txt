@@ -1,9 +1,18 @@
 # Letters the replay must give (make check).  Any other trace must give none.
 # 20261118T134113 is *A* read backwards (inferred from the trace, review R5);
 # g62 is the robot's 2026-11-11 08:46 Z, g44 the 07:29 A (README of the
-# handoff replay).  plain = as recorded, prime = with -prime.
-plain 20261118T134113.txt A
-plain g62.txt Z
-prime 20261118T134113.txt A
-prime g44.txt A
-prime g62.txt Z
+# handoff replay).
+#   default   = shipped controller (no rearm; a read open at trace end is
+#               "incomplete", not a letter)
+#   eof       = -eof-decode                 (diagnostic)
+#   leadin    = -white-lead-in              (diagnostic)
+#   eofleadin = -eof-decode -white-lead-in  (diagnostic)
+#   rearm     = -rearm                      (diagnostic)
+default 20261118T134113.txt A
+eof 20261118T134113.txt A
+eof g62.txt Z
+leadin 20261118T134113.txt A
+eofleadin 20261118T134113.txt A
+eofleadin g44.txt A
+eofleadin g62.txt Z
+rearm 20261118T134113.txt A
