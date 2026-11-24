@@ -52,6 +52,8 @@ ER s2_get_status(motion_status_t *out) { *out = (motion_status_t){0}; return E_O
 static void app_check(ER err, const char *name); /* used by vc_bridge_s2.c, defined below */
 /* S2 stop-generation state read by vc_bridge_s2.c */
 volatile uint32_t g_s2_imu_stop;
+/* No IMU interlock in these tests: every S2 safe stop is unexplained */
+uint32_t s2_imu_stop_cause(uint32_t stop_epoch) { (void)stop_epoch; return g_s2_imu_stop; }
 uint32_t s2_stop_epoch(void) { return 0u; }
 #include "../../../app_program/vehicle_controller/vc_bridge_s2.c"
 #include "../../../app_program/subsystem5/obstacle_logic.c"

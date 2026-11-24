@@ -55,6 +55,13 @@ ER s2_emergency_stop(void)
     if (stop_epoch != UINT32_MAX) stop_epoch++;
     return E_OK;
 }
+/* Stand-in for S2's IMU stop record: the cause applies to one generation */
+static uint32_t imu_cause, imu_cause_epoch;
+uint32_t s2_imu_stop_cause(uint32_t epoch)
+{
+    return (0U != g_s2_imu_stop) ? g_s2_imu_stop
+                                 : ((epoch == imu_cause_epoch) ? imu_cause : 0U);
+}
 
 #include "../vc_bridge_s2.c"
 
@@ -113,5 +120,31 @@ int main(void)
     puts("[TEST] S6-U01 PASS  U-turn asks S2 for 180 deg; left +90, right -90");
 
     puts("[TEST] S6-SAFE03 PASS  motion readiness follows applied stop and reset");
+
+    /* The safe-stop report says which IMU interlock raised it */
+    status.state = MSTATE_SAFE_STOP;
+    status.stop_epoch = stop_epoch = 10;
+    g_s2_imu_stop = S2_IMU_CAUSE_LIFT;
+    assert(vc_bridge_s2_next(&event) && event.type == VC_EV_FAULT &&
+           event.p2 == VC_FC_S2_SAFE_STOP && event.cause == VC_CAUSE_IMU_LIFT);
+    assert(!vc_bridge_s2_next(&event)); /* still one report per stop */
+    status.stop_epoch = stop_epoch = 11;
+    g_s2_imu_stop = S2_IMU_CAUSE_OVERTURN;
+    assert(vc_bridge_s2_next(&event) && event.cause == VC_CAUSE_IMU_OVERTURN);
+    /* set down before the controller read the stop: the record still
+       explains exactly that stop generation */
+    status.stop_epoch = stop_epoch = 12;
+    g_s2_imu_stop = 0;
+    imu_cause = S2_IMU_CAUSE_LIFT;
+    imu_cause_epoch = 12;
+    assert(vc_bridge_s2_next(&event) && event.cause == VC_CAUSE_IMU_LIFT);
+    /* a later, unrelated stop has no IMU cause: genuine 0x2011 */
+    status.stop_epoch = stop_epoch = 13;
+    assert(vc_bridge_s2_next(&event) && event.p2 == VC_FC_S2_SAFE_STOP &&
+           event.cause == VC_CAUSE_NONE);
+    /* other events never carry a cause */
+    status.state = MSTATE_IDLE;
+    assert(vc_bridge_s2_move(VC_MOVE_RESET, 0) == E_OK);
+    puts("[TEST] S6-SAFE04 PASS  S2 safe-stop report carries the IMU lift/overturn cause of that stop only");
     return 0;
 }

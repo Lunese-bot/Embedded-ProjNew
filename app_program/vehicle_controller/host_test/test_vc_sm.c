@@ -669,8 +669,10 @@ static void test_lift(void)
           (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
               has_move(VC_MOVE_STOP, 0, 0) &&
               has_request(VC_SRC_NONE, VC_REQ_STOP_ALL) &&
-              (VC_FC_NONE == g_sm.st.last_fault_code),
-          "lift in FOLLOW_LINE -> MISSION_COMPLETE, stop all, no fault");
+              (LIFT_CODE == g_sm.st.last_fault_code) &&
+              (VC_SRC_IMU == g_sm.st.last_fault_src) &&
+              (VC_FAULT_NON_CRITICAL == g_sm.st.last_fault_sev),
+          "lift in FOLLOW_LINE -> MISSION_COMPLETE, stop all, cause IMU 0x4005 non-critical");
     CHECK("VC-L03", lift_ends_run_in(VC_ST_DECODE_BARCODE),
           "lift while reading a barcode ends the run");
     CHECK("VC-L04", lift_ends_run_in(VC_ST_JUNCTION_STOP),
@@ -1154,6 +1156,267 @@ static void test_pause_resume(void)
           "resume during post-bypass handoff waits for slow fresh steering");
 }
 
+
+/* ------------------------------------------------------------------ */
+/*  Stop cause: lift / overturn / S2 safe stop in either order          */
+/*  (owner's reproduced defects, 2026-11-24).  last_fault_* is what     */
+/*  S1 telemetry sends as fault_code (task_telemetry.c).                */
+/* ------------------------------------------------------------------ */
+#define SAFE_STOP_CODE 0x2011
+
+static void feed_cause(vc_source_t src, vc_event_type_t type, int32_t param1,
+                       int32_t param2, int16_t cause)
+{
+    vc_event_t event = { 0 };
+
+    event.src   = (uint8_t)src;
+    event.type  = (uint8_t)type;
+    event.p1    = param1;
+    event.p2    = param2;
+    event.cause = cause;
+    vc_sm_handle(&g_sm, &event, g_now_ms, &g_actions);
+    tally_add();
+}
+
+/* S2's safe-stop report as vc_bridge_s2.c makes it */
+static void feed_s2_safe_stop(int16_t cause)
+{
+    feed_cause(VC_SRC_MOTION, VC_EV_FAULT, VC_FAULT_CRITICAL, SAFE_STOP_CODE,
+               cause);
+}
+
+static void feed_overturn(void)
+{
+    feed(VC_SRC_IMU, VC_EV_FAULT, VC_FAULT_CRITICAL, LIFT_CODE);
+}
+
+static int32_t has_report(vc_source_t src, vc_fault_severity_t sev,
+                          int32_t code)
+{
+    int32_t found = 0;
+
+    for (int32_t idx = 0; idx < g_actions.n; idx++)
+    {
+        if ((VC_ACT_REPORT == g_actions.a[idx].kind) &&
+            (g_actions.a[idx].target == src) &&
+            (g_actions.a[idx].p1 == (int32_t)sev) &&
+            (g_actions.a[idx].p2 == code))
+        {
+            found = 1;
+        }
+    }
+    return found;
+}
+
+static int32_t cause_is(vc_source_t src, vc_fault_severity_t sev,
+                        uint32_t code)
+{
+    return (code == g_sm.st.last_fault_code) &&
+           ((uint8_t)src == g_sm.st.last_fault_src) &&
+           (sev == g_sm.st.last_fault_sev);
+}
+
+static int32_t ended_as_lift(void)
+{
+    return (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
+           cause_is(VC_SRC_IMU, VC_FAULT_NON_CRITICAL, LIFT_CODE);
+}
+
+static int32_t ended_as_overturn(void)
+{
+    return (VC_ST_FAULT == g_sm.st.state) &&
+           cause_is(VC_SRC_IMU, VC_FAULT_CRITICAL, LIFT_CODE);
+}
+
+static void test_stop_cause(void)
+{
+    /* 1. S2 0x2011 (raised by the lift interlock) first, then S4 LIFTED */
+    start_mission();
+    tally_clear();
+    feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
+    CHECK("VC-C10",
+          ended_as_lift() && has_move(VC_MOVE_STOP, 0, 0) &&
+              has_request(VC_SRC_NONE, VC_REQ_STOP_ALL) &&
+              has_report(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE),
+          "lift: S2 0x2011 first -> MISSION_COMPLETE at once, motors stopped, 0x2011 still reported");
+    feed_lift();
+    CHECK("VC-C11", ended_as_lift() && (0 == g_actions.n),
+          "lift: S4 LIFTED after S2's report changes nothing");
+    CHECK("VC-C12", (0 == g_tally[VC_MOVE_FORWARD]) && (0 == g_tally[VC_MOVE_STEER]) &&
+              (0 == g_tally[VC_MOVE_RESET]),
+          "lift (S2 first): no drive or latch reset issued");
+
+    /* 1b. S4's typed event dropped (nonblocking send): S2's report alone */
+    start_mission();
+    feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
+    advance(5000u);
+    CHECK("VC-C13", ended_as_lift(),
+          "lift: S4 event dropped -> still MISSION_COMPLETE, cause IMU 0x4005");
+
+    /* 2. S4 LIFTED first, then S2 0x2011 (with or without the IMU cause) */
+    start_mission();
+    feed_lift();
+    feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
+    CHECK("VC-C14",
+          ended_as_lift() && has_report(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE) &&
+              (1u <= g_sm.st.reports_after_end),
+          "lift: LIFTED then S2 0x2011 -> MISSION_COMPLETE, cause stays IMU 0x4005, 0x2011 counted");
+    feed_s2_safe_stop(VC_CAUSE_NONE);
+    CHECK("VC-C15", ended_as_lift() && !any_move(),
+          "lift: a later plain 0x2011 does not replace the lift cause");
+
+    /* 3. overturn: S4 0x4005 first, then S2 0x2011 */
+    start_mission();
+    tally_clear();
+    feed_overturn();
+    CHECK("VC-C16", ended_as_overturn() && (1 == g_tally[VC_MOVE_SAFE_STOP]),
+          "overturn: S4 0x4005 -> FAULT, safe stop");
+    feed_s2_safe_stop(VC_CAUSE_IMU_OVERTURN);
+    CHECK("VC-C17",
+          ended_as_overturn() && has_report(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE),
+          "overturn: later S2 0x2011 reported but cause stays IMU 0x4005");
+    feed_s2_safe_stop(VC_CAUSE_NONE);
+    CHECK("VC-C18", ended_as_overturn(),
+          "overturn: a later plain 0x2011 does not replace IMU 0x4005");
+
+    /* 3b. overturn: S2 0x2011 first, then S4 0x4005; and S4 event dropped */
+    start_mission();
+    tally_clear();
+    feed_s2_safe_stop(VC_CAUSE_IMU_OVERTURN);
+    CHECK("VC-C19", ended_as_overturn() && (1 == g_tally[VC_MOVE_SAFE_STOP]) &&
+              has_report(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE),
+          "overturn: S2 0x2011 first -> FAULT IMU 0x4005 at once, safe stop");
+    feed_overturn();
+    CHECK("VC-C20", ended_as_overturn(),
+          "overturn: S4 0x4005 after S2's report: still FAULT IMU 0x4005");
+    feed_lift();
+    CHECK("VC-C21", ended_as_overturn(),
+          "overturn: a lift report after the overturn never completes the mission");
+    start_mission();
+    feed_s2_safe_stop(VC_CAUSE_IMU_UNKNOWN);
+    CHECK("VC-C22", ended_as_overturn(),
+          "IMU interlock of unknown kind -> FAULT IMU 0x4005 (fail safe, not a lift)");
+
+    /* 4. genuine S2 safe stop: no IMU cause */
+    start_mission();
+    tally_clear();
+    feed_s2_safe_stop(VC_CAUSE_NONE);
+    CHECK("VC-C23",
+          (VC_ST_FAULT == g_sm.st.state) &&
+              cause_is(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE) &&
+              (1 == g_tally[VC_MOVE_SAFE_STOP]),
+          "standalone S2 0x2011 -> FAULT, critical 0x2011 from S2");
+    feed_lift();
+    CHECK("VC-C24",
+          (VC_ST_FAULT == g_sm.st.state) &&
+              cause_is(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE),
+          "unrelated lift after a genuine 0x2011: stays FAULT 0x2011");
+    feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
+    CHECK("VC-C25",
+          (VC_ST_FAULT == g_sm.st.state) &&
+              cause_is(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE),
+          "lift interlock after a genuine 0x2011: stays FAULT 0x2011");
+
+    /* 5. other genuine fault, then lift */
+    start_mission();
+    feed(VC_SRC_OBST, VC_EV_AVOID_FAILED, 0, 0);
+    feed(VC_SRC_LINE, VC_EV_FAULT, VC_FAULT_CRITICAL, 0x3001);
+    feed_lift();
+    feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
+    CHECK("VC-C26",
+          (VC_ST_FAULT == g_sm.st.state) &&
+              cause_is(VC_SRC_LINE, VC_FAULT_CRITICAL, 0x3001),
+          "critical S3 fault, then lift + 0x2011: stays FAULT with the S3 cause");
+
+    /* 6. a non-critical warning never becomes the run-ending cause */
+    start_mission();
+    feed(VC_SRC_COMMS, VC_EV_WIFI_DOWN, 0, 0);
+    feed_lift();
+    CHECK("VC-C27", ended_as_lift(),
+          "WiFi warning then lift: cause is the lift, not 0x1000");
+    start_mission();
+    feed(VC_SRC_IMU, VC_EV_FAULT, VC_FAULT_NON_CRITICAL, 0x4002);
+    feed_overturn();
+    CHECK("VC-C28", ended_as_overturn(),
+          "IMU non-critical 0x4002 then overturn: cause is 0x4005");
+    start_mission();
+    feed(VC_SRC_COMMS, VC_EV_WIFI_DOWN, 0, 0);
+    feed(VC_SRC_LINE, VC_EV_END_OF_COURSE, 0, 0);
+    CHECK("VC-C29",
+          (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
+              (VC_FC_NONE == g_sm.st.last_fault_code),
+          "WiFi warning then end of course: complete with no fault code");
+    feed(VC_SRC_COMMS, VC_EV_WIFI_DOWN, 0, 0);
+    CHECK("VC-C30",
+          (VC_FC_NONE == g_sm.st.last_fault_code) &&
+              has_report(VC_SRC_COMMS, VC_FAULT_NON_CRITICAL, VC_FC_WIFI_DOWN),
+          "warning after the run ended: still reported, cause unchanged");
+
+    /* 7. repeated safe-stop notifications (one per S2 stop generation) */
+    start_mission();
+    feed_overturn();
+    feed_s2_safe_stop(VC_CAUSE_IMU_OVERTURN);
+    feed_s2_safe_stop(VC_CAUSE_IMU_OVERTURN);
+    feed_s2_safe_stop(VC_CAUSE_NONE);
+    CHECK("VC-C31", ended_as_overturn() && (3u <= g_sm.st.reports_after_end),
+          "three more safe-stop reports after an overturn: cause unchanged, all counted");
+
+    /* 8. Reset then a new run: the next stop gets its own cause */
+    feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
+    CHECK("VC-C32", (VC_ST_IDLE == g_sm.st.state) && has_move(VC_MOVE_RESET, 0, 0),
+          "Reset after an overturn -> IDLE, S2 latch reset");
+    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_READY, 0, 0);
+    feed(VC_SRC_LINE, VC_EV_READY, 0, 0);
+    feed(VC_SRC_IMU, VC_EV_READY, 0, 0);
+    feed(VC_SRC_OBST, VC_EV_READY, 0, 0);
+    CHECK("VC-C33", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+              (0u == g_sm.st.reports_after_end),
+          "new run after Reset: following the line, after-end count cleared");
+    feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
+    CHECK("VC-C34", ended_as_lift(),
+          "new run: a lift now ends it as MISSION_COMPLETE (old overturn cause gone)");
+    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    feed(VC_SRC_MOTION, VC_EV_READY, 0, 0);
+    feed(VC_SRC_LINE, VC_EV_READY, 0, 0);
+    feed(VC_SRC_IMU, VC_EV_READY, 0, 0);
+    feed(VC_SRC_OBST, VC_EV_READY, 0, 0);
+    feed_s2_safe_stop(VC_CAUSE_NONE);
+    CHECK("VC-C35", (VC_ST_FAULT == g_sm.st.state) &&
+              cause_is(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE),
+          "Start after a lift, then a genuine 0x2011 -> FAULT 0x2011");
+
+    /* 9. pre-start: the IMU-caused safe stop is reported, starts nothing */
+    g_now_ms = 0u;
+    vc_sm_init(&g_sm, g_now_ms);
+    feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
+    CHECK("VC-C36",
+          (VC_ST_IDLE == g_sm.st.state) && !any_move() &&
+              cause_is(VC_SRC_IMU, VC_FAULT_CRITICAL, LIFT_CODE),
+          "lift interlock in IDLE: critical IMU 0x4005 reported, nothing moves");
+    feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
+    feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
+    CHECK("VC-C37",
+          (VC_ST_FAULT == g_sm.st.state) &&
+              cause_is(VC_SRC_IMU, VC_FAULT_CRITICAL, LIFT_CODE),
+          "lift interlock during self check -> FAULT IMU 0x4005 (as LIFTED there)");
+
+    /* 10. the cause belongs to S2's safe stop only */
+    start_mission();
+    feed_cause(VC_SRC_MOTION, VC_EV_FAULT, VC_FAULT_CRITICAL, 0x2010,
+               VC_CAUSE_IMU_LIFT);
+    CHECK("VC-C38", (VC_ST_FAULT == g_sm.st.state) &&
+              cause_is(VC_SRC_MOTION, VC_FAULT_CRITICAL, 0x2010),
+          "a cause on another S2 code (0x2010) is ignored: FAULT 0x2010");
+
+    /* 11. paused robot lifted */
+    start_mission();
+    feed(VC_SRC_COMMS, VC_EV_CMD_PAUSE, 0, 0);
+    feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
+    CHECK("VC-C39", ended_as_lift(),
+          "lift while paused (S2 report first) -> MISSION_COMPLETE");
+}
+
 int main(void)
 {
     test_startup();
@@ -1170,6 +1433,7 @@ int main(void)
     test_letter_navigation();
     test_line_search();
     test_pause_resume();
+    test_stop_cause();
 
     printf("[TEST] vehicle_controller host SUMMARY %d passed, %d failed\n", g_passed,
            g_failed);

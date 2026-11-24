@@ -71,7 +71,7 @@ static void make(vc_event_t * p_event, vc_event_type_t type, int32_t param1,
 {
     p_event->src     = VC_SRC_LINE;
     p_event->type    = (uint8_t)type; /* Cast: enum fits 8 bits */
-    p_event->rsv     = 0;
+    p_event->cause   = 0;
     p_event->p1      = param1;
     p_event->p2      = param2;
     p_event->time_ms = time_ms;

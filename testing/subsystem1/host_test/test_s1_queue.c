@@ -132,6 +132,17 @@ static void test_latch(void)
     CHECK("S1-Q10", len,
           "cause unknown when S4 has not published it, its lock failed, the "
           "interlock changed while read, or the code is unrecognised");
+    /* g_s2_imu_stop now holds S2_IMU_CAUSE_* (1 lift, 2 overturn, 3 unknown),
+       not only 1: any non-zero value is still "set" */
+    len = 1;
+    (void)latch_text(2U, 1, IMU_SAFETY_OVERTURN, 2U, line, (int32_t)sizeof(line));
+    len = len && (strcmp(line, " il=1 ic=overturn") == 0);
+    (void)latch_text(3U, 1, IMU_SAFETY_NONE, 3U, line, (int32_t)sizeof(line));
+    len = len && (strcmp(line, " il=1 ic=unknown") == 0);
+    (void)latch_text(2U, 1, IMU_SAFETY_OVERTURN, 0U, line, (int32_t)sizeof(line));
+    len = len && (strcmp(line, " il=0") == 0);
+    CHECK("S1-Q13", len,
+          "interlock values 2 and 3 (S2's overturn / unknown cause) still read as set");
     memset(line, 'X', sizeof(line));
     s1_latch_resolve(&latch, 1U, 1, IMU_SAFETY_OVERTURN, 1U);
     CHECK("S1-Q11", (s1_latch_format(&latch, line, S1_LATCH_TEXT_MAX) == 0) &&

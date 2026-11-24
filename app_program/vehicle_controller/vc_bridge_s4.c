@@ -45,6 +45,8 @@
 #define S4_FC_TILT       0x4003
 #define S4_FC_CAL_FAILED 0x4004
 #define S4_FC_SAFETY     0x4005
+_Static_assert(S4_FC_SAFETY == VC_FC_IMU_SAFETY,
+               "vc_sm.c reports the IMU stop as VC_FC_IMU_SAFETY");
 
 static int32_t severity(uint8_t imu_sev)
 {
@@ -70,7 +72,7 @@ static void make(vc_event_t * p_event, vc_event_type_t type, int32_t param1,
 {
     p_event->src     = VC_SRC_IMU;
     p_event->type    = (uint8_t)type; /* Cast: enum fits 8 bits */
-    p_event->rsv     = 0;
+    p_event->cause   = 0;
     p_event->p1      = param1;
     p_event->p2      = param2;
     p_event->time_ms = time_ms;

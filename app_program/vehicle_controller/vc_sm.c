@@ -120,12 +120,33 @@ static void request(vc_actions_t * p_out, vc_source_t target, vc_request_t req,
     emit(p_out, VC_ACT_REQUEST, target, (int32_t)req, arg);
 }
 
-static void report(vc_sm_t * p_sm, vc_actions_t * p_out, vc_source_t src,
-                   vc_fault_severity_t sev, uint32_t code)
+static bool run_ended(vc_state_t state)
+{
+    return (VC_ST_FAULT == state) || (VC_ST_MISSION_COMPLETE == state);
+}
+
+static void set_cause(vc_sm_t * p_sm, vc_source_t src, vc_fault_severity_t sev,
+                      uint32_t code)
 {
     p_sm->st.last_fault_code = code;
     p_sm->st.last_fault_sev  = sev;
     p_sm->st.last_fault_src  = (uint8_t)src;
+}
+
+/* Every report is sent.  Once the run has ended, the cause that ended it
+   stays in last_fault_* (a safe stop that follows an overturn, or a fault
+   after a lift, must not replace it); later reports are only counted. */
+static void report(vc_sm_t * p_sm, vc_actions_t * p_out, vc_source_t src,
+                   vc_fault_severity_t sev, uint32_t code)
+{
+    if (run_ended(p_sm->st.state))
+    {
+        p_sm->st.reports_after_end++;
+    }
+    else
+    {
+        set_cause(p_sm, src, sev, code);
+    }
     emit(p_out, VC_ACT_REPORT, src, (int32_t)sev, (int32_t)code);
 }
 
@@ -243,6 +264,7 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
 
         case VC_ST_MISSION_START:
             move(p_out, VC_MOVE_STOP, 0);
+            p_sm->st.reports_after_end = 0;
             p_sm->ready_mask          = 0;
             p_sm->st.mission_start_ms = now_ms;
             p_sm->st.max_hump_um      = 0;
@@ -313,6 +335,10 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
         case VC_ST_MISSION_COMPLETE:
             move(p_out, VC_MOVE_STOP, 0);
             request(p_out, VC_SRC_NONE, VC_REQ_STOP_ALL, 0);
+            /* Completion is not a fault: an earlier warning (WiFi, barcode)
+               must not read as the reason the run ended.  A lift sets its
+               own cause right after (lift()). */
+            set_cause(p_sm, VC_SRC_NONE, VC_FAULT_NON_CRITICAL, VC_FC_NONE);
             break;
 
         default:
@@ -430,6 +456,65 @@ static void fault_event(vc_sm_t * p_sm, const vc_event_t * p_event,
     }
 }
 
+/* Lift = the end of the run (professor).  A lift while the mission is
+   running goes to MISSION_COMPLETE with motors stopped; it stays there
+   until Reset (then Start).  Before the mission has started (IDLE,
+   MISSION_START) it is reported as a critical fault and starts nothing.
+   After the run has ended (FAULT, MISSION_COMPLETE) the robot is already
+   stopped and the cause that ended the run stays: a lift never turns a
+   fault into a completed mission. */
+static void lift(vc_sm_t * p_sm, vc_source_t src, uint32_t code,
+                 uint32_t now_ms, vc_actions_t * p_out)
+{
+    vc_state_t state = p_sm->st.state;
+
+    if (vc_sm_is_active(state) && (VC_ST_MISSION_START != state))
+    {
+        p_sm->pending_nav        = NAV_NONE;
+        p_sm->pending_barcode[0] = '\0';
+        enter(p_sm, VC_ST_MISSION_COMPLETE, now_ms, p_out);
+        set_cause(p_sm, src, VC_FAULT_NON_CRITICAL, code);
+    }
+    else if (vc_sm_is_active(state))
+    {
+        go_fault(p_sm, src, code, now_ms, p_out);
+    }
+    else if (!run_ended(state))
+    {
+        report(p_sm, p_out, src, VC_FAULT_CRITICAL, code);
+    }
+    else
+    {
+        /* already stopped: nothing to do */
+    }
+}
+
+/* S2 safe-stopped because S4's lift / overturn interlock latched it
+   (vc_event_t.cause, set by vc_bridge_s2.c from S2's own record).  S2's
+   report usually arrives before S4's typed event (S2 is read first) and
+   S4's event may be dropped, so this one report must already end the run
+   as the IMU stop: a lift as MISSION_COMPLETE, an overturn (or an IMU stop
+   of unknown kind) as FAULT IMU 0x4005.  The 0x2011 report is still sent.
+   Motors: S2 is already latched off; lift() / go_fault() stop them again.
+   A safe stop WITHOUT an IMU cause stays a critical 0x2011 (fault_event). */
+static void imu_safe_stop(vc_sm_t * p_sm, const vc_event_t * p_event,
+                          uint32_t now_ms, vc_actions_t * p_out)
+{
+    report(p_sm, p_out, VC_SRC_MOTION, VC_FAULT_CRITICAL, VC_FC_S2_SAFE_STOP);
+    if (VC_CAUSE_IMU_LIFT == p_event->cause)
+    {
+        lift(p_sm, VC_SRC_IMU, VC_FC_IMU_SAFETY, now_ms, p_out);
+    }
+    else if (vc_sm_is_active(p_sm->st.state))
+    {
+        go_fault(p_sm, VC_SRC_IMU, VC_FC_IMU_SAFETY, now_ms, p_out);
+    }
+    else
+    {
+        report(p_sm, p_out, VC_SRC_IMU, VC_FAULT_CRITICAL, VC_FC_IMU_SAFETY);
+    }
+}
+
 static bool handle_common(vc_sm_t * p_sm, const vc_event_t * p_event,
                           uint32_t now_ms, vc_actions_t * p_out)
 {
@@ -447,37 +532,21 @@ static bool handle_common(vc_sm_t * p_sm, const vc_event_t * p_event,
             break;
 
         case VC_EV_FAULT:
-            fault_event(p_sm, p_event, now_ms, p_out);
+            if ((VC_SRC_MOTION == src) &&
+                ((int32_t)VC_FC_S2_SAFE_STOP == p_event->p2) &&
+                (VC_CAUSE_NONE != p_event->cause))
+            {
+                imu_safe_stop(p_sm, p_event, now_ms, p_out);
+            }
+            else
+            {
+                fault_event(p_sm, p_event, now_ms, p_out);
+            }
             b_handled = true;
             break;
 
         case VC_EV_LIFTED:
-            /* Lift = the end of the run (professor).  A lift while the
-               mission is running goes to MISSION_COMPLETE with motors
-               stopped; it stays there until Reset (then Start).  Before the
-               mission has started (IDLE, MISSION_START) it is reported as a
-               critical fault and starts nothing.  After the run has ended
-               (FAULT, MISSION_COMPLETE) the robot is already stopped. */
-            if (b_active && (VC_ST_MISSION_START != state))
-            {
-                p_sm->pending_nav        = NAV_NONE;
-                p_sm->pending_barcode[0] = '\0';
-                enter(p_sm, VC_ST_MISSION_COMPLETE, now_ms, p_out);
-            }
-            else if (b_active)
-            {
-                go_fault(p_sm, src, (uint32_t)p_event->p2, now_ms, p_out);
-            }
-            else if ((VC_ST_FAULT != state) &&
-                     (VC_ST_MISSION_COMPLETE != state))
-            {
-                report(p_sm, p_out, src, VC_FAULT_CRITICAL,
-                       (uint32_t)p_event->p2);
-            }
-            else
-            {
-                /* already stopped: nothing to do */
-            }
+            lift(p_sm, src, (uint32_t)p_event->p2, now_ms, p_out);
             b_handled = true;
             break;
 

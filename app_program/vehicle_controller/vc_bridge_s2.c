@@ -27,7 +27,9 @@
  *        MFLG_STOPPED      -> VC_EV_MOTION_STOPPED after a requested STOP
  *        MFLG_FAULT        -> CRITICAL fault 0x20nn (nn = motion_fault_t)
  *        MFLG_CMD_TIMEOUT  -> CRITICAL fault 0x2010 (steering stopped)
- *        SAFE_STOP status  -> CRITICAL fault 0x2011
+ *        SAFE_STOP status  -> CRITICAL fault 0x2011, once per stop, with
+ *                             cause = the S4 interlock that raised it
+ *                             (lift / overturn) or VC_CAUSE_NONE
  *        SELF_CHECK        -> VC_EV_READY once S2 is idle and unlatched
  *      VC_MOVE_STOP_CONFIRM clears stale MFLG_STOPPED before issuing STOP,
  *      so the junction state advances only on its own stop confirmation.
@@ -44,12 +46,21 @@
 #define VC_TURN_SPEED_MMS   120 /* wheel speed for pivot turns */
 #define S2_FC_TIMEOUT       0x2010
 #define S2_FC_SAFE_STOP     0x2011
+_Static_assert(S2_FC_SAFE_STOP == VC_FC_S2_SAFE_STOP,
+               "vc_sm.c recognises S2's safe stop as VC_FC_S2_SAFE_STOP");
 #define S2_FC_FAULT_BASE    0x2000U /* | motion_fault_t in the low byte */
 #define S2_FC_FAULT_MASK    0xFFU
 #define VC_STEER_FULL_SCALE 1000 /* S3 steering request -1000..+1000 */
 #define VC_U_TURN_DEG       180
 
 #define S2_EVENT_BITS (MFLG_CMD_DONE | MFLG_STOPPED | MFLG_FAULT | MFLG_CMD_TIMEOUT)
+
+/* The safe-stop cause is passed through unchanged (vc_event_t.cause). */
+_Static_assert((S2_IMU_CAUSE_NONE == VC_CAUSE_NONE) &&
+                   (S2_IMU_CAUSE_LIFT == VC_CAUSE_IMU_LIFT) &&
+                   (S2_IMU_CAUSE_OVERTURN == VC_CAUSE_IMU_OVERTURN) &&
+                   (S2_IMU_CAUSE_UNKNOWN == VC_CAUSE_IMU_UNKNOWN),
+               "S2_IMU_CAUSE_* must equal VC_CAUSE_*");
 
 static int32_t  g_speed     = 0;     /* current forward speed, mm/s */
 
@@ -220,7 +231,7 @@ static void make(vc_event_t * p_event, vc_event_type_t type, int32_t param1,
 {
     p_event->src     = VC_SRC_MOTION;
     p_event->type    = (uint8_t)type; /* Cast: enum fits 8 bits */
-    p_event->rsv     = 0;
+    p_event->cause   = 0;
     p_event->p1      = param1;
     p_event->p2      = param2;
     p_event->time_ms = 0;
@@ -248,6 +259,11 @@ bool vc_bridge_s2_next(vc_event_t * p_event)
         g_b_safe_stop_reported = true;
         g_reported_stop_epoch = motion_st.stop_epoch;
         make(p_event, VC_EV_FAULT, VC_FAULT_CRITICAL, S2_FC_SAFE_STOP);
+        /* Was it S4's lift / overturn interlock?  The controller then ends
+           the run as that IMU stop, whichever of the two reports comes
+           first, and even if S4's own event was dropped.  Cast: the
+           cause is one of the small S2_IMU_CAUSE_* values. */
+        p_event->cause = (int16_t)s2_imu_stop_cause(motion_st.stop_epoch);
         return true;
     }
     if (MSTATE_SAFE_STOP != motion_st.state)

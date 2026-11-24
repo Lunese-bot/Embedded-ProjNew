@@ -75,7 +75,7 @@ ER vc_post_event(vc_source_t src, vc_event_type_t type, int32_t param1,
     tk_get_tim(&now);
     event.src     = (uint8_t)src;
     event.type    = (uint8_t)type;
-    event.rsv     = 0;
+    event.cause   = 0;
     event.p1      = param1;
     event.p2      = param2;
     event.time_ms = now.lo;

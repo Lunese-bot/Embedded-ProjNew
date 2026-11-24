@@ -137,6 +137,18 @@ typedef enum
 #define VC_FC_JUNCTION_STOP 0x0008 /* S2 did not confirm stop at junction */
 #define VC_FC_PAUSE_INTERRUPTED 0x0009 /* unsafe event while paused */
 #define VC_FC_WIFI_DOWN     0x1000 /* reported for S1 (non-critical) */
+/* Codes the controller itself tests; the bridges check they match. */
+#define VC_FC_S2_SAFE_STOP  0x2011 /* S2_FC_SAFE_STOP, vc_bridge_s2.c */
+#define VC_FC_IMU_SAFETY    0x4005 /* S4_FC_SAFETY (lift / overturn), vc_bridge_s4.c */
+
+/* vc_event_t.cause.  Only S2's critical safe-stop fault (0x2011) sets it:
+   it says whether S4's lift / overturn interlock raised that stop
+   (s2_imu_stop_cause()).  The values equal S2_IMU_CAUSE_* (checked in
+   vc_bridge_s2.c).  NONE = no IMU interlock: a genuine critical fault. */
+#define VC_CAUSE_NONE         0
+#define VC_CAUSE_IMU_LIFT     1
+#define VC_CAUSE_IMU_OVERTURN 2
+#define VC_CAUSE_IMU_UNKNOWN  3 /* IMU interlock of unknown kind: FAULT */
 
 /* One event, copied into the message buffer.  barcode_text is populated
    only for VC_EV_BARCODE_DECODED; all other producers set it to empty. */
@@ -144,7 +156,7 @@ typedef struct
 {
     uint8_t  src;  /* vc_source_t */
     uint8_t  type; /* vc_event_type_t */
-    int16_t  rsv;  /* 0 */
+    int16_t  cause; /* VC_CAUSE_*: only on S2's safe-stop fault, else 0 */
     int32_t  p1;
     int32_t  p2;
     uint32_t time_ms; /* sender's tk_get_tim() low word, 0 if unknown */
@@ -201,9 +213,16 @@ typedef struct
     vc_state_t           prev_state;
     uint32_t             state_since_ms;
     uint32_t             mission_start_ms;
+    /* last_fault_*: the latest report while no run has ended.  In FAULT and
+       MISSION_COMPLETE they hold the cause that ENDED the run and do not
+       change until Reset / Start: a lift is IMU / non-critical / 0x4005 in
+       MISSION_COMPLETE, an overturn IMU / critical / 0x4005 in FAULT.
+       Later reports are still sent (fault topic, console) and counted in
+       reports_after_end. */
     uint32_t             last_fault_code;
     vc_fault_severity_t  last_fault_sev;
     uint8_t              last_fault_src;
+    uint32_t             reports_after_end; /* reports since the run ended */
     navigation_command_t last_nav;    /* last barcode command */
     char                 last_barcode[16]; /* last decoded text ("A", "Z"); a letter
                                               that goes straight is still recorded */

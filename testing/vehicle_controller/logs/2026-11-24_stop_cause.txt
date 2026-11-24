@@ -1,0 +1,222 @@
+Host suites on main-v2 d488b19 + stop-cause change (2026-11-24).
+
+== VC host suite (app_program/vehicle_controller/host_test: make run)
+[TEST] S6-H01 PASS  IDLE ignores move requests
+[TEST] S6-SAFE01 PASS  reset in IDLE is forwarded to motion control
+[TEST] S6-H02 PASS  start -> MISSION_START, self check requested
+[TEST] S6-H03 PASS  all READY -> FOLLOW_LINE at cruise speed
+[TEST] S6-H04 PASS  optional IMU/obstacle missing -> run degraded, reported
+[TEST] S6-H05 PASS  motion/line missing -> FAULT
+[TEST] S6-SAFE02 PASS  safe stop after motion READY faults the mission
+[TEST] S6-H06 PASS  FOLLOW_LINE: S3 steering forwarded
+[TEST] S6-H07 PASS  FOLLOW_LINE: S5 move rejected
+[TEST] S6-H08 PASS  invalid move code rejected
+[TEST] S6-H08a PASS  internal stop-confirm handshake cannot be requested by a subsystem
+[TEST] S6-H09 PASS  barcode start -> DECODE_BARCODE, slow
+[TEST] S6-H10 PASS  DECODE: S3 speed capped to slow
+[TEST] S6-H11 PASS  DECODE: line loss ignored
+[TEST] S6-H12 PASS  full barcode text buffered; no unconfirmed mapping is assumed
+[TEST] S6-H13 PASS  junction issues STOP and waits; no turn is issued yet
+[TEST] S6-H13b PASS  after S2 confirms stopped, unknown barcode defaults to straight clear
+[TEST] S6-H13a PASS  junction action complete clears buffered barcode
+[TEST] S6-H13c PASS  full barcode string maps to LEFT; matching is not first-character based
+[TEST] S6-H45 PASS  turn at a junction starts with the advance, no turn yet
+[TEST] S6-H13d PASS  configured full-string rule executes only after stop confirmation
+[TEST] S6-H13e PASS  action-only event sets RIGHT and keeps following
+[TEST] S6-H45 PASS  turn at a junction starts with the advance, no turn yet
+[TEST] S6-H13f PASS  junction after it: stop, then turn RIGHT
+[TEST] S6-H13g PASS  after the turn: follow the line again, action cleared
+[TEST] S6-H14 PASS  junction without barcode still stops first
+[TEST] S6-H14a PASS  no barcode -> move straight far enough to clear junction
+[TEST] S6-H14b PASS  resume line following after junction clear completes
+[TEST] S6-H14c PASS  stop confirmation timeout -> critical safe stop
+[TEST] S6-H15 PASS  barcode retry within limit
+[TEST] S6-H16 PASS  retries used up -> keep following, non-critical report
+[TEST] S6-H17 PASS  barcode read timeouts count as failures
+[TEST] S6-H18 PASS  unconfigured UTURN text defaults to straight, not U-turn
+[TEST] S6-H18a PASS  junction clearing timeout -> LOST_LINE recovery
+[TEST] S6-H42 PASS  junction during DECODE_BARCODE is not dropped: stop first
+[TEST] S6-H43 PASS  then straight across and follow again
+[TEST] S6-H44 PASS  failed read returns to FOLLOW_LINE at once (retry 0)
+[TEST] S6-H50 PASS  pivot counts: 60 deg ~461, 90 deg ~692 (track 130, 692 ticks/rev)
+[TEST] S6-H45 PASS  turn at a junction starts with the advance, no turn yet
+[TEST] S6-H52 PASS  LEFT asks S2 for the max angle and watches for the line
+[TEST] S6-H51 PASS  line seen at the start of the turn ends nothing
+[TEST] S6-H53 PASS  line before the gate (the arm it came from) is ignored
+[TEST] S6-H54 PASS  line after the gate ends the turn: follow the new arm
+[TEST] S6-H45 PASS  turn at a junction starts with the advance, no turn yet
+[TEST] S6-H55 PASS  no line seen: turn ends at the max angle, follow as before
+[TEST] S6-H56 PASS  U-turn watches with the 150 deg gate
+[TEST] S6-H57 PASS  U-turn: side arm at 90 deg ignored
+[TEST] S6-H58 PASS  U-turn: line at 170 deg ends it
+[TEST] S6-H59 PASS  STRAIGHT: line events do not end the clearing drive
+[TEST] S6-H19 PASS  line lost -> stop, search
+[TEST] S6-H20 PASS  line found -> FOLLOW_LINE
+[TEST] S6-H21 PASS  line recovery bounded -> FAULT
+[TEST] S6-H22 PASS  obstacle stops before scan starts
+[TEST] S6-OBS01 PASS  no bypass movement before physical stop
+[TEST] S6-OBS02 PASS  physical stop confirmation starts scan
+[TEST] S6-OBS03 PASS  duplicate stop indication does not restart scan
+[TEST] S6-H23 PASS  AVOID: line loss ignored, S5 moves forwarded
+[TEST] S6-OBS05 PASS  S5 stop for a line sighting waits for physical confirmation
+[TEST] S6-H24 PASS  confirmed line reacquisition waits for steering at slow speed
+[TEST] S6-OBS08 PASS  the first fresh steering command drives at the slow speed
+[TEST] S6-OBS09 PASS  cruise resumes on the expected steering sample
+[TEST] S6-H35 PASS  exhausted obstacle recovery latches a stop
+[TEST] S6-OBS04 PASS  missing stop confirmation faults instead of moving
+[TEST] S6-H25 PASS  avoid timeout -> FAULT
+[TEST] S6-H26 PASS  highest hump kept
+[TEST] S6-H36 PASS  hump crossed while reading a barcode is still recorded
+[TEST] S6-H27 PASS  WiFi down: keep navigating
+[TEST] S6-H28 PASS  recoverable line fault -> LOST_LINE
+[TEST] S6-H29 PASS  overturn (critical 0x4005) -> FAULT, stop all
+[TEST] S6-H30 PASS  FAULT: no motion accepted
+[TEST] S6-H31 PASS  FAULT: start ignored until reset
+[TEST] S6-H32 PASS  reset -> IDLE, motion latch cleared
+[TEST] S6-H33 PASS  remote stop -> FAULT
+[TEST] S6-H34 PASS  end of course -> MISSION_COMPLETE
+[TEST] VC-L01 PASS  mission running
+[TEST] VC-L02 PASS  lift in FOLLOW_LINE -> MISSION_COMPLETE, stop all, cause IMU 0x4005 non-critical
+[TEST] VC-L03 PASS  lift while reading a barcode ends the run
+[TEST] VC-L04 PASS  lift at a junction ends the run, pending turn dropped
+[TEST] VC-L05 PASS  lift while searching for the line ends the run
+[TEST] VC-L06 PASS  lift while avoiding an obstacle ends the run
+[TEST] VC-L07 PASS  lift on a hump ends the run
+[TEST] VC-L08 PASS  after lift: set-down line follow request refused
+[TEST] VC-L09 PASS  after lift: line, junction, obstacle, hump events and time change nothing
+[TEST] VC-L10 PASS  after lift: nothing but Start or Reset leaves MISSION_COMPLETE
+[TEST] VC-L11 PASS  second lift while complete: no change, no action
+[TEST] VC-L12 PASS  Reset after lift -> IDLE, motion latch cleared
+[TEST] VC-L13 PASS  Start after Reset begins a new mission
+[TEST] VC-S01 PASS  lift then Start: S2 latch reset, new mission starts (self check)
+[TEST] VC-S02 PASS  lift then Start: mission runs again once subsystems are ready
+[TEST] VC-S03 PASS  lift then Reset still works
+[TEST] VC-S04 PASS  lift again during the new self check -> FAULT 0x4005
+[TEST] VC-S05 PASS  overturn FAULT: Start ignored, Reset first
+[TEST] VC-L14 PASS  lift in IDLE: reported critical 0x4005, nothing starts
+[TEST] VC-L15 PASS  lift during self check (mission not running) -> FAULT 0x4005
+[TEST] VC-L16 PASS  lift while already in FAULT: stays FAULT, no action
+[TEST] VC-C01 PASS  every letter A..Z returns the value set in vc_barcode_config.h
+[TEST] VC-C02 PASS  as shipped: H = LEFT, Z = RIGHT, every other letter NONE (when the team changes a row, update this check with it)
+[TEST] VC-C03 PASS  empty, lower case, longer and unlisted text return NONE
+[TEST] VC-C04 PASS  decoded Z becomes a pending RIGHT turn
+[TEST] NAV-01a PASS  LEFT: decoding alone stores the instruction and starts no motion
+[TEST] NAV-01b PASS  LEFT: stops at the junction, then issues the maneuver exactly once
+[TEST] NAV-01c PASS  LEFT: turn request carries the encoder turn angle
+[TEST] NAV-01d PASS  LEFT: completion clears the instruction and resumes line following
+[TEST] NAV-01e PASS  LEFT: second junction without a new barcode makes no turn
+[TEST] NAV-02a PASS  Z = RIGHT: decoding alone stores the instruction and starts no motion
+[TEST] NAV-02b PASS  Z = RIGHT: stops at the junction, then issues the maneuver exactly once
+[TEST] NAV-02c PASS  Z = RIGHT: turn request carries the encoder turn angle
+[TEST] NAV-02d PASS  Z = RIGHT: completion clears the instruction and resumes line following
+[TEST] NAV-02e PASS  Z = RIGHT: second junction without a new barcode makes no turn
+[TEST] NAV-03a PASS  U_TURN: decoding alone stores the instruction and starts no motion
+[TEST] NAV-03b PASS  U_TURN: stops at the junction, then issues the maneuver exactly once
+[TEST] NAV-03c PASS  U_TURN: U-turn request is VC_MOVE_U_TURN (bridge sends 180 deg: S6-U01)
+[TEST] NAV-03d PASS  U_TURN: completion clears the instruction and resumes line following
+[TEST] NAV-03e PASS  U_TURN: second junction without a new barcode makes no turn
+[TEST] NAV-04a PASS  STRAIGHT: decoding alone stores the instruction and starts no motion
+[TEST] NAV-04b PASS  STRAIGHT: stops at the junction, then issues the maneuver exactly once
+[TEST] NAV-04c PASS  STRAIGHT: straight drives the clearing distance
+[TEST] NAV-04d PASS  STRAIGHT: completion clears the instruction and resumes line following
+[TEST] NAV-04e PASS  STRAIGHT: second junction without a new barcode makes no turn
+[TEST] NAV-05a PASS  A is recorded as a successful decode (count 1, last = A)
+[TEST] NAV-05b PASS  A drives straight over the junction, no turn, still recorded as A
+[TEST] NAV-06a PASS  a missed read records no letter (count 0) and reports VC_FC_BARCODE, non-critical; the run goes on
+[TEST] NAV-06b PASS  a wrong letter (T) is recorded as T, not as A or Z
+[TEST] NAV-07 PASS  Z then two junctions: exactly one right turn, the second goes straight
+[TEST] NAV-08a PASS  Z then stop then Reset: pending instruction cleared
+[TEST] NAV-08b PASS  after Reset and Start the first junction goes straight
+[TEST] NAV-09 PASS  Z then overturn fault then Reset: pending instruction cleared
+[TEST] NAV-10 PASS  Z then lift: run ends, pending instruction cleared
+[TEST] NAV-11 PASS  lift between junction and turn: stop wins, no turn is issued
+[TEST] NAV-12 PASS  Z, lift, Start: the first junction of the new run goes straight
+[TEST] NAV-13 PASS  Reset during a running mission changes nothing (existing rule)
+[TEST] NAV-14 PASS  decoded text Z with legacy p1 = LEFT: the table (RIGHT) wins
+[TEST] NAV-15a PASS  Z turn ended on the line: instruction cleared, following
+[TEST] NAV-15b PASS  late S2 MANOEUVRE_DONE after a line-ended turn does nothing
+[TEST] NAV-15c PASS  next junction after a line-ended Z goes straight
+[TEST] S6-H37 PASS  search turns towards the side the line was last seen
+[TEST] S6-H38 PASS  LOST_LINE: S3 steering rejected while searching
+[TEST] S6-H39 PASS  second attempt turns twice as far the other way
+[TEST] S6-H40 PASS  subsystems may not request RESET
+[TEST] S6-H41 PASS  AVOID: barcode reading switched off
+[TEST] S6-PA01 PASS  pause in FOLLOW_LINE requests a confirmed stop
+[TEST] S6-PA02 PASS  paused controller rejects steering
+[TEST] S6-PA03 PASS  resume before stop confirmation does not move
+[TEST] S6-PA04 PASS  resume after confirmed stop restarts line following
+[TEST] S6-PA05 PASS  pause rejected during line recovery
+[TEST] S6-PA06 PASS  obstacle while paused enters safe fault without avoidance movement
+[TEST] S6-PA07 PASS  missing stop confirmation enters safe fault
+[TEST] S6-PA08 PASS  lift while paused ends the run; resume cannot restart it
+[TEST] S6-PA09 PASS  resume during post-bypass handoff waits for slow fresh steering
+[TEST] VC-C10 PASS  lift: S2 0x2011 first -> MISSION_COMPLETE at once, motors stopped, 0x2011 still reported
+[TEST] VC-C11 PASS  lift: S4 LIFTED after S2's report changes nothing
+[TEST] VC-C12 PASS  lift (S2 first): no drive or latch reset issued
+[TEST] VC-C13 PASS  lift: S4 event dropped -> still MISSION_COMPLETE, cause IMU 0x4005
+[TEST] VC-C14 PASS  lift: LIFTED then S2 0x2011 -> MISSION_COMPLETE, cause stays IMU 0x4005, 0x2011 counted
+[TEST] VC-C15 PASS  lift: a later plain 0x2011 does not replace the lift cause
+[TEST] VC-C16 PASS  overturn: S4 0x4005 -> FAULT, safe stop
+[TEST] VC-C17 PASS  overturn: later S2 0x2011 reported but cause stays IMU 0x4005
+[TEST] VC-C18 PASS  overturn: a later plain 0x2011 does not replace IMU 0x4005
+[TEST] VC-C19 PASS  overturn: S2 0x2011 first -> FAULT IMU 0x4005 at once, safe stop
+[TEST] VC-C20 PASS  overturn: S4 0x4005 after S2's report: still FAULT IMU 0x4005
+[TEST] VC-C21 PASS  overturn: a lift report after the overturn never completes the mission
+[TEST] VC-C22 PASS  IMU interlock of unknown kind -> FAULT IMU 0x4005 (fail safe, not a lift)
+[TEST] VC-C23 PASS  standalone S2 0x2011 -> FAULT, critical 0x2011 from S2
+[TEST] VC-C24 PASS  unrelated lift after a genuine 0x2011: stays FAULT 0x2011
+[TEST] VC-C25 PASS  lift interlock after a genuine 0x2011: stays FAULT 0x2011
+[TEST] VC-C26 PASS  critical S3 fault, then lift + 0x2011: stays FAULT with the S3 cause
+[TEST] VC-C27 PASS  WiFi warning then lift: cause is the lift, not 0x1000
+[TEST] VC-C28 PASS  IMU non-critical 0x4002 then overturn: cause is 0x4005
+[TEST] VC-C29 PASS  WiFi warning then end of course: complete with no fault code
+[TEST] VC-C30 PASS  warning after the run ended: still reported, cause unchanged
+[TEST] VC-C31 PASS  three more safe-stop reports after an overturn: cause unchanged, all counted
+[TEST] VC-C32 PASS  Reset after an overturn -> IDLE, S2 latch reset
+[TEST] VC-C33 PASS  new run after Reset: following the line, after-end count cleared
+[TEST] VC-C34 PASS  new run: a lift now ends it as MISSION_COMPLETE (old overturn cause gone)
+[TEST] VC-C35 PASS  Start after a lift, then a genuine 0x2011 -> FAULT 0x2011
+[TEST] VC-C36 PASS  lift interlock in IDLE: critical IMU 0x4005 reported, nothing moves
+[TEST] VC-C37 PASS  lift interlock during self check -> FAULT IMU 0x4005 (as LIFTED there)
+[TEST] VC-C38 PASS  a cause on another S2 code (0x2010) is ignored: FAULT 0x2010
+[TEST] VC-C39 PASS  lift while paused (S2 report first) -> MISSION_COMPLETE
+[TEST] vehicle_controller host SUMMARY 179 passed, 0 failed
+[TEST] S6-OBS06 PASS  queued junctions and stale steering are discarded at handoff
+[TEST] S6-OBS07 PASS  a later junction keeps the configured navigation action
+[TEST] S6-OBS10 PASS  straight mode preserves steering through a junction
+[TEST] S6-BC01 PASS  barcode publish and failure reporting preserve controller event
+[TEST] S6-U01 PASS  U-turn asks S2 for 180 deg; left +90, right -90
+[TEST] S6-SAFE03 PASS  motion readiness follows applied stop and reset
+[TEST] S6-SAFE04 PASS  S2 safe-stop report carries the IMU lift/overturn cause of that stop only
+exit 0
+
+== S2 host suite
+S2-U11 emergency-stop ordering: PASS
+S2-U12 IMU stop cause (lift / overturn / unknown) kept per stop: PASS
+S2-U11 emergency-stop ordering: PASS
+S2-U12 IMU stop cause (lift / overturn / unknown) kept per stop: PASS
+exit 0
+
+== S4 host suite (tail)
+  true  80 mm  measured   79.6 mm  humps 1  ok
+
+PASS: 0 failed
+
+== S5 host suite (tail)
+[TEST] S5-M09 PASS  task: ABORT and DISABLE while seeking, alongside and in the tail drive end the pass, cancel the side look, request no further motion
+[TEST] S5-M10 PASS  task: a stale MOTION_DONE is ignored; the next turn completes only on its own sequence
+SUMMARY side-pass task: all groups passed
+
+== S3 host suite (summary)
+[TEST] subsystem3-host SUMMARY 144 passed, 0 failed
+
+== S1 host suites (summaries)
+[TEST] subsystem1 host SUMMARY 17 passed, 0 failed
+[TEST] S1-Q13 PASS  interlock values 2 and 3 (S2's overturn / unknown cause) still read as set
+[TEST] subsystem1 queue host SUMMARY 42 passed, 0 failed
+[TEST] subsystem1 mqtt_utk host SUMMARY 18 passed, 0 failed
+[TEST] subsystem1 seqcheck SUMMARY 12 passed, 0 failed
+[TEST] dashboard SUMMARY 37 passed, 0 failed
+
+== S1 dashboard checks (summary)
+[TEST] dashboard SUMMARY 37 passed, 0 failed
