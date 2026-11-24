@@ -1818,7 +1818,7 @@ static bool g_sim_shape; /* sim_read also tries the shape read (as robot) */
 static void sim_read(bool b_adapt, int32_t swing, int32_t floor, sim_res_t * p_r)
 {
     bc_edge_t e;
-    uint32_t  wp[S3_BC_MAX_ELEMENTS];
+    uint32_t  wp[S3_BC_MAX_ELEMENTS], wt[S3_BC_MAX_ELEMENTS];
     uint32_t  nw = 0u, total = 0u, i, rs_pos = 0u, rs_us = 0u, last_run_pos = 0u;
     uint32_t  start_i = 0u;
     uint8_t   level = 0u;
@@ -1845,12 +1845,13 @@ static void sim_read(bool b_adapt, int32_t swing, int32_t floor, sim_res_t * p_r
         }
         if (0u != ch)
         {
-            uint32_t lead_pos = 0u, wpos, wus;
+            uint32_t lead_pos = 0u, lead_us = 0u, wpos, wus;
             uint8_t  black = level;
             p_r->edges++;
             if (0u != level)
             {
                 lead_pos = e.bar_pos - rs_pos;
+                lead_us  = e.bar_t_us - rs_us;
                 rs_pos = e.bar_pos; rs_us = e.bar_t_us;
             }
             wpos = ep - rs_pos; wus = eu - rs_us;
@@ -1873,7 +1874,11 @@ static void sim_read(bool b_adapt, int32_t swing, int32_t floor, sim_res_t * p_r
             }
             else if (nw < S3_BC_MAX_ELEMENTS)
             {
-                if ((0u != black) && (nw > 0u)) { wp[nw - 1u] += lead_pos; total += lead_pos; }
+                if ((0u != black) && (nw > 0u))
+                {
+                    wp[nw - 1u] += lead_pos; wt[nw - 1u] += lead_us; total += lead_pos;
+                }
+                wt[nw] = wus;
                 wp[nw++] = wpos; total += wpos;
             }
         }
@@ -1886,9 +1891,15 @@ static void sim_read(bool b_adapt, int32_t swing, int32_t floor, sim_res_t * p_r
             char txt[S3_BC_TEXT_MAX + 2] = { 0 };
             bool rv = false;
             p_r->elems = nw;
+            /* task_barcode.c try_decode(): by distance only when the read
+               has covered S3_BC_DIST_MIN counts, then by time; then the
+               one-'*' partial rule in the same order */
+            bool b_dist = (total >= S3_BC_DIST_MIN);
             if ((nw >= S3_BC_MIN_ELEMENTS) &&
-                ((CODE39_OK == code39_decode_ex(wp, nw, &o, txt, sizeof txt, &rv)) ||
-                 (CODE39_OK == code39_decode_partial(wp, nw, &o, txt, sizeof txt, &rv))))
+                ((b_dist && (CODE39_OK == code39_decode_ex(wp, nw, &o, txt, sizeof txt, &rv))) ||
+                 (CODE39_OK == code39_decode_ex(wt, nw, &o, txt, sizeof txt, &rv)) ||
+                 (b_dist && (CODE39_OK == code39_decode_partial(wp, nw, &o, txt, sizeof txt, &rv))) ||
+                 (CODE39_OK == code39_decode_partial(wt, nw, &o, txt, sizeof txt, &rv))))
             {
                 p_r->letters++;
                 if ((strlen(p_r->text) + strlen(txt)) < (sizeof p_r->text - 1u)) { strcat(p_r->text, txt); }
