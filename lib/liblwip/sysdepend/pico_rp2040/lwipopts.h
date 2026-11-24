@@ -91,4 +91,16 @@
 
 #define LWIP_DEBUG                  0
 
+/* MQTT client (lwip/apps/mqtt_opts.h defaults 4 and 256). lwIP 2.2.1 holds
+ * one request slot per publish even at QoS 0, until TCP data is ACKed
+ * (mqtt_tcp_sent_cb), so a short radio stall used up all 4. S1 keeps at
+ * most S1_TLM_INFLIGHT_MAX (10) telemetry publishes in flight; the other
+ * slots stay free for acks, faults, barcodes, the heartbeat and the two
+ * SUBSCRIBEs at connect. The ring holds outgoing packets that TCP has not
+ * taken yet. mqtt_utk.c checks both against S1's real sizes at compile
+ * time. Both live inside the heap-allocated client (mem_calloc from
+ * MEM_SIZE), not in .bss. */
+#define MQTT_REQ_MAX_IN_FLIGHT      16
+#define MQTT_OUTPUT_RINGBUF_SIZE    1024
+
 #endif /* LWIP_LWIPOPTS_H */

@@ -48,12 +48,7 @@ typedef struct
     err_t             result;
 } fake_pub_t;
 
-struct fake_mqtt_client
-{
-    int32_t connected;
-};
-
-static struct fake_mqtt_client g_fake_client;
+static struct mqtt_client_s    g_fake_client;
 static fake_pub_t              g_pub[FAKE_PUB_MAX];
 static int32_t                 g_pub_count;
 static err_t                   g_pub_results[FAKE_RESULTS_MAX];
@@ -227,7 +222,7 @@ static void reset_all(void)
     g_subscribes        = 0;
     client              = NULL;
     connecting          = 0;
-    g_fake_client.connected = 0;
+    memset(&g_fake_client, 0, sizeof(g_fake_client));
     (void)subsystem1_init();
 }
 
@@ -390,11 +385,68 @@ static void test_counters(void)
           "old-connection completion is stale; the kept ack goes out");
 }
 
+/* lwIP 2.2.1 mqtt_output_check_space(), copied: bytes a PUBLISH needs */
+static uint32_t lwip_publish_bytes(uint32_t topic_len, uint32_t payload_len)
+{
+    uint32_t r_length  = 2U + topic_len + payload_len;
+    uint32_t total_len = 1U + r_length;
+
+    do
+    {
+        total_len++;
+        r_length >>= 7;
+    } while (r_length > 0U);
+    return total_len;
+}
+
+static void test_lwip_limits(void)
+{
+    uint32_t topic;
+    uint32_t payload;
+    bool     b_same = true;
+    uint8_t  frame[14] = { 0x20 };
+    uint32_t need;
+
+    for (topic = 1; topic < 64; topic++)
+    {
+        for (payload = 0; payload < 400; payload++)
+        {
+            b_same = b_same && (S1_MQTT_PUBLISH_BYTES(topic, payload) ==
+                                lwip_publish_bytes(topic, payload));
+        }
+    }
+    CHECK("S1-M14", b_same && (S1_BRIDGE_PUBLISH_MAX == 206U),
+          "S1's PUBLISH size matches lwIP's ring check; longest S1 is 206 B");
+    CHECK("S1-M15", (MQTT_REQ_MAX_IN_FLIGHT == 16) &&
+          (MQTT_OUTPUT_RINGBUF_SIZE == 1024) &&
+          (MQTT_REQ_MAX_IN_FLIGHT >= S1_TLM_INFLIGHT_MAX + 4) &&
+          (MQTT_OUTPUT_RINGBUF_SIZE > 2 * S1_BRIDGE_PUBLISH_MAX),
+          "lwipopts.h: 16 request slots and a 1024-byte ring, as checked");
+
+    reset_all();
+    broker_up();
+    g_pub_count = 0;
+    need = S1_MQTT_PUBLISH_BYTES(sizeof(S1_TOPIC_ROOT S1_TOPIC_TLM) - 1U, 14U);
+    g_fake_client.output.get = 1000; /* used wraps: free == need exactly */
+    g_fake_client.output.put = (u16_t)((1000U + MQTT_OUTPUT_RINGBUF_SIZE - need) %
+                                       MQTT_OUTPUT_RINGBUF_SIZE);
+    (void)s1_post(S1_TOPIC_TLM, frame, sizeof(frame));
+    fire(telemetry_timeout);
+    CHECK("S1-M16", (g_pub_count == 0) && (stats().ref_mem == 1) &&
+          (stats().tlm_lost == 0),
+          "a publish that would fill lwIP's ring exactly is refused and kept");
+    g_fake_client.output.put = (u16_t)(g_fake_client.output.put - 1U);
+    fire(telemetry_timeout);
+    CHECK("S1-M17", (g_pub_count == 1) && (stats().pub_tlm == 1),
+          "with one byte to spare the same frame is published");
+}
+
 int main(void)
 {
     test_timer_chains();
     test_heartbeat_bounds();
     test_counters();
+    test_lwip_limits();
     printf("[TEST] subsystem1 mqtt_utk host SUMMARY %d passed, %d failed\n",
            (int)g_passed, (int)g_failed);
     return (g_failed == 0) ? 0 : 1;

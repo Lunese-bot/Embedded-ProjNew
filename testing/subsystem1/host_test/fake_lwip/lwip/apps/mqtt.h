@@ -6,6 +6,15 @@
 #include <stdint.h>
 #include <stddef.h>
 
+/* the project's real lwIP options, then lwIP's own defaults (mqtt_opts.h) */
+#include "../../../../../../lib/liblwip/sysdepend/pico_rp2040/lwipopts.h"
+#ifndef MQTT_OUTPUT_RINGBUF_SIZE
+#define MQTT_OUTPUT_RINGBUF_SIZE 256
+#endif
+#ifndef MQTT_REQ_MAX_IN_FLIGHT
+#define MQTT_REQ_MAX_IN_FLIGHT 4
+#endif
+
 typedef uint8_t  u8_t;
 typedef uint16_t u16_t;
 typedef uint32_t u32_t;
@@ -25,7 +34,7 @@ typedef enum
     MQTT_CONNECT_TIMEOUT      = 257
 } mqtt_connection_status_t;
 
-typedef struct fake_mqtt_client mqtt_client_t;
+typedef struct mqtt_client_s mqtt_client_t;
 typedef struct { u32_t addr; } ip4_addr_t;
 typedef struct { ip4_addr_t ip4; int type; } ip_addr_t;
 

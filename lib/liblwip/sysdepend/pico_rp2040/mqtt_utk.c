@@ -16,6 +16,7 @@
  */
 
 #include "lwip/apps/mqtt.h"
+#include "lwip/apps/mqtt_priv.h"	/* output ring indexes, read only */
 #include "lwip/ip_addr.h"
 #include "lwip/timeouts.h"
 #include "wifi_secrets.h"
@@ -51,6 +52,22 @@
 typedef char mqtt_utk_hb_echo_fits[(MQTT_UTK_HB_MAX <= MQTT_UTK_RX_DATA_MAX) ? 1 : -1];
 typedef char mqtt_utk_hb_len_fits[(MQTT_UTK_HB_MAX <= 0xFFFF) ? 1 : -1];
 
+/* lwIP limits (lwipopts.h) against S1's real sizes (s1_bridge.h):
+ * - S1 may hold S1_TLM_INFLIGHT_MAX telemetry requests; keep at least 4
+ *   more for events, the heartbeat and the SUBSCRIBEs at connect.
+ * - mqtt_create_request() walks the slots with a u8_t index.
+ * - the ring must hold two of the longest S1 publishes, and the longest
+ *   heartbeat, with at least one byte to spare (see ring_refuses()).
+ * - the ring uses u16_t put/get indexes. */
+typedef char mqtt_utk_req_slots_fit[
+	(MQTT_REQ_MAX_IN_FLIGHT >= S1_TLM_INFLIGHT_MAX + 4) ? 1 : -1];
+typedef char mqtt_utk_req_index_fits[(MQTT_REQ_MAX_IN_FLIGHT <= 255) ? 1 : -1];
+typedef char mqtt_utk_ring_fits_two_s1[
+	(MQTT_OUTPUT_RINGBUF_SIZE > 2U * S1_BRIDGE_PUBLISH_MAX) ? 1 : -1];
+typedef char mqtt_utk_ring_fits_hb[(MQTT_OUTPUT_RINGBUF_SIZE >
+	S1_MQTT_PUBLISH_BYTES(sizeof(MQTT_TOPIC) - 1U, MQTT_UTK_HB_MAX - 1U)) ? 1 : -1];
+typedef char mqtt_utk_ring_index_fits[(MQTT_OUTPUT_RINGBUF_SIZE <= 0xFFFF) ? 1 : -1];
+
 static mqtt_client_t	*client;
 static ip_addr_t	broker_addr;
 static u8_t		connecting;
@@ -64,6 +81,7 @@ static u8_t		rx_truncated;
 
 static void heartbeat_timeout(void *arg);
 static void telemetry_timeout(void *arg);
+static int ring_refuses(u32_t topic_len, u16_t payload_len);
 
 static int topic_is(const char *a, const char *b)
 {
@@ -178,7 +196,8 @@ static void heartbeat_timeout(void *arg)
 	if(mqtt_client_is_connected(client)) {
 		len = heartbeat_text(payload, (int)sizeof(payload), count++);
 		tm_printf((UB*)"mqtt: TX [" MQTT_TOPIC "] \"%s\"\n", payload);
-		err = mqtt_publish(client, MQTT_TOPIC, payload, (u16_t)len,
+		err = ring_refuses((u32_t)sizeof(MQTT_TOPIC) - 1U, (u16_t)len) ? ERR_MEM :
+		      mqtt_publish(client, MQTT_TOPIC, payload, (u16_t)len,
 				   0 /* qos */, 0 /* retain */,
 				   publish_done_cb, NULL);
 		s1_bridge_heartbeat_result((int32_t)err);
@@ -190,13 +209,36 @@ static void heartbeat_timeout(void *arg)
 	sys_timeout(MQTT_UTK_HEARTBEAT_MS, heartbeat_timeout, NULL);
 }
 
+/* lwIP 2.2.1 reads put == get as an empty ring, yet mqtt_output_check_space()
+ * accepts a packet that fills the ring exactly; such a packet would never
+ * be sent and the next one would overwrite it. Refuse it here as ERR_MEM
+ * (the caller keeps or counts it) unless at least one byte stays free. */
+static int ring_refuses(u32_t topic_len, u16_t payload_len)
+{
+	u32_t	used = (u32_t)client->output.put - (u32_t)client->output.get;
+
+	if(used > 0xFFFFU) {
+		used += MQTT_OUTPUT_RINGBUF_SIZE;	/* as mqtt_ringbuf_len() */
+	}
+	return S1_MQTT_PUBLISH_BYTES(topic_len, payload_len) >=
+	       (u32_t)MQTT_OUTPUT_RINGBUF_SIZE - (u16_t)used;
+}
+
 /* S1's publish adapter: the only S1 call into mqtt_publish().  The topic
  * and payload stay valid for the call; lwIP copies them into its ring. */
 static int32_t s1_publish(const char *topic, const uint8_t *payload,
 			  uint16_t len, void *tag)
 {
+	u32_t	topic_len = 0;
+
 	if(!mqtt_client_is_connected(client)) {
 		return ERR_CONN;
+	}
+	while(topic[topic_len] != '\0') {
+		topic_len++;
+	}
+	if(ring_refuses(topic_len, len)) {
+		return ERR_MEM;
 	}
 	return (int32_t)mqtt_publish(client, topic, (const u8_t *)payload,
 				     (u16_t)len, 0 /* qos */, 0 /* retain */,

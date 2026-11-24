@@ -22,6 +22,19 @@
 #define S1_BRIDGE_FULL_TOPIC_MAX \
     (sizeof(S1_TOPIC_ROOT) + S1_BRIDGE_TOPIC_MAX)
 
+/* Bytes one MQTT 3.1.1 QoS 0 PUBLISH takes in lwIP's output ring: fixed
+   header byte, remaining-length bytes (1 below 128, 2 below 16384), the
+   2-byte topic length, the topic and the payload. */
+#define S1_MQTT_RL_BYTES(rem) (((rem) < 128U) ? 1U : (((rem) < 16384U) ? 2U : 3U))
+#define S1_MQTT_PUBLISH_BYTES(topic_len, payload_len) \
+    (1U + S1_MQTT_RL_BYTES(2U + (topic_len) + (payload_len)) + 2U + \
+     (topic_len) + (payload_len))
+
+/* The longest S1 publish: s1_post() keeps topic suffix + NUL + payload
+   within S1_BRIDGE_LINE_MAX, and S1 adds the root. */
+#define S1_BRIDGE_PUBLISH_MAX \
+    S1_MQTT_PUBLISH_BYTES(sizeof(S1_TOPIC_ROOT) - 1U, S1_BRIDGE_LINE_MAX - 1U)
+
 /* Set to 0 to reject remote Pause/Resume at the firmware bridge. */
 #ifndef S1_ENABLE_REMOTE_PAUSE
 #define S1_ENABLE_REMOTE_PAUSE 1
