@@ -668,6 +668,39 @@ static void test_config(void)
     CHECK("S1-G06", cfg_reply(rep) && (rep[1] == 0x82) && (rep[2] == 0x03) &&
           (rep[3] == 0x03) && (rep[4] == VC_BCMAP_REJ_ACTIVE),
           "the VC's answer is published with the request id and result");
+
+    /* READ_FACTORY: the firmware's factory map, gen/flags of the active map */
+    reset_policy(1);
+    {
+        uint8_t m[7];
+        int32_t pub0;
+
+        memcpy(m, factory, 7);
+        m[0] = 0x10; /* B = left */
+        (void)vc_bcmap_replace(m, 0u, false);
+        msg[0] = S1_CFG_MARKER; msg[1] = S1_CFG_OP_FACTORY; msg[2] = 0x00; msg[3] = 0x09;
+        calls = host_vc_calls;
+        s1_bridge_on_config(msg, S1_CFG_READ_LEN);
+        CHECK("S1-G07", cfg_reply(rep) && (rep[1] == 0x83) && (rep[3] == 0x09) &&
+              (rep[4] == VC_BCMAP_OK) && (memcmp(&rep[8], factory, 7) == 0) &&
+              (((rep[5] << 8) | rep[6]) == 1) && ((rep[7] & VC_BCMAP_FLAG_FACTORY_EQUAL) == 0) &&
+              (host_vc_calls == calls),
+              "READ_FACTORY answers at once with the firmware's factory map; gen and flags are the active (edited) map's");
+        s1_bridge_on_config(msg, S1_CFG_READ_LEN + 1);
+        CHECK("S1-G08", cfg_reply(rep) && (rep[4] == VC_BCMAP_REJ_MALFORMED),
+              "READ_FACTORY with extra bytes is malformed");
+
+        reset_policy(1);
+        pub0 = g_pub_count;
+        s1_bridge_junction(2u, (uint8_t)'B', 1u);
+        (void)s1_bridge_service(stub_publish, 1);
+        CHECK("S1-G09", (g_pub_count == pub0 + 1) && pub_is(pub0, S1_TOPIC_JUNCTION) &&
+              (g_pub[pub0].len == S1_JX_LEN) && (g_pub[pub0].payload[0] == 0xD1) &&
+              (g_pub[pub0].payload[1] == 2) && (g_pub[pub0].payload[2] == 'B') &&
+              (g_pub[pub0].payload[3] == 1) && (g_pub[pub0].payload[5] == 1),
+              "junction note goes out on robot/g10/jx: D1 kind letter code gen");
+        vc_bcmap_init(NULL);
+    }
 }
 
 int main(void)

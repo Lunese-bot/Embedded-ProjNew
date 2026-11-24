@@ -89,6 +89,23 @@ static void run_actions(const vc_actions_t * p_acts)
             case VC_ACT_CONFIG:
                 run_config(0 != p_action->p1);
                 break;
+            case VC_ACT_JUNCTION:
+            {
+                /* "vc: jx assigned B 1": the dashboard reads this line on
+                   USB too.  letter '-' = no single-letter barcode. */
+                static const char * const k_note[] = { "?", "assigned",
+                                                       "completed", "dropped" };
+                const uint32_t kind   = (uint32_t)p_action->p1;
+                const uint8_t  letter = (uint8_t)((uint32_t)p_action->p2 >> 8);
+                const uint8_t  code   = (uint8_t)((uint32_t)p_action->p2 & 3u);
+
+                tm_printf((uint8_t *)"vc: jx %s %c %u\n",
+                          k_note[(kind <= 3u) ? kind : 0u],
+                          (0u != letter) ? (int)letter : (int)'-',
+                          (unsigned)code);
+                s1_bridge_junction((uint8_t)kind, letter, code);
+                break;
+            }
             default:
                 break;
         }

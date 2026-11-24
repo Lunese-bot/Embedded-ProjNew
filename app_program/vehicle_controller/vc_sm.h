@@ -103,9 +103,25 @@ typedef enum
     VC_ACT_REPORT,   /* target = source of fault, p1 = severity, p2 = code -> S1
                       */
     VC_ACT_STATE,    /* p1 = new vc_state_t, p2 = old vc_state_t */
-    VC_ACT_CONFIG    /* p1 = 1 apply the pending barcode map write, 0 refuse
+    VC_ACT_CONFIG,   /* p1 = 1 apply the pending barcode map write, 0 refuse
                         it (mission active); p2 = request id */
+    VC_ACT_JUNCTION  /* p1 = vc_junction_note_t, p2 = (letter << 8) | wire
+                        action code (vc_barcode_map.h); letter 'A'..'Z', or
+                        0 when there was no single-letter barcode -> S1 */
 } vc_action_kind_t;
+
+/* Evidence for the dashboard's "Read B -> Left turn pending -> Left turn
+   completed".  ASSIGNED proves only the lookup; COMPLETED is sent when the
+   manoeuvre has finished and line following has taken over; DROPPED when a
+   pending action was cancelled inside a run (obstacle, manoeuvre timeout,
+   end of course, lift).  A run ending by Stop / fault / Reset sends nothing:
+   the state change is the evidence. */
+typedef enum
+{
+    VC_JX_ASSIGNED  = 1,
+    VC_JX_COMPLETED = 2,
+    VC_JX_DROPPED   = 3
+} vc_junction_note_t;
 
 typedef struct
 {

@@ -27,6 +27,7 @@
 
 #include "vc_sm.h"
 #include "vc_barcode_rules.h"
+#include "vc_barcode_map.h"
 
 /* ------------------------------------------------------------------ */
 /*  Names, for console and telemetry                                   */
@@ -196,6 +197,38 @@ static void start_turn(vc_sm_t * p_sm, vc_move_t move_cmd, int32_t value,
     p_sm->turn_odo0 = p_sm->odo;
     p_sm->turn_gate = (0 != VC_TURN_END_ON_LINE) ? VC_PIVOT_COUNTS(gate_deg)
                                                  : 0u;
+}
+
+/* Junction evidence for S1 (VC_ACT_JUNCTION), from the pending action as
+   it stands now. */
+static void junction_note(const vc_sm_t * p_sm, vc_actions_t * p_out,
+                          vc_junction_note_t note)
+{
+    const char * p_text = p_sm->pending_barcode;
+    int32_t      letter = 0;
+    int32_t      code   = vc_bcmap_wire_from_nav(p_sm->pending_nav);
+
+    if ((p_text[0] >= 'A') && (p_text[0] <= 'Z') && ('\0' == p_text[1]))
+    {
+        letter = (int32_t)p_text[0];
+    }
+    if (code < 0)
+    {
+        code = 0;
+    }
+    emit(p_out, VC_ACT_JUNCTION, VC_SRC_VC, (int32_t)note, (letter << 8) | code);
+}
+
+/* Cancel a pending junction action inside a run, and say so when there was
+   one. */
+static void drop_pending(vc_sm_t * p_sm, vc_actions_t * p_out)
+{
+    if ((NAV_NONE != p_sm->pending_nav) || ('\0' != p_sm->pending_barcode[0]))
+    {
+        junction_note(p_sm, p_out, VC_JX_DROPPED);
+    }
+    p_sm->pending_nav        = NAV_NONE;
+    p_sm->pending_barcode[0] = '\0';
 }
 
 static void enter_execute(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
@@ -470,8 +503,7 @@ static void lift(vc_sm_t * p_sm, vc_source_t src, uint32_t code,
 
     if (vc_sm_is_active(state) && (VC_ST_MISSION_START != state))
     {
-        p_sm->pending_nav        = NAV_NONE;
-        p_sm->pending_barcode[0] = '\0';
+        drop_pending(p_sm, p_out);
         enter(p_sm, VC_ST_MISSION_COMPLETE, now_ms, p_out);
         set_cause(p_sm, src, VC_FAULT_NON_CRITICAL, code);
     }
@@ -665,6 +697,7 @@ static void take_barcode(vc_sm_t * p_sm, const vc_event_t * p_event,
         p_sm->pending_nav = (navigation_command_t)p_event->p1;
     }
     p_sm->st.last_nav = p_sm->pending_nav;
+    junction_note(p_sm, p_out, VC_JX_ASSIGNED);
     for (idx = 0u; idx < sizeof(p_sm->st.last_barcode); idx++)
     {
         p_sm->st.last_barcode[idx] = p_sm->pending_barcode[idx];
@@ -873,15 +906,13 @@ static void on_junction_stop(vc_sm_t * p_sm, const vc_event_t * p_event,
     }
     else if (VC_EV_END_OF_COURSE == type)
     {
-        p_sm->pending_nav = NAV_NONE;
-        p_sm->pending_barcode[0] = '\0';
+        drop_pending(p_sm, p_out);
         enter(p_sm, VC_ST_MISSION_COMPLETE, now_ms, p_out);
     }
     else if (VC_EV_OBSTACLE == type)
     {
         /* Obstacle safety takes priority; discard the pending junction action. */
-        p_sm->pending_nav = NAV_NONE;
-        p_sm->pending_barcode[0] = '\0';
+        drop_pending(p_sm, p_out);
         enter(p_sm, VC_ST_AVOID_OBSTACLE, now_ms, p_out);
     }
 }
@@ -907,6 +938,7 @@ static void on_execute_action(vc_sm_t * p_sm, const vc_event_t * p_event,
         /* past the gate and C or R is on the new arm: the turn is done,
            line following takes over (its FORWARD replaces S2's turn) */
         p_sm->turn_gate   = 0u;
+        junction_note(p_sm, p_out, VC_JX_COMPLETED);
         p_sm->pending_nav = NAV_NONE;
         p_sm->pending_barcode[0] = '\0';
         enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
@@ -914,14 +946,14 @@ static void on_execute_action(vc_sm_t * p_sm, const vc_event_t * p_event,
     else if (VC_EV_MANOEUVRE_DONE == type)
     {
         p_sm->turn_gate   = 0u;
+        junction_note(p_sm, p_out, VC_JX_COMPLETED);
         p_sm->pending_nav = NAV_NONE;
         p_sm->pending_barcode[0] = '\0';
         enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
     }
     else if (VC_EV_OBSTACLE == type)
     {
-        p_sm->pending_nav = NAV_NONE;
-        p_sm->pending_barcode[0] = '\0';
+        drop_pending(p_sm, p_out);
         enter(p_sm, VC_ST_AVOID_OBSTACLE, now_ms, p_out);
     }
     else if ((VC_EV_TICK == type) && (in_state >= VC_EXECUTE_MS))
@@ -929,8 +961,7 @@ static void on_execute_action(vc_sm_t * p_sm, const vc_event_t * p_event,
         /* manoeuvre never finished: look for the line */
         report(p_sm, p_out, VC_SRC_MOTION, VC_FAULT_RECOVERABLE,
                VC_FC_STATE_TIMEOUT);
-        p_sm->pending_nav = NAV_NONE;
-        p_sm->pending_barcode[0] = '\0';
+        drop_pending(p_sm, p_out);
         enter(p_sm, VC_ST_LOST_LINE, now_ms, p_out);
     }
     else

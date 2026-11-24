@@ -20,6 +20,7 @@
 /* barcode letter map read / replace (s1_cfg.h); requests are never retained */
 #define S1_TOPIC_CFG        S1_TOPIC_ROOT "cfg"
 #define S1_TOPIC_CFG_REPLY  "cfgr"
+#define S1_TOPIC_JUNCTION   "jx"
 #define S1_BRIDGE_LINE_MAX  192
 #define S1_BRIDGE_TOPIC_MAX 48
 #define S1_BRIDGE_FULL_TOPIC_MAX \
@@ -60,6 +61,9 @@ void s1_bridge_command_result(uint8_t seq, int32_t accepted);
 void s1_bridge_on_config(const uint8_t * p_payload, int32_t len);
 /* Vehicle Controller: publish the reply to a config request. */
 void s1_bridge_config_reply(uint8_t op, uint16_t request_id, uint8_t result);
+/* VC task: junction evidence (vc_junction_note_t kind, letter or 0, wire
+   action code) on robot/g10/jx with the active map's generation. */
+void s1_bridge_junction(uint8_t kind, uint8_t letter, uint8_t code);
 
 /* Broker connection state, from mqtt_utk.c's connection callback.  Every
    change of state starts a new connection generation: publishes still

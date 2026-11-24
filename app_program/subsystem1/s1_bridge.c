@@ -211,11 +211,32 @@ void s1_bridge_config_reply(uint8_t op, uint16_t request_id, uint8_t result)
     }
     else
     {
+        if (S1_CFG_OP_FACTORY == op)
+        {
+            /* the firmware's factory map; gen and flags stay the active
+               map's */
+            vc_bcmap_factory(snap.packed);
+        }
         (void)s1_cfg_encode_reply(op, request_id, result, (uint16_t)snap.gen,
                                   snap.flags, snap.packed, reply);
     }
     app_check(s1_post(S1_TOPIC_CFG_REPLY, reply, (int32_t)sizeof(reply)),
               "s1 config reply");
+}
+
+void s1_bridge_junction(uint8_t kind, uint8_t letter, uint8_t code)
+{
+    vc_bcmap_snapshot_t snap;
+    uint8_t             note[S1_JX_LEN];
+    uint16_t            gen = 0u;
+
+    if (vc_bcmap_get(&snap))
+    {
+        gen = (uint16_t)snap.gen;
+    }
+    (void)s1_cfg_encode_junction(kind, letter, code, gen, note);
+    app_check(s1_post(S1_TOPIC_JUNCTION, note, (int32_t)sizeof(note)),
+              "s1 junction note");
 }
 
 void s1_bridge_on_config(const uint8_t * p_payload, int32_t len)
@@ -229,7 +250,7 @@ void s1_bridge_on_config(const uint8_t * p_payload, int32_t len)
                                (uint8_t)VC_BCMAP_REJ_MALFORMED);
         return;
     }
-    if (S1_CFG_OP_READ == req.op)
+    if ((S1_CFG_OP_READ == req.op) || (S1_CFG_OP_FACTORY == req.op))
     {
         s1_bridge_config_reply(req.op, req.request_id, (uint8_t)VC_BCMAP_OK);
         return;

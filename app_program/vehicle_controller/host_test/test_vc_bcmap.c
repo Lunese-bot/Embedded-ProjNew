@@ -163,9 +163,20 @@ static vc_actions_t g_actions;
 static uint32_t     g_now_ms;
 static int32_t      g_tally[32];
 
+/* VC_ACT_JUNCTION notes seen since the last tally_clear() */
+static int32_t g_jx_n;
+static int32_t g_jx[16][3]; /* kind, letter, code */
+
 static void tally_clear(void)
 {
     memset(g_tally, 0, sizeof(g_tally));
+    g_jx_n = 0;
+}
+
+static int jx_is(int32_t i, int32_t kind, int32_t letter, int32_t code)
+{
+    return (i < g_jx_n) && (g_jx[i][0] == kind) && (g_jx[i][1] == letter) &&
+           (g_jx[i][2] == code);
 }
 
 /* the reply the task would publish for the last config action */
@@ -193,6 +204,16 @@ static void run_actions(void)
         if ((VC_ACT_MOVE == p_a->kind) && (p_a->p1 >= 0) && (p_a->p1 < 32))
         {
             g_tally[p_a->p1]++;
+        }
+        else if (VC_ACT_JUNCTION == p_a->kind)
+        {
+            if (g_jx_n < 16)
+            {
+                g_jx[g_jx_n][0] = p_a->p1;
+                g_jx[g_jx_n][1] = (p_a->p2 >> 8) & 0xFF;
+                g_jx[g_jx_n][2] = p_a->p2 & 3;
+                g_jx_n++;
+            }
         }
         else if (VC_ACT_CONFIG == p_a->kind)
         {
@@ -830,6 +851,65 @@ static void test_end_to_end(void)
           "failed read then junction: straight, no letter recorded");
 }
 
+/* Junction evidence for the dashboard (VC_ACT_JUNCTION -> robot/g10/jx) */
+static void test_junction_notes(void)
+{
+    uint8_t m[7];
+    uint8_t note[S1_JX_LEN];
+
+    flash_blank();
+    reboot();
+    memcpy(m, FACTORY_GOLDEN, 7);
+    map_set(m, 'B', VC_BCW_LEFT);
+    map_set(m, 'Z', VC_BCW_UTURN);
+    (void)vc_bcmap_replace(m, 0u, false);
+
+    start_mission();
+    tally_clear();
+    feed_s3_decode("B");
+    CHECK("JX-01", (1 == g_jx_n) && jx_is(0, VC_JX_ASSIGNED, 'B', VC_BCW_LEFT),
+          "B read: one ASSIGNED note, letter B, Turn left (from the active map)");
+    tally_clear();
+    junction_to_execute();
+    CHECK("JX-02", (0 == g_jx_n) && (1 == g_tally[VC_MOVE_TURN_LEFT]),
+          "junction reached and turn started: no COMPLETED yet (a lookup or a "
+          "started turn is not a completed turn)");
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    CHECK("JX-03", (1 == g_jx_n) && jx_is(0, VC_JX_COMPLETED, 'B', VC_BCW_LEFT) &&
+                       (VC_ST_FOLLOW_LINE == g_sm.st.state),
+          "turn finished, line following again: COMPLETED B Turn left");
+    tally_clear();
+    junction_to_execute();
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    CHECK("JX-04", (1 == g_jx_n) && jx_is(0, VC_JX_COMPLETED, 0, VC_BCW_STRAIGHT),
+          "second junction: COMPLETED with no letter, straight (no-barcode behaviour)");
+
+    tally_clear();
+    feed_s3_decode("Z");
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    feed(VC_SRC_OBST, VC_EV_OBSTACLE, 0, 0);
+    CHECK("JX-05", (2 == g_jx_n) && jx_is(0, VC_JX_ASSIGNED, 'Z', VC_BCW_UTURN) &&
+                       jx_is(1, VC_JX_DROPPED, 'Z', VC_BCW_UTURN) && (0 == turns()) &&
+                       (NAV_NONE == g_sm.pending_nav),
+          "obstacle at the junction: Z's U-turn is DROPPED, never executed");
+
+    start_mission();
+    tally_clear();
+    feed_s3_decode("HELLO");
+    feed(VC_SRC_COMMS, VC_EV_CMD_STOP, 0, 0);
+    CHECK("JX-06", (1 == g_jx_n) && jx_is(0, VC_JX_ASSIGNED, 0, VC_BCW_STRAIGHT) &&
+                       (VC_ST_FAULT == g_sm.st.state),
+          "multi-letter text: ASSIGNED with no letter (straight); Stop sends no "
+          "junction note (the state change is the evidence)");
+
+    (void)s1_cfg_encode_junction(VC_JX_COMPLETED, (uint8_t)'B', VC_BCW_LEFT, 0x0103u, note);
+    CHECK("JX-07", (0xD1 == note[0]) && (2 == note[1]) && ('B' == note[2]) &&
+                       (1 == note[3]) && (0x01 == note[4]) && (0x03 == note[5]),
+          "robot/g10/jx bytes: D1 02 42 01 01 03");
+    flash_blank();
+    reboot();
+}
+
 int main(void)
 {
     test_codec();
@@ -838,6 +918,7 @@ int main(void)
     test_protocol();
     test_controller();
     test_end_to_end();
+    test_junction_notes();
     printf("[TEST] barcode map host SUMMARY %d passed, %d failed\n", g_passed, g_failed);
     return (0 != g_failed) ? 1 : 0;
 }
