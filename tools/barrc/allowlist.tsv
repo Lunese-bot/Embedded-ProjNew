@@ -1,0 +1,227 @@
+# BARR-C checker allowlist: rule<TAB>file glob<TAB>regex on the note<TAB>reason.
+# Every line is a deviation in docs/BARR_C.md (Dn) or a known false positive (FP)
+# of this lexical checker.  `make -C tools/barrc check` fails on any finding not
+# listed here, so a new deviation needs a reviewed line here and in the doc.
+
+# D5 (extended): early returns (6.2.c is preferred practice, not a "shall").
+# One line per function, so a NEW function with several returns fails.
+6.2.c	app_main.c	^app_start_task\(\) has	D5 guard-clause early returns
+6.2.c	debugging/live_tune.h	^live_tune_straight_at_junction\(\) has	D5 guard-clause early returns
+6.2.c	debugging/web_debug.c	^parse_id\(\) has	D5 guard-clause early returns
+6.2.c	debugging/web_debug.c	^web_debug_start\(\) has	D5 guard-clause early returns
+6.2.c	debugging/web_debug_bridge.c	^area_of\(\) has	D5 guard-clause early returns
+6.2.c	debugging/web_debug_bridge.c	^lock_state\(\) has	D5 guard-clause early returns
+6.2.c	debugging/web_debug_bridge.c	^lock_try\(\) has	D5 guard-clause early returns
+6.2.c	debugging/web_debug_bridge.c	^servo_test\(\) has	D5 guard-clause early returns
+6.2.c	debugging/web_debug_bridge.c	^has\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_bridge.c	^line_to_message\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_bridge.c	^s1_bridge_pop\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_bridge.c	^s1_test_bridge_pop\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_bridge.c	^s1_bridge_on_command\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_bridge.c	^s1_bridge_on_config\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_bridge.c	^s1_bridge_service\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_bridge.c	^s1_bridge_format_counters\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_cfg.c	^s1_cfg_decode_request\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_codec.c	^pack_unsigned\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_codec.c	^s1_tlm_decode\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_codec.c	^s1_barcode_encode\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_codec.c	^s1_cmd_decode\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_lock.c	^s1_lock\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_obst_pub.c	^s1_obst_pub_due\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_stats.c	^s1_stats_kind\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_stats.c	^s1_stats_line_kind\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_stats.c	^s1_stats_format\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_stats.c	^s1_latch_resolve\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_stats.c	^s1_latch_format\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_txq.c	^stage_event\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_txq.c	^s1_txq_claim\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/s1_txq.c	^s1_txq_take\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/subsystem1.c	^subsystem1_init\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/subsystem1.c	^subsystem1_start\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/subsystem1.c	^s1_post\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/subsystem1.c	^s1_post_spare\(\) has	D5 guard-clause early returns
+6.2.c	subsystem1/subsystem1.c	^s1_get_stats\(\) has	D5 guard-clause early returns
+6.2.c	subsystem2/drv_encoder.c	^drv_encoder_init\(\) has	D5 guard-clause early returns
+6.2.c	subsystem2/drv_encoder.c	^drv_encoder_delta\(\) has	D5 guard-clause early returns
+6.2.c	subsystem2/motion_pid.c	^clampf\(\) has	D5 guard-clause early returns
+6.2.c	subsystem2/motion_pid.c	^motion_ramp\(\) has	D5 guard-clause early returns
+6.2.c	subsystem2/subsystem2.c	^s2_stop_epoch\(\) has	D5 guard-clause early returns
+6.2.c	subsystem2/subsystem2.c	^subsystem2_init\(\) has	D5 guard-clause early returns
+6.2.c	subsystem2/subsystem2.c	^subsystem2_start\(\) has	D5 guard-clause early returns
+6.2.c	subsystem2/subsystem2.c	^s2_send_cmd\(\) has	D5 guard-clause early returns
+6.2.c	subsystem2/task_motion.c	^s2_get_status\(\) has	D5 guard-clause early returns
+6.2.c	subsystem2/task_motion.c	^clampi\(\) has	D5 guard-clause early returns
+6.2.c	subsystem2/task_motion.c	^apply_command\(\) has	D5 guard-clause early returns
+6.2.c	subsystem2/task_motion.c	^wheel_duty\(\) has	D5 guard-clause early returns
+6.2.c	subsystem2/task_motion.c	^drive_motor\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39.c	^pattern_to_char\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39.c	^char_to_pattern\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39.c	^classify_char\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39.c	^classify_char_split\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39.c	^decode_direction\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39.c	^code39_decode_ex\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39.c	^window_char_strict\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39.c	^partial_widths_ok\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39.c	^partial_window_letter\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39.c	^code39_decode_partial\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39.c	^code39_decode\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39.c	^encode_char\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39.c	^code39_encode\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39_geom.c	^cross\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39_geom.c	^phi\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39_geom.c	^model_mse\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39_geom.c	^next_combo\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39_geom.c	^pick_candidates\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39_geom.c	^rank_fits\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39_geom.c	^judge_best\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/code39_geom.c	^c39g_decode_hump\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/drv_ir.c	^lf_convert\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/drv_ir.c	^lf_start\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/drv_ir.c	^drv_ir_init\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/drv_ir.c	^drv_ir_read\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/line_algo.c	^clamp16\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/line_algo.c	^bc_edge_core\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/line_algo.c	^bc_edge_margin\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/line_algo.c	^bc_first_bar_ok\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/line_algo.c	^bc_lock_steer\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/line_algo.c	^l_fast_get\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/subsystem3.c	^subsystem3_init\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/subsystem3.c	^subsystem3_start\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/subsystem3.c	^s3_get_line_status\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/subsystem3.c	^s3_request\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/subsystem3.c	^s3_text_to_nav\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/task_barcode.c	^dist_live\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/task_barcode.c	^try_decode\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/task_barcode.c	^shape_read\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/task_barcode.c	^early_end_ok\(\) has	D5 guard-clause early returns
+6.2.c	subsystem3/task_line.c	^s3_bc_pos\(\) has	D5 guard-clause early returns
+6.2.c	subsystem4/drv_lsm303.c	^lsm303_scan\(\) has	D5 guard-clause early returns
+6.2.c	subsystem4/imu_selftest.c	^imu_selftest_math\(\) has	D5 guard-clause early returns
+6.2.c	subsystem4/imu_selftest.c	^imu_selftest_hump\(\) has	D5 guard-clause early returns
+6.2.c	subsystem4/imu_selftest.c	^imu_selftest_spike_ignored\(\) has	D5 guard-clause early returns
+6.2.c	subsystem4/imu_selftest.c	^imu_selftest_turn\(\) has	D5 guard-clause early returns
+6.2.c	subsystem4/imu_terrain.c	^calibrate_step\(\) has	D5 guard-clause early returns
+6.2.c	subsystem4/imu_terrain.c	^hump_descending\(\) has	D5 guard-clause early returns
+6.2.c	subsystem4/imu_terrain.c	^update_height\(\) has	D5 guard-clause early returns
+6.2.c	subsystem4/subsystem4.c	^subsystem4_init\(\) has	D5 guard-clause early returns
+6.2.c	subsystem4/subsystem4.c	^subsystem4_start\(\) has	D5 guard-clause early returns
+6.2.c	subsystem4/subsystem4.c	^s4_get_status\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/drv_servo.c	^servo_init\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/drv_ultrasonic.c	^us_init\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/drv_ultrasonic.c	^us_read_mm\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/obstacle_logic.c	^s5_sin1000\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/obstacle_logic.c	^s5_build_profile\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/obstacle_logic.c	^add_step\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/obstacle_logic.c	^s5_plan_bypass\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/s5_obst_report.c	^clamp_u16\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/s5_obst_report.c	^s5_or_decode\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/s5_ports.c	^s5_port_odo_mm\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/s5_scan_diag.c	^s5_median_nonzero\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/s5_scan_diag.c	^s5_format_trips\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/s5_scan_diag.c	^index_of\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/s5_scan_diag.c	^ref_range\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/s5_scan_diag.c	^supported_width\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/s5_scan_diag.c	^s5_width_estimate\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/subsystem5.c	^subsystem5_init\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/subsystem5.c	^subsystem5_start\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/subsystem5.c	^s5_get_status\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/subsystem5.c	^s5_get_status_packed\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/subsystem5.c	^s5_get_obstacle_report\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/task_obstacle_avoid.c	^pass_poll\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/task_obstacle_avoid.c	^run_pass_step\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/task_obstacle_avoid.c	^run_observe_step\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/task_obstacle_avoid.c	^run_step\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/task_obstacle_avoid.c	^sample_rejoin\(\) has	D5 guard-clause early returns
+6.2.c	subsystem5/task_obstacle_scan.c	^edge_range\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/host_test/test_vc_bcmap.c	^fake_read\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/host_test/test_vc_bcmap.c	^fake_write\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/host_test/test_vc_bcmap.c	^all_letters_match\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/host_test/test_vc_bcmap.c	^dashboard_write\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/host_test/test_vc_s2.c	^tk_wai_flg\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/host_test/test_vc_s3.c	^tk_rcv_mbf\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/host_test/test_vc_sm.c	^lift_ends_run_in\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/host_test/test_vc_sm.c	^logged\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_barcode_map.c	^vc_bcmap_packed_code\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_barcode_map.c	^vc_bcmap_pack\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_barcode_map.c	^vc_bcmap_unpack\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_barcode_map.c	^vc_bcmap_record_decode\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_barcode_map.c	^same_packed\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_barcode_map.c	^read_slot\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_barcode_map.c	^vc_bcmap_lookup_letter\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_barcode_map.c	^vc_bcmap_get\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_barcode_map.c	^vc_bcmap_replace\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_barcode_map.c	^vc_bcmap_post_write\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_barcode_map.c	^vc_bcmap_service\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_barcode_rules.c	^vc_barcode_lookup\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_bcmap_flash.c	^flash_read\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_bcmap_flash.c	^flash_write\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_bcmap_flash.c	^vc_bcmap_flash_store\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_bridge_s2.c	^sent_speed\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_bridge_s2.c	^sent_turn_speed\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_bridge_s2.c	^vc_bridge_s2_next\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_bridge_s3.c	^map_s3_event\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_bridge_s4.c	^map_imu_event\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vc_sm.c	^emit\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vehicle_controller.c	^vehicle_controller_init\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vehicle_controller.c	^vc_get_status\(\) has	D5 guard-clause early returns
+6.2.c	vehicle_controller/vehicle_controller_test.c	^has_move\(\) has	D5 guard-clause early returns
+
+# FP: char that holds text characters (barcode letters, commands), which 5.2.c allows.
+5.2.c	debugging/web_debug_bridge.c	char used for non-string data	FP char holds text characters
+5.2.c	subsystem1/s1_stats.c	char used for non-string data	FP char holds text characters
+5.2.c	subsystem3/code39.c	char used for non-string data	FP char holds text characters
+5.2.c	subsystem3/code39_geom.h	char used for non-string data	FP char holds text characters
+5.2.c	subsystem3/subsystem3.h	char used for non-string data	FP char holds text characters
+5.2.c	subsystem3/task_barcode.c	char used for non-string data	FP char holds text characters
+5.2.c	vehicle_controller/host_test/test_vc_bcmap.c	char used for non-string data	FP char holds text characters
+5.2.c	vehicle_controller/vc_barcode_map.c	char used for non-string data	FP char holds text characters
+5.2.c	vehicle_controller/vc_barcode_map.h	char used for non-string data	FP char holds text characters
+5.2.c	vehicle_controller/vc_bcmap_flash.c	char used for non-string data	FP char holds text characters
+
+# D9: casts to int / unsigned for tm_printf %d / %u (int32_t is long on the target).
+5.2.a	subsystem1/task_telemetry.c	plain (int|unsigned): .*\((int|unsigned)\)	D9 printf conversion casts
+5.2.a	vehicle_controller/task_vehicle_ctrl.c	plain (int|unsigned): .*\((int|unsigned)\)	D9 printf conversion casts
+
+# D1: kernel types and prototypes as the kernel declares them (host stubs, SMP flash lockout).
+5.2.a	vehicle_controller/host_test/host_types.h	plain (int|unsigned): typedef	D1 host stubs of kernel types
+5.2.a	vehicle_controller/host_test/test_vc_s[23].c	plain int: typedef int (ID|ER|TMO);	D1 host stubs of kernel types
+5.2.a	vehicle_controller/vc_bcmap_flash.c	knl_smp_flash_lockout_begin	D1 kernel prototype
+5.1.a	vehicle_controller/host_test/*	typedef name [A-Z]+$	D1 host stubs of kernel types
+5.6.a	vehicle_controller/host_test/host_types.h	BOOL	D1 host stub of the kernel BOOL type
+
+# D2: function-like macros that must stay macros.
+6.3.a	subsystem1/s1_bridge.h	function-like macro S1_MQTT_RL_BYTES$	D2
+6.3.a	subsystem1/s1_bridge.h	function-like macro S1_MQTT_PUBLISH_BYTES$	D2
+6.3.a	subsystem5/subsystem5_test.c	function-like macro S5_ARRAY_LEN$	D2
+6.3.a	test_report.h	function-like macro TEST_INIT$	D2
+6.3.a	test_report.h	function-like macro TEST_CHECK$	D2
+6.3.a	test_report.h	function-like macro TEST_SUMMARY$	D2
+6.3.a	vehicle_controller/host_test/test_vc_bcmap.c	function-like macro CHECK$	D2
+6.3.a	vehicle_controller/host_test/test_vc_sm.c	function-like macro CHECK$	D2
+6.3.a	vehicle_controller/host_test/test_vc_sm.c	function-like macro VC_EXPECT$	D2
+6.3.a	vehicle_controller/host_test/test_vc_sm.c	function-like macro UT_DEG$	D2
+6.3.a	vehicle_controller/host_test/test_vc_sm.c	function-like macro NAV_CHECK$	D2
+6.3.a	vehicle_controller/vc_barcode_config.h	function-like macro VC_BARCODE_LETTER_TABLE$	D2
+6.3.a	vehicle_controller/vc_barcode_map.c	function-like macro VC_FACTORY_LINE$	D2
+6.3.a	vehicle_controller/vc_barcode_rules.c	function-like macro VC_RULE_LINE$	D2
+6.3.a	vehicle_controller/vc_barcode_rules.c	function-like macro VC_RULE_VALID$	D2
+6.3.a	vehicle_controller/vc_barcode_rules.c	function-like macro VC_RULE_COUNT$	D2
+6.3.a	vehicle_controller/vc_sm.h	function-like macro VC_PIVOT_COUNTS$	D2
+6.3.a	vehicle_controller/vc_types.h	function-like macro VC_READY_BIT$	D2
+6.3.a	vehicle_controller/vehicle_controller.h	function-like macro VC_FLG_STATE$	D2
+
+# D7: weak default functions (compiler extension) in s5_ports.c.
+6.1.c	subsystem5/s5_ports.c	__attribute__	D7 FP: the checker reads __attribute__ as a name
+6.2.d/e	subsystem5/s5_ports.c	__attribute__	D7 FP: the checker reads __attribute__ as a name
+
+# D10: the flash map start comes from the linker script, which fixes its name.
+4.2.c*	vehicle_controller/vc_bcmap_flash.c	__bcmap_flash_start	D10 linker symbol
+7.1.j	vehicle_controller/vc_bcmap_flash.c	__bcmap_flash_start	D10 linker symbol
+
+# FP: other known false positives of the lexical checker.
+2.1.c	debugging/web_debug_bridge.h	client = the browser tab's id	FP prose comment
+2.1.c	vehicle_controller/vc_types.h	p1 = 1 completed, 0 failed	FP prose comment
+2.1.c	vehicle_controller/vehicle_controller.h	vc_post_event\(VC_SRC_LINE, VC_EV_LINE_LOST	FP usage example in the header comment
+1.3.a	subsystem3/task_line.c	if body without braces	FP if header split by #if / #else, one shared braced body
+3.3.a	vehicle_controller/host_test/test_vc_sm.c	for \(uint32_t t_val	FP for header over two lines
+5.1.b	subsystem5/subsystem5.h	union	FP anonymous union member of the typedef-ed s5_evt_t
