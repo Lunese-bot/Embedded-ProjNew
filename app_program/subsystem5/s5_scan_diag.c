@@ -212,57 +212,14 @@ static int16_t offset_mm(const s5_trip_t * p_t)
     return (int16_t)(((int32_t)p_t->used * s5_sin1000(p_t->deg)) / 1000);
 }
 
-s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t count,
-                                 s5_width_est_t * p_est)
+/* s5_width_estimate(), second part: the outermost supported sample on each
+   side of [low, high], and the width between them.  Sets p_est->status. */
+static s5_we_status_t supported_width(const s5_trip_t * p_trips, int32_t low,
+                                      int32_t high, int32_t near,
+                                      s5_width_est_t * p_est)
 {
-    s5_sample_t  smp[64];
-    s5_profile_t prof;
-    int32_t      low;
-    int32_t      high;
-    int32_t      near = -1;
-    int32_t      rs_val;
-    int32_t      ls_val;
-    int32_t      idx;
-
-    *p_est        = (s5_width_est_t){ 0 };
-    p_est->status = (uint8_t)S5_WE_NO_PROFILE;
-    if ((NULL == p_trips) || (count <= 0) || (count > 64))
-    {
-        return S5_WE_NO_PROFILE;
-    }
-    s5_trips_to_samples(p_trips, count, smp);
-    if (!s5_build_profile(smp, count, &prof))
-    {
-        return S5_WE_NO_PROFILE;
-    }
-    low  = index_of(p_trips, count, prof.right_edge_deg);
-    high = index_of(p_trips, count, prof.left_edge_deg);
-    /* the nearest sample, as s5_build_profile picked it */
-    for (idx = low; idx <= high; idx++)
-    {
-        if ((p_trips[idx].used == prof.distance_mm) &&
-            ((near < 0) || (iabs(p_trips[idx].deg) < iabs(p_trips[near].deg))))
-        {
-            near = idx;
-        }
-    }
-    p_est->raw_r_deg    = prof.right_edge_deg;
-    p_est->raw_l_deg    = prof.left_edge_deg;
-    p_est->raw_r_range  = p_trips[low].used;
-    p_est->raw_l_range  = p_trips[high].used;
-    p_est->raw_right_mm = prof.right_mm;
-    p_est->raw_left_mm  = prof.left_mm;
-    p_est->raw_width_mm = prof.width_mm;
-    p_est->raw_r_support =
-        (uint8_t)support_of(&p_trips[low], ref_range(p_trips, low, near));
-    p_est->raw_l_support =
-        (uint8_t)support_of(&p_trips[high], ref_range(p_trips, high, near));
-
-    if ((0 == low) || ((count - 1) == high))
-    {
-        p_est->status = (uint8_t)S5_WE_CLIPPED;
-        return S5_WE_CLIPPED;
-    }
+    int32_t rs_val;
+    int32_t ls_val;
 
     /* outermost supported sample on each side, walking inward */
     for (rs_val = low; rs_val <= high; rs_val++)
@@ -315,6 +272,59 @@ s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t count,
     }
     p_est->status = (uint8_t)S5_WE_OK;
     return S5_WE_OK;
+}
+
+s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t count,
+                                 s5_width_est_t * p_est)
+{
+    s5_sample_t  smp[64];
+    s5_profile_t prof;
+    int32_t      low;
+    int32_t      high;
+    int32_t      near = -1;
+    int32_t      idx;
+
+    *p_est        = (s5_width_est_t){ 0 };
+    p_est->status = (uint8_t)S5_WE_NO_PROFILE;
+    if ((NULL == p_trips) || (count <= 0) || (count > 64))
+    {
+        return S5_WE_NO_PROFILE;
+    }
+    s5_trips_to_samples(p_trips, count, smp);
+    if (!s5_build_profile(smp, count, &prof))
+    {
+        return S5_WE_NO_PROFILE;
+    }
+    low  = index_of(p_trips, count, prof.right_edge_deg);
+    high = index_of(p_trips, count, prof.left_edge_deg);
+    /* the nearest sample, as s5_build_profile picked it */
+    for (idx = low; idx <= high; idx++)
+    {
+        if ((p_trips[idx].used == prof.distance_mm) &&
+            ((near < 0) || (iabs(p_trips[idx].deg) < iabs(p_trips[near].deg))))
+        {
+            near = idx;
+        }
+    }
+    p_est->raw_r_deg    = prof.right_edge_deg;
+    p_est->raw_l_deg    = prof.left_edge_deg;
+    p_est->raw_r_range  = p_trips[low].used;
+    p_est->raw_l_range  = p_trips[high].used;
+    p_est->raw_right_mm = prof.right_mm;
+    p_est->raw_left_mm  = prof.left_mm;
+    p_est->raw_width_mm = prof.width_mm;
+    p_est->raw_r_support =
+        (uint8_t)support_of(&p_trips[low], ref_range(p_trips, low, near));
+    p_est->raw_l_support =
+        (uint8_t)support_of(&p_trips[high], ref_range(p_trips, high, near));
+
+    if ((0 == low) || ((count - 1) == high))
+    {
+        p_est->status = (uint8_t)S5_WE_CLIPPED;
+        return S5_WE_CLIPPED;
+    }
+
+    return supported_width(p_trips, low, high, near, p_est);
 }
 
 const char * s5_we_name(uint8_t status)

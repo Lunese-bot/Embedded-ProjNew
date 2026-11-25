@@ -388,22 +388,15 @@ static step_result_t run_motion(const s5_step_t * p_step)
 /* The measured pass leg: look sideways while driving forward, end by
    measurement, and always stop the car before anything else happens.
    If the side look cannot start, drive the fixed-depth distance as before. */
-static step_result_t run_pass_step(const s5_step_t * p_step)
-{
 #if S5_SIDE_PASS
-    s5_geom_t         geom;
-    s5_side_reading_t reading;
-    step_result_t     result = STEP_DONE;
-    s5_step_t         fixed  = *p_step;
-    TMO               waited = 0;
+/* run_pass_step(): wait up to S5_SIDE_ARM_TMO_MS for the side look, still
+   taking commands.  Returns STEP_ABORT when a command ended the wait. */
+static step_result_t side_look_wait(s5_side_reading_t * p_reading)
+{
+    step_result_t result = STEP_DONE;
+    TMO           waited = 0;
 
-    fixed.side_track = 0U;
-    s5_geom_from_config(&geom);
-    s5_pass_init(&g_pass.pass, &geom, S5_SIDE_LOOK_DEG, p_step->m.distance_mm,
-                 p_step->cap_mm);
-    g_pass_why = S5_PASS_SEEKING;
-    s5_side_request(p_step->look_deg);
-    while ((STEP_DONE == result) && !s5_side_read(&reading))
+    while ((STEP_DONE == result) && !s5_side_read(p_reading))
     {
         s5_cmd_t cmd;
 
@@ -417,6 +410,52 @@ static step_result_t run_pass_step(const s5_step_t * p_step)
         }
         waited += S5_PERIOD_MS;
     }
+    return result;
+}
+
+/* run_pass_step(): say on the console what the pass measured. */
+static void pass_print(step_result_t result, const s5_step_t * p_step)
+{
+    if ((STEP_DONE == result) && (S5_PASS_CLEARED == g_pass_why))
+    {
+        tm_printf((uint8_t *)"s5: pass measured: first echo %d mm last echo %d "
+                             "mm span %d mm%s "
+                             "min gap %d mm, turn-in at %d mm\n",
+                  g_pass.pass.first_mm, g_pass.pass.last_mm,
+                  g_pass.pass.depth_mm,
+                  g_pass.pass.partial ? " (partial: already alongside)" : "",
+                  g_pass.pass.min_gap_mm, g_pass.pass.target_mm);
+    }
+    else if ((STEP_DONE == result) && (S5_PASS_FALLBACK == g_pass_why))
+    {
+        tm_printf(
+            (uint8_t *)"s5: no side echo, depth assumed (fixed pass %d mm, "
+                       "clearance not certified)\n",
+            p_step->m.distance_mm);
+    }
+    else
+    {
+        /* no other case needs any action */
+    }
+}
+
+#endif
+
+static step_result_t run_pass_step(const s5_step_t * p_step)
+{
+#if S5_SIDE_PASS
+    s5_geom_t         geom;
+    s5_side_reading_t reading;
+    step_result_t     result;
+    s5_step_t         fixed = *p_step;
+
+    fixed.side_track = 0U;
+    s5_geom_from_config(&geom);
+    s5_pass_init(&g_pass.pass, &geom, S5_SIDE_LOOK_DEG, p_step->m.distance_mm,
+                 p_step->cap_mm);
+    g_pass_why = S5_PASS_SEEKING;
+    s5_side_request(p_step->look_deg);
+    result = side_look_wait(&reading);
     if (STEP_DONE != result)
     {
         s5_side_end();
@@ -466,27 +505,7 @@ static step_result_t run_pass_step(const s5_step_t * p_step)
     {
         /* no other case needs any action */
     }
-    if ((STEP_DONE == result) && (S5_PASS_CLEARED == g_pass_why))
-    {
-        tm_printf((uint8_t *)"s5: pass measured: first echo %d mm last echo %d "
-                             "mm span %d mm%s "
-                             "min gap %d mm, turn-in at %d mm\n",
-                  g_pass.pass.first_mm, g_pass.pass.last_mm,
-                  g_pass.pass.depth_mm,
-                  g_pass.pass.partial ? " (partial: already alongside)" : "",
-                  g_pass.pass.min_gap_mm, g_pass.pass.target_mm);
-    }
-    else if ((STEP_DONE == result) && (S5_PASS_FALLBACK == g_pass_why))
-    {
-        tm_printf(
-            (uint8_t *)"s5: no side echo, depth assumed (fixed pass %d mm, "
-                       "clearance not certified)\n",
-            p_step->m.distance_mm);
-    }
-    else
-    {
-        /* no other case needs any action */
-    }
+    pass_print(result, p_step);
     return result;
 #else
     return run_motion(p_step);
