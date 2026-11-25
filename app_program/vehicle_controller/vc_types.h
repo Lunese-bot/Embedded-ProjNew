@@ -104,7 +104,9 @@ typedef enum
     VC_EV_LIFTED,       /* robot lifted (S4). p1 = IMU_SAFETY_LIFT, p2 = fault
                            code to report if no mission is running.  During a
                            mission this ends the run: MISSION_COMPLETE, motors
-                           stopped.  (Collision detection was removed.) */
+                           stopped; with VC_LIFT_MODE_PAUSE a lift during
+                           FOLLOW_LINE pauses it instead (vc_sm.h).
+                           (Collision detection was removed.) */
 
     /* S5 obstacle */
     VC_EV_OBSTACLE,     /* p1 = distance (mm) */
@@ -112,7 +114,9 @@ typedef enum
     VC_EV_AVOID_FAILED, /* bypass/recovery failed: stop */
 
     /* S6 internal */
-    VC_EV_TICK, /* periodic, drives state timeouts */
+    VC_EV_TICK, /* periodic, drives state timeouts.  p1 = S2's IMU stop
+                   interlock now (g_s2_imu_stop: VC_CAUSE_*, 0 = clear),
+                   p2 = S2 odometer (L + R counts) */
 
     /* S1 (added last so no existing event number changes) */
     VC_EV_CMD_CONFIG, /* a barcode map write is pending (vc_barcode_map.h);
@@ -155,6 +159,14 @@ typedef enum
 #define VC_FC_BARCODE       0x0007 /* barcode retries used up (non-critical) */
 #define VC_FC_JUNCTION_STOP 0x0008 /* S2 did not confirm stop at junction */
 #define VC_FC_PAUSE_INTERRUPTED 0x0009 /* unsafe event while paused */
+/* Pause on lift (VC_LIFT_MODE_PAUSE only): why the robot is waiting.
+   NON-CRITICAL status reports, so the telemetry fault field and the fault
+   topic show the reason (the 14-byte frame is unchanged).  0x000A..0x000F
+   are left free (the dashboard check plants a fake 0x000A). */
+#define VC_FC_LIFT_LIFTED   0x0010 /* lifted, tilted or moving: motors off */
+#define VC_FC_LIFT_SETTLING 0x0011 /* set down: level, still, wheels still */
+#define VC_FC_LIFT_WAIT_LINE 0x0012 /* down: no confirmed line, stays stopped */
+#define VC_FC_LIFT_RESUMING 0x0013 /* line confirmed: S2 handshake, slow start */
 #define VC_FC_WIFI_DOWN     0x1000 /* reported for S1 (non-critical) */
 /* Codes the controller itself tests; the bridges check they match. */
 #define VC_FC_S2_SAFE_STOP  0x2011 /* S2_FC_SAFE_STOP, vc_bridge_s2.c */
@@ -272,7 +284,14 @@ typedef struct
     uint32_t             events_handled;
     uint32_t             moves_rejected; /* requests from a non-owner */
     bool                 wifi_up;
-    bool                 paused;
+    bool                 paused;      /* operator Pause, or a lift pause */
+    /* Pause on lift (vc_sm.h).  lift_mode is the mode THIS run uses, taken
+       at Start (VC_LIFT_MODE_*).  lift_phase is VC_LP_* (0 = none): what a
+       lift-paused robot waits for; VC_LP_RESUMING also stays while the
+       slow restart runs, until cruise. */
+    uint8_t              lift_mode;
+    uint8_t              lift_phase;
+    uint16_t             lift_resumes; /* autonomous resumes this run */
 } vc_status_t;
 
 #endif /* VC_TYPES_H */

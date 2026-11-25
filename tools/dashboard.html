@@ -538,6 +538,14 @@ const DashCore = (() => {
       action: "S2 did not confirm zero speed within 2 s (junction or pause). Check the encoders and wheels, press Reset, then Start." },
     0x0009: { def: "VC_FC_PAUSE_INTERRUPTED", owner: 6, name: "Event while paused",
       action: "Line loss, obstacle, junction or barcode arrived during Pause, so the robot stopped. Press Reset, then Start." },
+    0x0010: { def: "VC_FC_LIFT_LIFTED", owner: 6, name: "Lifted",
+      action: "Pause-on-lift mode: motors off, the run is paused, not ended. Put the robot down flat and still with one line sensor (R or C) over the tape; it restarts on its own." },
+    0x0011: { def: "VC_FC_LIFT_SETTLING", owner: 6, name: "Settling",
+      action: "Set down: keep hands off and the wheels still while it checks it is level and not moving." },
+    0x0012: { def: "VC_FC_LIFT_WAIT_LINE", owner: 6, name: "Waiting for line",
+      action: "No confirmed line under the robot, so it stays stopped. Lift it and put it down with the R (or C) sensor over the tape. Centred on the tape looks the same as plain floor and is not accepted." },
+    0x0013: { def: "VC_FC_LIFT_RESUMING", owner: 6, name: "Resuming line following",
+      action: "Line confirmed: S2 handshake, then slow line following before cruise. Press Stop to cancel." },
     0x1000: { def: "VC_FC_WIFI_DOWN", owner: 1, name: "WiFi / MQTT down",
       action: "The robot keeps driving. Check the hotspot and broker; the dashboard reconnects by itself." },
     0x2001: { def: "MFAULT_STALL_LEFT", owner: 2, name: "Left wheel stalled",
@@ -574,6 +582,13 @@ const DashCore = (() => {
       action: "Put the robot on the line past the obstacle, press Reset, then Start." }
   };
   const SAFE_STOP = 0x2011;
+  /* Pause on lift (vc_sm.h): the telemetry fault field says why a paused
+     robot waits.  null = not a lift pause. */
+  const LIFT_REASONS = { 0x0010: "Lifted", 0x0011: "Settling", 0x0012: "Waiting for line", 0x0013: "Resuming line following" };
+  function liftReason(code) {
+    const word = LIFT_REASONS[code];
+    return word ? { word, sub: FAULTS[code].action } : null;
+  }
   function hex4(code) { return "0x" + (code >>> 0).toString(16).toUpperCase().padStart(4, "0"); }
 
   function parseFaultJson(text) {
@@ -1524,7 +1539,7 @@ const DashCore = (() => {
   return { STATES, ACTIVE, STATE_LABEL, NAV, OBS, ACK, CMD_LABEL, FAULTS, SUBSYS, SEV, SAFE_STOP,
     TLM_PERIOD_MS, HB_PERIOD_MS, ACK_TIMEOUT_MS, CONFIRM_MS, STORE_KEY, STORE_CAPS, CSV_COLUMNS,
     staleAfterMs, decodeTelemetry, fromUsbJson, decodeBarcode, encodeCommand, decodeCommand, decodeAck,
-    parseFaultJson, parseFaultConsole, describeFault, hex4, parseHeartbeat, parseCounters, parseCountersLine, latchStatus, latchCause, latchText, latchAction, LATCH_FRESH_MS,
+    parseFaultJson, parseFaultConsole, describeFault, hex4, liftReason, LIFT_REASONS, parseHeartbeat, parseCounters, parseCountersLine, latchStatus, latchCause, latchText, latchAction, LATCH_FRESH_MS,
     LossWindow, CommandTracker, describeCommand, commandAvailability, expectedState, commandSignal, groupReasons, fmtAge,
     RunTracker, describeOutcome, groupFaults,
     CFG_TOPIC, CFG_REPLY_TOPIC, JX_TOPIC, CFG_REPLY_MS, MAP_LETTERS, MAP_ACTIONS, MAP_RESULTS, MAP_FLAGS, NAV_TO_WIRE, DRAFT_KEY,
@@ -2212,7 +2227,9 @@ const DashCore = (() => {
     } else {
       const o = run.current && st === run.current.state ? C.describeOutcome(run.current) : null;
       if (st === "FAULT") { tone = "fault"; ico = "✖"; word = o ? o.title.replace(/^Fault: /, "Fault — ") : "Fault"; sub = o && o.action ? o.action : "Press Reset, then Start."; }
+      else if (S.tlm.paused && C.liftReason(S.tlm.fault)) { const lr = C.liftReason(S.tlm.fault); tone = "attn"; ico = "❚❚"; word = "Paused — " + lr.word; sub = lr.sub; }
       else if (S.tlm.paused) { tone = "attn"; ico = "❚❚"; word = "Paused"; sub = "Stopped on the line. Resume or Stop."; }
+      else if (C.ACTIVE.has(st) && S.tlm.fault === 0x0013) { tone = "work"; ico = "▶"; word = "Resuming line following"; sub = "Slow restart after a lift, then cruise."; }
       else if (st === "MISSION_COMPLETE") { tone = "good"; ico = "✓"; word = "Mission complete"; sub = "Robot lifted: run ended. Reset or Start for a new run."; }
       else if (st === "IDLE") { tone = "idle"; ico = "○"; word = "Idle"; sub = "Ready for Start."; }
       else if (st === "LOST_LINE") { tone = "attn"; ico = "!"; word = C.STATE_LABEL[st]; sub = "Bounded search: up to 3 attempts, then Fault."; }

@@ -283,6 +283,18 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
 {
     vc_state_t prev = p_sm->st.state;
 
+    if (VC_LP_NONE != p_sm->lp.phase)
+    {
+        /* leaving a lift pause (Stop, Reset, overturn, a fault ...): the
+           pending resume is cancelled with it */
+        request(p_out, VC_SRC_LINE, VC_REQ_LINE_WATCH, 0);
+    }
+    {
+        vc_lift_t zero = { 0 };
+
+        p_sm->lp = zero;
+    }
+    p_sm->st.lift_phase     = VC_LP_NONE;
     p_sm->st.prev_state     = prev;
     p_sm->st.state          = next;
     p_sm->st.paused         = false;
@@ -314,6 +326,9 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
             p_sm->st.barcodes_read    = 0;
             p_sm->st.last_nav         = NAV_NONE;
             p_sm->st.last_barcode[0]  = '\0';
+            /* the run keeps this mode until it ends (vc_sm_set_lift_mode) */
+            p_sm->st.lift_mode        = p_sm->lift_mode_cfg;
+            p_sm->st.lift_resumes     = 0u;
             request(p_out, VC_SRC_NONE, VC_REQ_SELF_CHECK, 0);
             break;
 
@@ -406,6 +421,371 @@ static void go_fault(vc_sm_t * p_sm, vc_source_t src, uint32_t code,
     if (p_sm->st.state != VC_ST_FAULT)
     {
         enter(p_sm, VC_ST_FAULT, now_ms, p_out);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Pause on lift (VC_LIFT_MODE_PAUSE, vc_sm.h)                        */
+/* ------------------------------------------------------------------ */
+
+static bool lp_active(const vc_sm_t * p_sm)
+{
+    return (VC_ST_FOLLOW_LINE == p_sm->st.state) &&
+           (VC_LP_NONE != p_sm->lp.phase);
+}
+
+/* The reason shown to the operator for each phase (telemetry fault field) */
+static uint32_t lp_code(uint8_t phase)
+{
+    uint32_t code;
+
+    switch (phase)
+    {
+        case VC_LP_LIFTED:
+            code = VC_FC_LIFT_LIFTED;
+            break;
+        case VC_LP_SETTLING:
+            code = VC_FC_LIFT_SETTLING;
+            break;
+        case VC_LP_WAIT_LINE:
+            code = VC_FC_LIFT_WAIT_LINE;
+            break;
+        default:
+            code = VC_FC_LIFT_RESUMING;
+            break;
+    }
+    return code;
+}
+
+static void lp_note(const vc_sm_t * p_sm, vc_actions_t * p_out,
+                    vc_lift_note_t why)
+{
+    (void)emit(p_out, VC_ACT_LIFT, VC_SRC_VC, (int32_t)p_sm->st.lift_phase,
+               (int32_t)why);
+}
+
+static void lp_forget_line(vc_sm_t * p_sm)
+{
+    p_sm->lp.pattern = 0u;
+    p_sm->lp.count   = 0u;
+}
+
+/* Enter a phase (or restart the same one): every timer and the line
+   evidence start again from now.  A new phase is reported (non-critical)
+   so its reason reaches the operator. */
+static void lp_phase(vc_sm_t * p_sm, uint8_t phase, vc_lift_note_t why,
+                     uint32_t now_ms, vc_actions_t * p_out)
+{
+    bool b_new = (phase != p_sm->lp.phase);
+
+    p_sm->lp.phase      = phase;
+    p_sm->lp.step       = 0u;
+    p_sm->lp.phase_ms   = now_ms;
+    p_sm->st.lift_phase = phase;
+    lp_forget_line(p_sm);
+    lp_note(p_sm, p_out, why);
+    if (b_new)
+    {
+        report(p_sm, p_out, VC_SRC_VC, VC_FAULT_NON_CRITICAL, lp_code(phase));
+    }
+    if (VC_LP_WAIT_LINE == phase)
+    {
+        /* only samples taken from now on (S3 bridge) */
+        request(p_out, VC_SRC_LINE, VC_REQ_LINE_WATCH, 1);
+    }
+}
+
+/* A lift interrupted line following.  S4 has already latched S2 off; the
+   controller stops too and holds every motion request from now on. */
+static void lp_begin(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
+{
+    vc_lift_t zero = { 0 };
+    bool      b_op = p_sm->st.paused; /* operator Pause already on */
+
+    p_sm->lp            = zero;
+    p_sm->lp.op_hold    = b_op;
+    p_sm->lp.episode    = 1u;
+    p_sm->lp.imu        = VC_CAUSE_IMU_LIFT;
+    p_sm->st.paused     = true;
+    p_sm->pause_stopped = false;
+    move(p_out, VC_MOVE_STOP, 0);
+    lp_phase(p_sm, VC_LP_LIFTED, VC_LN_LIFT, now_ms, p_out);
+}
+
+/* Any lift report while paused.  In LIFTED it is the same episode (S2's
+   and S4's reports of one lift).  Later it is a new lift: the robot may be
+   anywhere now, so settling and line checks start again. */
+static void lp_relift(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
+{
+    p_sm->lp.imu = VC_CAUSE_IMU_LIFT;
+    if (VC_LP_LIFTED != p_sm->lp.phase)
+    {
+        p_sm->lp.episode++;
+        move(p_out, VC_MOVE_STOP, 0);
+        lp_phase(p_sm, VC_LP_LIFTED, VC_LN_RELIFT, now_ms, p_out);
+    }
+    /* S2's 0x2011 report just before must not hide the reason */
+    set_cause(p_sm, VC_SRC_VC, VC_FAULT_NON_CRITICAL, lp_code(p_sm->lp.phase));
+}
+
+/* Back to watching the line, motors stopped (S2 may be unlatched now: the
+   controller simply sends nothing but STOP) */
+static void lp_abort(vc_sm_t * p_sm, vc_lift_note_t why, uint32_t now_ms,
+                     vc_actions_t * p_out)
+{
+    move(p_out, VC_MOVE_STOP, 0);
+    lp_phase(p_sm, VC_LP_WAIT_LINE, why, now_ms, p_out);
+}
+
+/* The wheels turned since they were last known still: someone is moving
+   the robot.  Returns true if that restarted the settling. */
+static bool lp_wheels(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
+{
+    uint32_t moved = p_sm->odo - p_sm->lp.odo0;
+    bool     b_moved;
+
+    if (moved >= 0x80000000u)
+    {
+        moved = 0u - moved; /* went the other way */
+    }
+    b_moved = (p_sm->lp.phase >= VC_LP_SETTLING) &&
+              (moved > (uint32_t)VC_LIFT_ODO_TOL);
+    if (b_moved)
+    {
+        p_sm->lp.odo0 = p_sm->odo;
+        if (VC_LP_SETTLING == p_sm->lp.phase)
+        {
+            p_sm->lp.phase_ms = now_ms; /* still moving: settle from now */
+        }
+        else
+        {
+            if (VC_LP_RESUMING == p_sm->lp.phase)
+            {
+                move(p_out, VC_MOVE_STOP, 0);
+            }
+            lp_phase(p_sm, VC_LP_SETTLING, VC_LN_WHEELS, now_ms, p_out);
+        }
+    }
+    return b_moved;
+}
+
+/* All checks passed: the same mission follows the line again, slowly for
+   VC_REJOIN_STEER_SAMPLES fresh steering samples, then at cruise
+   (move_request()).  Only here does the lift pause start motion. */
+static void lp_go(vc_sm_t * p_sm, vc_actions_t * p_out)
+{
+    request(p_out, VC_SRC_LINE, VC_REQ_LINE_WATCH, 0);
+    lp_note(p_sm, p_out, VC_LN_GO);
+    p_sm->lp.phase          = VC_LP_NONE; /* st.lift_phase stays RESUMING */
+    p_sm->st.paused         = false;
+    p_sm->pause_stopped     = false;
+    p_sm->st.lift_resumes++;
+    p_sm->rejoin_steer_left = VC_REJOIN_STEER_SAMPLES;
+    request(p_out, VC_SRC_LINE, VC_REQ_LINE_FOLLOW, 0);
+    move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS);
+    move(p_out, VC_MOVE_FORWARD, VC_SPEED_SLOW_MMS);
+}
+
+/* TICK: the interlock and the wheels, then the phase timers */
+static void lp_tick(vc_sm_t * p_sm, const vc_event_t * p_event,
+                    uint32_t now_ms, vc_actions_t * p_out)
+{
+    int32_t  imu      = p_event->p1;
+    uint32_t in_phase = elapsed(now_ms, p_sm->lp.phase_ms);
+
+    p_sm->lp.imu = imu;
+    if (VC_CAUSE_IMU_LIFT == imu)
+    {
+        lp_relift(p_sm, now_ms, p_out);
+    }
+    else if (VC_CAUSE_NONE != imu)
+    {
+        /* overturn (or an IMU stop of unknown kind): never resumed */
+        go_fault(p_sm, VC_SRC_IMU, VC_FC_IMU_SAFETY, now_ms, p_out);
+    }
+    else if (VC_LP_LIFTED == p_sm->lp.phase)
+    {
+        /* S4: set down, level and still (its own rule, imu_terrain.c) */
+        p_sm->lp.odo0 = p_sm->odo;
+        lp_phase(p_sm, VC_LP_SETTLING, VC_LN_DOWN, now_ms, p_out);
+    }
+    else if (lp_wheels(p_sm, now_ms, p_out))
+    {
+        /* settling again */
+    }
+    else if ((VC_LP_SETTLING == p_sm->lp.phase) &&
+             (in_phase >= VC_LIFT_SETTLE_MS))
+    {
+        lp_phase(p_sm, VC_LP_WAIT_LINE, VC_LN_SETTLED, now_ms, p_out);
+    }
+    else if ((VC_LP_RESUMING == p_sm->lp.phase) && (0u == p_sm->lp.step) &&
+             (in_phase >= VC_LIFT_READY_MS))
+    {
+        lp_abort(p_sm, VC_LN_NO_READY, now_ms, p_out);
+    }
+    else if ((VC_LP_RESUMING == p_sm->lp.phase) && (0u != p_sm->lp.step) &&
+             (in_phase >= VC_LIFT_VERIFY_MS))
+    {
+        lp_abort(p_sm, VC_LN_LOST, now_ms, p_out);
+    }
+    else
+    {
+        /* keep waiting, motors stopped: no timeout ever starts motion */
+    }
+}
+
+/* One line sample (VC_EV_LINE_SAMPLE).  Each sample counts once, and only
+   if it was taken after the current phase or step began. */
+static void lp_sample(vc_sm_t * p_sm, const vc_event_t * p_event,
+                      uint32_t now_ms, vc_actions_t * p_out)
+{
+    uint32_t t    = p_event->time_ms;
+    int32_t  mask = p_event->p1 & (VC_LINE_C | VC_LINE_R);
+    /* Cast: VC_LINE_C / VC_LINE_R, or 0 */
+    uint8_t  pat  = ((VC_LINE_C == mask) || (VC_LINE_R == mask)) ? (uint8_t)mask
+                                                                  : 0u;
+
+    if ((VC_LP_WAIT_LINE != p_sm->lp.phase) &&
+        (VC_LP_RESUMING != p_sm->lp.phase))
+    {
+        return; /* lifted or settling: the line proves nothing yet */
+    }
+    if (lp_wheels(p_sm, now_ms, p_out))
+    {
+        return;
+    }
+    if (((int32_t)(t - p_sm->lp.phase_ms) <= 0) ||
+        (p_sm->lp.have_sample && ((int32_t)(t - p_sm->lp.last_ms) <= 0)))
+    {
+        return; /* stale (before set-down, before READY) or already used */
+    }
+    p_sm->lp.have_sample = true;
+    p_sm->lp.last_ms     = t;
+
+    if (VC_LP_WAIT_LINE == p_sm->lp.phase)
+    {
+        if (0u == pat)
+        {
+            lp_forget_line(p_sm); /* both white, both black: not a line */
+        }
+        else if (pat == p_sm->lp.pattern)
+        {
+            if (p_sm->lp.count < 0xFFFFu)
+            {
+                p_sm->lp.count++;
+            }
+        }
+        else
+        {
+            p_sm->lp.pattern  = pat;
+            p_sm->lp.count    = 1u;
+            p_sm->lp.first_ms = t;
+        }
+        if ((p_sm->lp.count >= VC_LIFT_LINE_SAMPLES) &&
+            (elapsed(t, p_sm->lp.first_ms) >= VC_LIFT_LINE_MS) &&
+            !p_sm->lp.op_hold)
+        {
+            uint8_t keep = p_sm->lp.pattern;
+
+            lp_phase(p_sm, VC_LP_RESUMING, VC_LN_CONFIRMED, now_ms, p_out);
+            p_sm->lp.pattern = keep;
+            /* the S2 handshake: clear the lift latch, ask for READY */
+            move(p_out, VC_MOVE_RESET, 0);
+            request(p_out, VC_SRC_MOTION, VC_REQ_SELF_CHECK, 0);
+        }
+    }
+    else if (pat != p_sm->lp.pattern)
+    {
+        lp_abort(p_sm, VC_LN_LOST, now_ms, p_out); /* line changed: no go */
+    }
+    else if (0u != p_sm->lp.step)
+    {
+        p_sm->lp.count++;
+        if ((p_sm->lp.count >= VC_LIFT_VERIFY_SAMPLES) &&
+            (VC_CAUSE_NONE == p_sm->lp.imu))
+        {
+            lp_go(p_sm, p_out);
+        }
+    }
+    else
+    {
+        /* still waiting for READY: the line must hold */
+    }
+}
+
+/* Everything while lift-paused.  Only the controller's own checks can
+   end it with motion (lp_go); every other way out is a stop. */
+static bool handle_common(vc_sm_t * p_sm, const vc_event_t * p_event,
+                          uint32_t now_ms, vc_actions_t * p_out);
+
+static void lp_handle(vc_sm_t * p_sm, const vc_event_t * p_event,
+                      vc_event_type_t type, uint32_t now_ms,
+                      vc_actions_t * p_out)
+{
+    switch (type)
+    {
+        case VC_EV_TICK:
+            lp_tick(p_sm, p_event, now_ms, p_out);
+            break;
+        case VC_EV_LINE_SAMPLE:
+            lp_sample(p_sm, p_event, now_ms, p_out);
+            break;
+        case VC_EV_READY:
+            /* S2's answer to THIS handshake only: any other READY (S4's
+               calibration, a late one) is ignored */
+            if ((VC_SRC_MOTION == p_event->src) &&
+                (VC_LP_RESUMING == p_sm->lp.phase) && (0u == p_sm->lp.step))
+            {
+                p_sm->lp.step     = 1u;
+                p_sm->lp.count    = 0u;
+                p_sm->lp.phase_ms = now_ms;
+                lp_note(p_sm, p_out, VC_LN_READY);
+            }
+            break;
+        case VC_EV_MOVE_REQUEST:
+            p_sm->st.moves_rejected++; /* old steering cannot move it */
+            break;
+        case VC_EV_CMD_PAUSE:
+            p_sm->cmd_ok     = !p_sm->lp.op_hold;
+            p_sm->lp.op_hold = true;
+            if (VC_LP_RESUMING == p_sm->lp.phase)
+            {
+                lp_abort(p_sm, VC_LN_HOLD, now_ms, p_out);
+            }
+            break;
+        case VC_EV_CMD_RESUME:
+            /* ends the operator's hold only; the checks still decide */
+            p_sm->cmd_ok     = p_sm->lp.op_hold;
+            p_sm->lp.op_hold = false;
+            break;
+        case VC_EV_CMD_RESET:
+            enter(p_sm, VC_ST_IDLE, now_ms, p_out); /* cancels the resume */
+            break;
+        case VC_EV_FAULT:
+            if ((int32_t)VC_FAULT_RECOVERABLE == p_event->p1)
+            {
+                /* reported; no line recovery while lift-paused */
+                report(p_sm, p_out, (vc_source_t)p_event->src,
+                       VC_FAULT_RECOVERABLE, (uint32_t)p_event->p2);
+            }
+            else
+            {
+                /* critical -> FAULT, S2 lift stop -> lp_relift,
+                   overturn -> FAULT, non-critical -> report */
+                (void)handle_common(p_sm, p_event, now_ms, p_out);
+            }
+            break;
+        case VC_EV_LIFTED:
+        case VC_EV_CMD_STOP:
+        case VC_EV_WIFI_DOWN:
+        case VC_EV_WIFI_UP:
+        case VC_EV_CMD_CONFIG:
+            (void)handle_common(p_sm, p_event, now_ms, p_out);
+            break;
+        default:
+            /* LINE_FOUND, JUNCTION, barcodes, obstacles, humps, a late
+               MANOEUVRE_DONE / MOTION_STOPPED, Start: ignored, stopped */
+            break;
     }
 }
 
@@ -868,6 +1248,17 @@ static void move_request(vc_sm_t * p_sm, const vc_event_t * p_event,
             if (0u == p_sm->rejoin_steer_left)
             {
                 move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS);
+                if (VC_LP_RESUMING == p_sm->st.lift_phase)
+                {
+                    /* the lift pause is over: its reason goes too */
+                    lp_note(p_sm, p_out, VC_LN_CRUISE);
+                    p_sm->st.lift_phase = VC_LP_NONE;
+                    if (VC_FC_LIFT_RESUMING == p_sm->st.last_fault_code)
+                    {
+                        set_cause(p_sm, VC_SRC_NONE, VC_FAULT_NON_CRITICAL,
+                                  VC_FC_NONE);
+                    }
+                }
             }
         }
         move(p_out, move_cmd, value);
@@ -928,7 +1319,21 @@ static void lift(vc_sm_t * p_sm, vc_source_t src, uint32_t code,
 {
     vc_state_t state = p_sm->st.state;
 
-    if (vc_sm_is_active(state) && (VC_ST_MISSION_START != state))
+    if ((VC_LIFT_MODE_PAUSE == p_sm->st.lift_mode) &&
+        (VC_ST_FOLLOW_LINE == state))
+    {
+        /* Pause on lift: the same mission waits (vc_sm.h).  Only line
+           following: any other manoeuvre ends the run below. */
+        if (lp_active(p_sm))
+        {
+            lp_relift(p_sm, now_ms, p_out);
+        }
+        else
+        {
+            lp_begin(p_sm, now_ms, p_out);
+        }
+    }
+    else if (vc_sm_is_active(state) && (VC_ST_MISSION_START != state))
     {
         drop_pending(p_sm, p_out);
         enter(p_sm, VC_ST_MISSION_COMPLETE, now_ms, p_out);
@@ -1059,6 +1464,20 @@ void vc_sm_init(vc_sm_t * p_sm, uint32_t now_ms)
     p_sm->st.state_since_ms = now_ms;
     p_sm->st.last_nav       = NAV_NONE;
     p_sm->pending_nav       = NAV_NONE;
+    p_sm->lift_mode_cfg     = (uint8_t)VC_LIFT_MODE;
+    p_sm->st.lift_mode      = (uint8_t)VC_LIFT_MODE;
+}
+
+bool vc_sm_set_lift_mode(vc_sm_t * p_sm, uint8_t mode)
+{
+    bool b_ok = !vc_sm_is_active(p_sm->st.state) &&
+                ((VC_LIFT_MODE_END == mode) || (VC_LIFT_MODE_PAUSE == mode));
+
+    if (b_ok)
+    {
+        p_sm->lift_mode_cfg = mode;
+    }
+    return b_ok;
 }
 
 /* Per-state handlers.  Each one gets the same arguments: the machine,
@@ -1459,8 +1878,14 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
         p_sm->st.max_hump_um = p_event->p1;
     }
 
+    if (lp_active(p_sm))
+    {
+        lp_handle(p_sm, p_event, type, now_ms, p_out);
+        return;
+    }
     if (VC_EV_CMD_PAUSE == type)
     {
+        p_sm->cmd_ok = (VC_ST_FOLLOW_LINE == p_sm->st.state) && !p_sm->st.paused;
         if ((VC_ST_FOLLOW_LINE == p_sm->st.state) && !p_sm->st.paused)
         {
             p_sm->st.paused = true;
@@ -1472,6 +1897,7 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
     }
     if (VC_EV_CMD_RESUME == type)
     {
+        p_sm->cmd_ok = p_sm->st.paused && p_sm->pause_stopped;
         if (p_sm->st.paused && p_sm->pause_stopped)
         {
             p_sm->st.paused = false;
