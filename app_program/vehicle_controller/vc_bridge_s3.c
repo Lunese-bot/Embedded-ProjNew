@@ -26,12 +26,11 @@
  *        BARCODE_OFF    -> S3_REQ_BC_DISABLE (while avoiding an obstacle)
  *        LINE_SEARCH    -> nothing: the controller turns the robot, S3 keeps
  *                          tracking and reports LINE_FOUND
- *        LINE_WATCH 1/0 -> (U-turn, lift pause) in EXECUTE_ACTION or
- *                          FOLLOW_LINE every NEW sample after
+ *        LINE_WATCH 1/0 -> (U-turn) in EXECUTE_ACTION every NEW sample after
  *                          the request becomes VC_EV_LINE_SAMPLE: C / R on
  *                          black (VC_LINE_C | VC_LINE_R, white too), S2's
  *                          odometer, the sample's own time.  Off again on 0
- *                          or as soon as the controller leaves those states.
+ *                          or as soon as the controller leaves EXECUTE_ACTION.
  */
 
 #include "vc_bridge.h"
@@ -262,21 +261,12 @@ static bool next_s3_event(vc_event_t * p_event, vc_state_t state)
     return b_event;
 }
 
-/* States that may watch every sample (VC_REQ_LINE_WATCH): the U-turn in
-   EXECUTE_ACTION, and a lift pause, which stays in FOLLOW_LINE.  The
-   controller turns the watch off itself when a lift pause ends; leaving
-   these states turns it off here too. */
-static bool watch_state(vc_state_t state)
-{
-    return (VC_ST_EXECUTE_ACTION == state) || (VC_ST_FOLLOW_LINE == state);
-}
-
 bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
 {
     s3_line_status_t line_st;
     bool             b_event = false;
 
-    if (!watch_state(state))
+    if (VC_ST_EXECUTE_ACTION != state)
     {
         g_b_line_watch = false; /* the watch belongs to one manoeuvre */
     }
@@ -330,7 +320,7 @@ bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
     }
     /* 1c'. U-turn (LINE_WATCH): every new sample, black or white, so the
        controller sees the line arrive AND leave each sensor. */
-    else if (g_b_line_watch && watch_state(state) &&
+    else if (g_b_line_watch && (VC_ST_EXECUTE_ACTION == state) &&
              (E_OK == s3_get_line_status(&line_st)) &&
              (line_st.seq != g_watch_seq))
     {

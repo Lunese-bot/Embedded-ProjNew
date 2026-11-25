@@ -155,10 +155,9 @@ int main(void)
     line_status.black_mask = (uint8_t)(S3_MASK_C | S3_MASK_R);
     assert(vc_bridge_s3_next(&event, VC_ST_EXECUTE_ACTION));
     assert((VC_LINE_C | VC_LINE_R) == event.p1);
-    /* leaving EXECUTE_ACTION / FOLLOW_LINE ends the watch: back there,
-       only LINE_FOUND */
+    /* leaving EXECUTE_ACTION ends the watch: back there, only LINE_FOUND */
     line_status.seq = 54;
-    (void)vc_bridge_s3_next(&event, VC_ST_FAULT);
+    (void)vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE);
     line_status.seq = 55;
     assert(vc_bridge_s3_next(&event, VC_ST_EXECUTE_ACTION) &&
            VC_EV_LINE_FOUND == event.type);
@@ -167,38 +166,7 @@ int main(void)
     line_status.seq = 56;
     assert(vc_bridge_s3_next(&event, VC_ST_EXECUTE_ACTION) &&
            VC_EV_LINE_FOUND == event.type);
-    puts("[TEST] S6-U04 PASS  LINE_WATCH: each new sample after the request, white too, C/R bits + odometer + sample time; off with 0 or outside EXECUTE_ACTION / FOLLOW_LINE");
-
-    /* Lift pause (FOLLOW_LINE): the watch sends every new sample once,
-       ahead of the steering, and ends when the controller leaves FOLLOW_LINE
-       or sends 0. */
-    line_status = (s3_line_status_t){ .seq = 80, .time_ms = 900,
-                                     .line_state = LINE_STATE_FOLLOW,
-                                     .black_mask = S3_MASK_R, .steering = 400 };
-    assert(E_OK == vc_bridge_s3_request(VC_REQ_LINE_WATCH, 1));
-    assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE) &&
-           VC_EV_MOVE_REQUEST == event.type); /* seq 80 predates the request: steering only */
-    assert(!vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
-    line_status.seq = 81; line_status.time_ms = 910;
-    assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE) &&
-           VC_EV_LINE_SAMPLE == event.type && VC_LINE_R == event.p1 &&
-           910u == event.time_ms);
-    assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE) &&
-           VC_EV_MOVE_REQUEST == event.type); /* the controller rejects it while paused */
-    assert(!vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE)); /* same sample: once */
-    line_status.seq = 82; line_status.time_ms = 920;
-    (void)vc_bridge_s3_next(&event, VC_ST_IDLE); /* run ended: watch off */
-    line_status.seq = 83; line_status.time_ms = 930;
-    assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE) &&
-           VC_EV_MOVE_REQUEST == event.type);
-    assert(!vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
-    assert(E_OK == vc_bridge_s3_request(VC_REQ_LINE_WATCH, 1));
-    assert(E_OK == vc_bridge_s3_request(VC_REQ_LINE_WATCH, 0));
-    line_status.seq = 84; line_status.time_ms = 940;
-    assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE) &&
-           VC_EV_MOVE_REQUEST == event.type);
-    assert(!vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
-    puts("[TEST] LP-B01 PASS  lift pause: LINE_WATCH works in FOLLOW_LINE, each new sample once, ahead of steering; off with 0 or when FOLLOW_LINE ends");
+    puts("[TEST] S6-U04 PASS  LINE_WATCH: each new sample after the request, white too, C/R bits + odometer + sample time; off with 0 or outside EXECUTE_ACTION");
 
     return 0;
 }
