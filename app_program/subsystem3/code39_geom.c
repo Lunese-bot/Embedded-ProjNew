@@ -87,8 +87,8 @@ static const uint16_t k_phi[385] = {
 
 typedef struct
 {
-    float   s, e, c, w; /* start, end, centre, width (trace units)   */
-    int32_t peak;       /* highest point above the floor               */
+    float32_t s, e, c, w; /* start, end, centre, width (trace units)   */
+    int32_t   peak;       /* highest point above the floor               */
 } hump_t;
 
 typedef struct
@@ -101,22 +101,22 @@ typedef struct
 
 typedef struct
 {
-    float    err;   /* worst centre error, modules                    */
-    float    a;     /* trace position of the code's first edge        */
-    float    b;     /* trace units per module                         */
-    uint16_t order; /* first found (keeps ties in a fixed order)      */
-    uint8_t  ratio; /* index into k_ratio_q4                          */
-    uint8_t  b_ok;
+    float32_t err;   /* worst centre error, modules                    */
+    float32_t a;     /* trace position of the code's first edge        */
+    float32_t b;     /* trace units per module                         */
+    uint16_t  order; /* first found (keeps ties in a fixed order)      */
+    uint8_t   ratio; /* index into k_ratio_q4                          */
+    uint8_t   b_ok;
 } fit_t;
 
 typedef struct
 {
-    double  mse;
-    double  r2;
-    float   b;
-    uint8_t key;     /* letter * 2 + reversed                      */
-    uint8_t b_rival; /* fit worse than C39G_ERR_MAX_X100: may only
-                        block another letter, never be the answer   */
+    float64_t mse;
+    float64_t r2;
+    float32_t b;
+    uint8_t   key;     /* letter * 2 + reversed                      */
+    uint8_t   b_rival; /* fit worse than C39G_ERR_MAX_X100: may only
+                          block another letter, never be the answer   */
 } score_t;
 
 static int32_t g_pos[C39G_MAX_SAMPLES]; /* 1/16 trace unit */
@@ -124,215 +124,222 @@ static int32_t g_sig[C39G_MAX_SAMPLES]; /* L above the white floor */
 static hump_t  g_hump[MAX_SEG];
 static fit_t   g_fit[N_LETTERS * 2u];
 
-static void make_layout(uint32_t letter, int32_t r4, bool b_rev,
+static void make_layout(uint32_t letter, int32_t r4_val, bool b_rev,
                         layout_t * p_lay)
 {
-    int32_t  w[N_ELEMS];
+    int32_t  width[N_ELEMS];
     bool     b_bar[N_ELEMS];
     bool     b_wide[N_ELEMS];
-    uint32_t n = 0u;
-    uint32_t k;
-    uint32_t i;
-    int32_t  x  = 0;
-    uint32_t nb = 0u;
-    uint32_t nw = 0u;
+    uint32_t count2 = 0u;
+    uint32_t kdx;
+    uint32_t idx2;
+    int32_t  x_val  = 0;
+    uint32_t nb_val = 0u;
+    uint32_t nw_val = 0u;
 
-    for (k = 0u; k < 3u; k++)
+    for (kdx = 0u; kdx < 3u; kdx++)
     {
-        const char * p = k_pat[(1u == k) ? letter : N_LETTERS];
-        for (i = 0u; i < 9u; i++)
+        const char * p_val = k_pat[(1u == kdx) ? letter : N_LETTERS];
+        for (idx2 = 0u; idx2 < 9u; idx2++)
         {
-            b_wide[n] = ('1' == p[i]);
+            b_wide[count2] = ('1' == p_val[idx2]);
             /* Cast: r4 * 64 is at most 768 */
-            w[n]      = b_wide[n] ? (r4 * 64) : NARROW_Q8;
-            b_bar[n]  = (0u == (i % 2u));
-            n++;
+            width[count2]  = b_wide[count2] ? (r4_val * 64) : NARROW_Q8;
+            b_bar[count2]  = (0u == (idx2 % 2u));
+            count2++;
         }
-        if (k < 2u)
+        if (kdx < 2u)
         {
-            w[n]      = NARROW_Q8; /* gap between symbols */
-            b_bar[n]  = false;
-            b_wide[n] = false;
-            n++;
+            width[count2]  = NARROW_Q8; /* gap between symbols */
+            b_bar[count2]  = false;
+            b_wide[count2] = false;
+            count2++;
         }
     }
-    for (k = 0u; k < n; k++)
+    for (kdx = 0u; kdx < count2; kdx++)
     {
-        uint32_t j = b_rev ? (n - 1u - k) : k;
-        if (b_bar[j])
+        uint32_t jdx = b_rev ? (count2 - 1u - kdx) : kdx;
+        if (b_bar[jdx])
         {
-            p_lay->s[nb] = x;
-            p_lay->e[nb] = x + w[j];
-            nb++;
-            if (b_wide[j])
+            p_lay->s[nb_val] = x_val;
+            p_lay->e[nb_val] = x_val + width[jdx];
+            nb_val++;
+            if (b_wide[jdx])
             {
-                p_lay->wide_x8[nw] = (x + (w[j] / 2)) / 32;
-                nw++;
+                p_lay->wide_x8[nw_val] = (x_val + (width[jdx] / 2)) / 32;
+                nw_val++;
             }
         }
-        x += w[j];
+        x_val += width[jdx];
     }
-    p_lay->total_q8 = x;
+    p_lay->total_q8 = x_val;
 }
 
 /* Where the trace crosses the threshold between samples i and j */
-static float cross(uint32_t i, uint32_t j, int32_t thr2)
+static float32_t cross(uint32_t idx2, uint32_t jdx, int32_t thr2)
 {
-    /* Casts: positions and ADC values are far inside float's exact range */
-    float yi = (float)((2 * g_sig[i]) - thr2);
-    float yj = (float)((2 * g_sig[j]) - thr2);
-    float pi = (float)g_pos[i] / (float)Q;
-    float pj = (float)g_pos[j] / (float)Q;
+    /* Casts: positions and ADC values are far inside float32_t's exact range */
+    float32_t yi_val = (float32_t)((2 * g_sig[idx2]) - thr2);
+    float32_t yj_val = (float32_t)((2 * g_sig[jdx]) - thr2);
+    float32_t pi_val = (float32_t)g_pos[idx2] / (float32_t)Q;
+    float32_t pj_val = (float32_t)g_pos[jdx] / (float32_t)Q;
 
-    if (yi == yj)
+    if (yi_val == yj_val)
     {
-        return pi;
+        return pi_val;
     }
-    return pi + (((pj - pi) * (-yi)) / (yj - yi));
+    return pi_val + (((pj_val - pi_val) * (-yi_val)) / (yj_val - yi_val));
 }
 
 /* Humps where 2 * sig > thr2.  Stores up to max_out of them (when p_out
    is not NULL), keeps the 6 highest peaks in top6[] (descending), and
    returns how many there are. */
-static uint32_t find_humps(uint32_t n, int32_t thr2, hump_t * p_out,
-                           uint32_t max_out, int32_t top6[N_WIDE])
+static uint32_t find_humps(uint32_t count2, int32_t thr2, hump_t * p_out,
+                           uint32_t max_out, int32_t p_top6[N_WIDE])
 {
     uint32_t count = 0u;
-    uint32_t i     = 0u;
-    uint32_t k;
+    uint32_t idx2  = 0u;
+    uint32_t kdx;
 
-    for (k = 0u; k < N_WIDE; k++)
+    for (kdx = 0u; kdx < N_WIDE; kdx++)
     {
-        top6[k] = -1;
+        p_top6[kdx] = -1;
     }
-    while (i < n)
+    while (idx2 < count2)
     {
-        if ((2 * g_sig[i]) > thr2)
+        if ((2 * g_sig[idx2]) > thr2)
         {
-            uint32_t j    = i;
-            int32_t  peak = g_sig[i];
-            while (((j + 1u) < n) && ((2 * g_sig[j + 1u]) > thr2))
+            uint32_t jdx  = idx2;
+            int32_t  peak = g_sig[idx2];
+            while (((jdx + 1u) < count2) && ((2 * g_sig[jdx + 1u]) > thr2))
             {
-                j++;
-                if (g_sig[j] > peak)
+                jdx++;
+                if (g_sig[jdx] > peak)
                 {
-                    peak = g_sig[j];
+                    peak = g_sig[jdx];
                 }
             }
             if ((NULL != p_out) && (count < max_out))
             {
                 hump_t * p_h = &p_out[count];
-                p_h->s       = (i > 0u) ? cross(i - 1u, i, thr2)
-                                        : ((float)g_pos[i] / (float)Q);
-                p_h->e       = ((j + 1u) < n) ? cross(j, j + 1u, thr2)
-                                              : ((float)g_pos[j] / (float)Q);
+                p_h->s       = (idx2 > 0u) ? cross(idx2 - 1u, idx2, thr2)
+                                           : ((float32_t)g_pos[idx2] / (float32_t)Q);
+                p_h->e       = ((jdx + 1u) < count2)
+                                   ? cross(jdx, jdx + 1u, thr2)
+                                   : ((float32_t)g_pos[jdx] / (float32_t)Q);
                 p_h->c       = 0.5f * (p_h->s + p_h->e);
                 p_h->w       = p_h->e - p_h->s;
                 p_h->peak    = peak;
             }
             /* insert into the 6 highest */
-            for (k = 0u; k < N_WIDE; k++)
+            for (kdx = 0u; kdx < N_WIDE; kdx++)
             {
-                if (peak > top6[k])
+                if (peak > p_top6[kdx])
                 {
-                    uint32_t m;
-                    for (m = N_WIDE - 1u; m > k; m--)
+                    uint32_t m_val;
+                    for (m_val = N_WIDE - 1u; m_val > kdx; m_val--)
                     {
-                        top6[m] = top6[m - 1u];
+                        p_top6[m_val] = p_top6[m_val - 1u];
                     }
-                    top6[k] = peak;
+                    p_top6[kdx] = peak;
                     break;
                 }
             }
             count++;
-            i = j + 1u;
+            idx2 = jdx + 1u;
         }
         else
         {
-            i++;
+            idx2++;
         }
     }
     return count;
 }
 
 /* Blurred value (0..PHI_ONE) at d (1/256 module) past an edge */
-static int32_t phi(int32_t d)
+static int32_t phi(int32_t d_val)
 {
-    int32_t t = d + PHI_HALF_Q8;
+    int32_t t_val = d_val + PHI_HALF_Q8;
     int32_t idx;
-    int32_t lo;
+    int32_t low;
 
-    if (t <= 0)
+    if (t_val <= 0)
     {
         return 0;
     }
-    if (t >= (2 * PHI_HALF_Q8))
+    if (t_val >= (2 * PHI_HALF_Q8))
     {
         return PHI_ONE;
     }
-    idx = t >> 2;
-    lo  = (int32_t)k_phi[idx];
-    return lo + ((((int32_t)k_phi[idx + 1] - lo) * (t & 3)) >> 2);
+    idx = t_val >> 2;
+    low = (int32_t)k_phi[idx];
+    return low + ((((int32_t)k_phi[idx + 1] - low) * (t_val & 3)) >> 2);
 }
 
 /* Mean squared error of the best gain + offset fit of the blurred
    layout (first edge at a, b trace units per module) to the trace. */
-static double model_mse(const layout_t * p_lay, uint32_t n, float a, float b,
-                        double * p_r2)
+static float64_t model_mse(const layout_t * p_lay, uint32_t count2,
+                           float32_t a_val, float32_t b_val, float64_t * p_r2)
 {
-    float lo_f = (a - (3.0f * b)) * (float)Q;
-    float hi_f =
-        (a + (((float)p_lay->total_q8 / (float)NARROW_Q8) + 3.0f) * b) *
-        (float)Q;
+    float32_t lo_f = (a_val - (3.0f * b_val)) * (float32_t)Q;
+    float32_t hi_f =
+        (a_val +
+         (((float32_t)p_lay->total_q8 / (float32_t)NARROW_Q8) + 3.0f) * b_val) *
+        (float32_t)Q;
     /* Casts: rounding the window and scale to integers */
-    int32_t  lo     = (int32_t)lo_f + ((lo_f > (float)(int32_t)lo_f) ? 1 : 0);
-    int32_t  hi     = (int32_t)hi_f - ((hi_f < (float)(int32_t)hi_f) ? 1 : 0);
-    int32_t  a16    = (int32_t)((a * (float)Q) + ((a >= 0.0f) ? 0.5f : -0.5f));
+    int32_t low  = (int32_t)lo_f + ((lo_f > (float32_t)(int32_t)lo_f) ? 1 : 0);
+    int32_t high = (int32_t)hi_f - ((hi_f < (float32_t)(int32_t)hi_f) ? 1 : 0);
+    int32_t a16 =
+        (int32_t)((a_val * (float32_t)Q) + ((a_val >= 0.0f) ? 0.5f : -0.5f));
     /* x (1/256 module) = (p - a16) * kq / 65536; inside the window
        |x| < 50 modules, so the product stays below 2^31 */
-    int32_t  kq     = (int32_t)((16.0f * 65536.0f / b) + 0.5f);
-    int32_t  last_x = INT32_MIN;
-    uint32_t kb     = 0u; /* first bar that can still touch x */
-    int64_t  sm     = 0;
-    int64_t  smm    = 0;
-    int64_t  sy     = 0;
-    int64_t  smy    = 0;
-    int64_t  syy    = 0;
-    uint32_t cnt    = 0u;
-    uint32_t i;
-    double   dn;
-    double   cmm;
-    double   cmy;
-    double   cyy;
+    int32_t   kq_val = (int32_t)((16.0f * 65536.0f / b_val) + 0.5f);
+    int32_t   last_x = INT32_MIN;
+    uint32_t  kb_val = 0u; /* first bar that can still touch x */
+    int64_t   sm_val = 0;
+    int64_t   smm    = 0;
+    int64_t   sy_val = 0;
+    int64_t   smy    = 0;
+    int64_t   syy    = 0;
+    uint32_t  cnt    = 0u;
+    uint32_t  idx2;
+    float64_t dn_val;
+    float64_t cmm;
+    float64_t cmy;
+    float64_t cyy;
 
-    for (i = 0u; i < n; i++)
+    for (idx2 = 0u; idx2 < count2; idx2++)
     {
-        int32_t p = g_pos[i];
-        if ((p >= lo) && (p <= hi))
+        int32_t p_val = g_pos[idx2];
+        if ((p_val >= low) && (p_val <= high))
         {
-            int32_t  x = ((p - a16) * kq) / 65536;
-            int32_t  m = 0;
-            int32_t  y = g_sig[i];
-            uint32_t k;
-            if (x < last_x)
+            int32_t  x_val = ((p_val - a16) * kq_val) / 65536;
+            int32_t  m_val = 0;
+            int32_t  y_val = g_sig[idx2];
+            uint32_t kdx;
+            if (x_val < last_x)
             {
-                kb = 0u; /* wheel went back: start the bar search again */
+                kb_val = 0u; /* wheel went back: start the bar search again */
             }
-            last_x = x;
-            while ((kb < N_BARS) && (x >= (p_lay->e[kb] + PHI_HALF_Q8)))
+            last_x = x_val;
+            while ((kb_val < N_BARS) &&
+                   (x_val >= (p_lay->e[kb_val] + PHI_HALF_Q8)))
             {
-                kb++; /* bar fully behind x: adds 1 - 1 = 0 from now on */
+                kb_val++; /* bar fully behind x: adds 1 - 1 = 0 from now on */
             }
-            for (k = kb; (k < N_BARS) && (x > (p_lay->s[k] - PHI_HALF_Q8)); k++)
+            for (kdx = kb_val;
+                 (kdx < N_BARS) && (x_val > (p_lay->s[kdx] - PHI_HALF_Q8));
+                 kdx++)
             {
-                m += phi(x - p_lay->s[k]) - phi(x - p_lay->e[k]);
+                m_val +=
+                    phi(x_val - p_lay->s[kdx]) - phi(x_val - p_lay->e[kdx]);
             }
             /* m and y are at most 4096: products fit 32 bits */
-            sm += m;
-            smm += m * m;
-            sy += y;
-            smy += m * y;
-            syy += y * y;
+            sm_val += m_val;
+            smm += m_val * m_val;
+            sy_val += y_val;
+            smy += m_val * y_val;
+            syy += y_val * y_val;
             cnt++;
         }
     }
@@ -341,11 +348,11 @@ static double model_mse(const layout_t * p_lay, uint32_t n, float a, float b,
     {
         return HUGE_MSE;
     }
-    /* Casts: sums to double for the 2-parameter least squares */
-    dn  = (double)cnt;
-    cmm = (double)smm - (((double)sm * (double)sm) / dn);
-    cmy = (double)smy - (((double)sm * (double)sy) / dn);
-    cyy = (double)syy - (((double)sy * (double)sy) / dn);
+    /* Casts: sums to float64_t for the 2-parameter least squares */
+    dn_val = (float64_t)cnt;
+    cmm = (float64_t)smm - (((float64_t)sm_val * (float64_t)sm_val) / dn_val);
+    cmy = (float64_t)smy - (((float64_t)sm_val * (float64_t)sy_val) / dn_val);
+    cyy = (float64_t)syy - (((float64_t)sy_val * (float64_t)sy_val) / dn_val);
     if ((cmm <= 0.0) || (cmy <= 0.0)) /* flat model, or bars read white */
     {
         return HUGE_MSE;
@@ -354,87 +361,89 @@ static double model_mse(const layout_t * p_lay, uint32_t n, float a, float b,
     {
         *p_r2 = (cmy * cmy) / (cmm * cyy); /* share of the trace explained */
     }
-    return (cyy - ((cmy * cmy) / cmm)) / dn;
+    return (cyy - ((cmy * cmy) / cmm)) / dn_val;
 }
 
 /* next 6-of-n combination in lexicographic order; false after the last */
-static bool next_combo(uint32_t idx[N_WIDE], uint32_t n)
+static bool next_combo(uint32_t p_idx[N_WIDE], uint32_t count2)
 {
-    int32_t k = (int32_t)N_WIDE - 1;
+    int32_t kdx = (int32_t)N_WIDE - 1;
 
     /* Cast: k is 0..5 */
-    while ((k >= 0) && (idx[k] == (n - N_WIDE + (uint32_t)k)))
+    while ((kdx >= 0) && (p_idx[kdx] == (count2 - N_WIDE + (uint32_t)kdx)))
     {
-        k--;
+        kdx--;
     }
-    if (k < 0)
+    if (kdx < 0)
     {
         return false;
     }
-    idx[k]++;
-    for (k = k + 1; k < (int32_t)N_WIDE; k++)
+    p_idx[kdx]++;
+    for (kdx = kdx + 1; kdx < (int32_t)N_WIDE; kdx++)
     {
-        idx[k] = idx[k - 1] + 1u;
+        p_idx[kdx] = p_idx[kdx - 1] + 1u;
     }
     return true;
 }
 
-static void fill_floor(const uint16_t * p_l, uint32_t n, int32_t fr16)
+static void fill_floor(const uint16_t * p_l, uint32_t count2, int32_t fr16)
 {
-    uint32_t i;
-    uint32_t j0 = 0u;
-    uint32_t j1 = 0u;
+    uint32_t idx2;
+    uint32_t j0_val = 0u;
+    uint32_t j1_val = 0u;
 
-    for (i = 0u; i < n; i++)
+    for (idx2 = 0u; idx2 < count2; idx2++)
     {
-        int32_t  fl;
-        uint32_t k;
-        while (((j0 + 1u) < n) && (g_pos[j0] < (g_pos[i] - fr16)))
+        int32_t  fl_val;
+        uint32_t kdx;
+        while (((j0_val + 1u) < count2) &&
+               (g_pos[j0_val] < (g_pos[idx2] - fr16)))
         {
-            j0++;
+            j0_val++;
         }
-        while (((j1 + 1u) < n) && (g_pos[j1 + 1u] <= (g_pos[i] + fr16)))
+        while (((j1_val + 1u) < count2) &&
+               (g_pos[j1_val + 1u] <= (g_pos[idx2] + fr16)))
         {
-            j1++;
+            j1_val++;
         }
-        fl = (int32_t)p_l[i];
-        for (k = j0; k <= j1; k++)
+        fl_val = (int32_t)p_l[idx2];
+        for (kdx = j0_val; kdx <= j1_val; kdx++)
         {
-            if ((int32_t)p_l[k] < fl)
+            if ((int32_t)p_l[kdx] < fl_val)
             {
-                fl = (int32_t)p_l[k];
+                fl_val = (int32_t)p_l[kdx];
             }
         }
-        g_sig[i] = (int32_t)p_l[i] - fl;
+        g_sig[idx2] = (int32_t)p_l[idx2] - fl_val;
     }
 }
 
 /* Steps 2-7 on g_sig / g_pos.  hi_permille 0: humps at half the 6th
    highest; otherwise at hi_permille / 1000 of the darkest point.
    min_hump: how far (raw) a hump must rise above the floor at all. */
-static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
+static c39g_result_t decode_humps(uint32_t count2, int32_t hi_permille,
                                   int32_t       min_hump, void (*p_yield)(void),
                                   c39g_info_t * p_info)
 {
-    int32_t  top6[N_WIDE];
-    int32_t  thr2;
-    uint32_t n_h;
-    uint32_t n_c;
-    uint32_t cand[N_CAND];
-    int32_t  cq[N_CAND]; /* candidate centres, 1/16 unit */
-    int32_t  cw[N_CAND]; /* candidate widths,  1/16 unit */
-    uint32_t i;
-    uint32_t k;
-    uint32_t ri;
-    uint32_t key;
-    uint16_t order = 0u;
-    uint8_t  good[N_LETTERS * 2u];
-    uint32_t n_good = 0u;
-    score_t  sc[TOP_MODEL + N_RIVAL];
-    uint32_t n_sc;
-    uint32_t n_riv = 0u;
-    int32_t  base;
-    double   margin;
+    int32_t   top6[N_WIDE];
+    int32_t   thr2;
+    uint32_t  n_h;
+    uint32_t  n_c;
+    uint32_t  cand[N_CAND];
+    int32_t   cq_val[N_CAND]; /* candidate centres, 1/16 unit */
+    int32_t   cw_val[N_CAND]; /* candidate widths,  1/16 unit */
+    uint32_t  idx2;
+    uint32_t  kdx;
+    uint32_t  ri_val;
+    uint32_t  key;
+    uint16_t  order = 0u;
+    uint8_t   good[N_LETTERS * 2u];
+    uint32_t  n_good = 0u;
+    score_t   sc_val[TOP_MODEL + N_RIVAL];
+    uint32_t  n_sc;
+    uint32_t  n_riv = 0u;
+    int32_t   base;
+    float64_t margin;
 
     p_info->letter      = 0;
     p_info->best        = 0;
@@ -448,12 +457,12 @@ static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
     p_info->fit_x100    = 0u;
 
     /* 2. humps: threshold at half the 6th highest */
-    if (find_humps(n, 2 * min_hump, NULL, 0u, top6) < N_WIDE)
+    if (find_humps(count2, 2 * min_hump, NULL, 0u, top6) < N_WIDE)
     {
         /* blurred: thin gaps stay above min_hump and the bars run
            together.  Try again at half the darkest hump. */
         if ((top6[0] <= (2 * min_hump)) ||
-            (find_humps(n, top6[0], NULL, 0u, top6) < N_WIDE))
+            (find_humps(count2, top6[0], NULL, 0u, top6) < N_WIDE))
         {
             return C39G_FEW;
         }
@@ -466,11 +475,11 @@ static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
            of a group run together at half height.  Only the wide bars
            reach the top (the sensor saturates on them). */
         int32_t top = 0;
-        for (i = 0u; i < n; i++)
+        for (idx2 = 0u; idx2 < count2; idx2++)
         {
-            if (g_sig[i] > top)
+            if (g_sig[idx2] > top)
             {
-                top = g_sig[i];
+                top = g_sig[idx2];
             }
         }
         thr2 = (2 * top * hi_permille) / 1000;
@@ -479,7 +488,7 @@ static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
             return C39G_FEW2;
         }
     }
-    n_h             = find_humps(n, thr2, g_hump, MAX_SEG, top6);
+    n_h             = find_humps(count2, thr2, g_hump, MAX_SEG, top6);
     /* Cast: n_h is small here or refused below */
     p_info->n_humps = (uint8_t)((n_h > 255u) ? 255u : n_h);
     if (n_h < N_WIDE)
@@ -499,42 +508,43 @@ static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
     n_c = (n_h < N_CAND) ? n_h : N_CAND;
     {
         bool b_used[MAX_SEG] = { false };
-        for (k = 0u; k < n_c; k++)
+        for (kdx = 0u; kdx < n_c; kdx++)
         {
             uint32_t best = MAX_SEG;
-            for (i = 0u; i < n_h; i++)
+            for (idx2 = 0u; idx2 < n_h; idx2++)
             {
-                if ((!b_used[i]) &&
-                    ((MAX_SEG == best) || (g_hump[i].w > g_hump[best].w)))
+                if ((!b_used[idx2]) &&
+                    ((MAX_SEG == best) || (g_hump[idx2].w > g_hump[best].w)))
                 {
-                    best = i;
+                    best = idx2;
                 }
             }
             b_used[best] = true;
         }
-        k = 0u;
-        for (i = 0u; i < n_h; i++) /* humps are already in trace order */
+        kdx = 0u;
+        for (idx2 = 0u; idx2 < n_h; idx2++) /* humps are already in trace order
+                                             */
         {
-            if (b_used[i])
+            if (b_used[idx2])
             {
-                cand[k] = i;
-                k++;
+                cand[kdx] = idx2;
+                kdx++;
             }
         }
     }
-    for (k = 0u; k < n_c; k++)
+    for (kdx = 0u; kdx < n_c; kdx++)
     {
         /* Casts: trace positions to 1/16 unit, well inside int32 */
-        float c = g_hump[cand[k]].c * (float)Q;
-        float w = g_hump[cand[k]].w * (float)Q;
-        cq[k]   = (int32_t)(c + ((c >= 0.0f) ? 0.5f : -0.5f));
-        cw[k]   = (int32_t)(w + 0.5f);
+        float32_t chr   = g_hump[cand[kdx]].c * (float32_t)Q;
+        float32_t width = g_hump[cand[kdx]].w * (float32_t)Q;
+        cq_val[kdx]     = (int32_t)(chr + ((chr >= 0.0f) ? 0.5f : -0.5f));
+        cw_val[kdx]     = (int32_t)(width + 0.5f);
     }
     /* from the first candidate on: keeps the fit sums small */
-    base = cq[0];
-    for (k = 0u; k < n_c; k++)
+    base = cq_val[0];
+    for (kdx = 0u; kdx < n_c; kdx++)
     {
-        cq[k] -= base;
+        cq_val[kdx] -= base;
     }
 
     /* 4. lay the 6 wide bars of every letter on 6 of the candidates */
@@ -542,46 +552,47 @@ static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
     {
         g_fit[key].b_ok = 0u;
     }
-    for (ri = 0u; ri < N_RATIOS; ri++)
+    for (ri_val = 0u; ri_val < N_RATIOS; ri_val++)
     {
-        int32_t r4 = k_ratio_q4[ri];
+        int32_t r4_val = k_ratio_q4[ri_val];
         for (key = 0u; key < (N_LETTERS * 2u); key++)
         {
             layout_t lay;
-            int64_t  sx  = 0;
-            int64_t  sxx = 0;
+            int64_t  sx_val = 0;
+            int64_t  sxx    = 0;
             uint32_t idx[N_WIDE];
             fit_t *  p_f = &g_fit[key];
 
-            make_layout(key / 2u, r4, (1u == (key % 2u)), &lay);
-            for (k = 0u; k < N_WIDE; k++)
+            make_layout(key / 2u, r4_val, (1u == (key % 2u)), &lay);
+            for (kdx = 0u; kdx < N_WIDE; kdx++)
             {
-                sx += lay.wide_x8[k];
-                sxx += (int64_t)lay.wide_x8[k] * lay.wide_x8[k];
-                idx[k] = k;
+                sx_val += lay.wide_x8[kdx];
+                sxx += (int64_t)lay.wide_x8[kdx] * lay.wide_x8[kdx];
+                idx[kdx] = kdx;
             }
-            sxx = ((int64_t)N_WIDE * sxx) - (sx * sx);
+            sxx = ((int64_t)N_WIDE * sxx) - (sx_val * sx_val);
             do
             {
-                int64_t sp  = 0;
-                int64_t sxp = 0;
-                int64_t sw  = 0;
-                int64_t nb;
-                int64_t c0;
-                int64_t worst = 0;
-                float   err;
+                int64_t   sp_val = 0;
+                int64_t   sxp    = 0;
+                int64_t   sw_val = 0;
+                int64_t   nb_val;
+                int64_t   c0_val;
+                int64_t   worst = 0;
+                float32_t err;
                 /* quick look first: a fit within C39G_PRUNE_X10 / 10
                    module needs every centre within twice that of the
                    line through the first and last one */
                 {
-                    int32_t dq    = cq[idx[N_WIDE - 1u]] - cq[idx[0]];
-                    int32_t dx    = lay.wide_x8[N_WIDE - 1u] - lay.wide_x8[0];
-                    int32_t lim   = (2 * 8 * C39G_PRUNE_X10 * dq) / 10;
-                    bool    b_far = (dq <= 0);
-                    for (k = 1u; (k < (N_WIDE - 1u)) && !b_far; k++)
+                    int32_t dq_val = cq_val[idx[N_WIDE - 1u]] - cq_val[idx[0]];
+                    int32_t dx_val = lay.wide_x8[N_WIDE - 1u] - lay.wide_x8[0];
+                    int32_t lim    = (2 * 8 * C39G_PRUNE_X10 * dq_val) / 10;
+                    bool    b_far  = (dq_val <= 0);
+                    for (kdx = 1u; (kdx < (N_WIDE - 1u)) && !b_far; kdx++)
                     {
-                        int32_t dev = ((cq[idx[k]] - cq[idx[0]]) * dx) -
-                                      (dq * (lay.wide_x8[k] - lay.wide_x8[0]));
+                        int32_t dev =
+                            ((cq_val[idx[kdx]] - cq_val[idx[0]]) * dx_val) -
+                            (dq_val * (lay.wide_x8[kdx] - lay.wide_x8[0]));
                         b_far = (dev > lim) || (dev < -lim);
                     }
                     if (b_far)
@@ -589,43 +600,46 @@ static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
                         continue;
                     }
                 }
-                for (k = 0u; k < N_WIDE; k++)
+                for (kdx = 0u; kdx < N_WIDE; kdx++)
                 {
-                    sp += cq[idx[k]];
-                    sxp += (int64_t)lay.wide_x8[k] * cq[idx[k]];
-                    sw += cw[idx[k]];
+                    sp_val += cq_val[idx[kdx]];
+                    sxp += (int64_t)lay.wide_x8[kdx] * cq_val[idx[kdx]];
+                    sw_val += cw_val[idx[kdx]];
                 }
                 /* slope in (1/16 unit) per (1/8 module) is nb / sxx */
-                nb = ((int64_t)N_WIDE * sxp) - (sx * sp);
-                if (nb <= 0)
+                nb_val = ((int64_t)N_WIDE * sxp) - (sx_val * sp_val);
+                if (nb_val <= 0)
                 {
                     continue; /* bars in the wrong order */
                 }
                 /* residual x 6 sxx = 6 sxx q - sxx sp + nb sx - 6 nb x */
-                c0 = (nb * sx) - (sxx * sp);
-                for (k = 0u; k < N_WIDE; k++)
+                c0_val = (nb_val * sx_val) - (sxx * sp_val);
+                for (kdx = 0u; kdx < N_WIDE; kdx++)
                 {
-                    int64_t r = ((int64_t)N_WIDE * sxx * cq[idx[k]]) + c0 -
-                                ((int64_t)N_WIDE * nb * lay.wide_x8[k]);
-                    r = (r < 0) ? -r : r;
-                    if (r > worst)
+                    int64_t r_val =
+                        ((int64_t)N_WIDE * sxx * cq_val[idx[kdx]]) + c0_val -
+                        ((int64_t)N_WIDE * nb_val * lay.wide_x8[kdx]);
+                    r_val = (r_val < 0) ? -r_val : r_val;
+                    if (r_val > worst)
                     {
-                        worst = r;
+                        worst = r_val;
                     }
                 }
                 /* Cast: error in modules = worst / (48 nb) */
-                err = (float)worst / (48.0f * (float)nb);
+                err = (float32_t)worst / (48.0f * (float32_t)nb_val);
                 if ((0u == p_f->b_ok) || (err < p_f->err))
                 {
                     /* hump width 0.4 .. 1.8 of a wide bar:
                        wid = sw sxx / (48 nb), wide bar = r4 / 4 modules */
-                    int64_t lhs = 5 * sw * sxx;
-                    if ((lhs >= (24 * r4 * nb)) && (lhs <= (108 * r4 * nb)))
+                    int64_t lhs = 5 * sw_val * sxx;
+                    if ((lhs >= (24 * r4_val * nb_val)) &&
+                        (lhs <= (108 * r4_val * nb_val)))
                     {
                         /* Casts: final scale to trace units */
-                        double bq = (double)nb / (double)sxx;
-                        double aq =
-                            ((double)sp - (bq * (double)sx)) / (double)N_WIDE;
+                        float64_t bq_val = (float64_t)nb_val / (float64_t)sxx;
+                        float64_t aq_val =
+                            ((float64_t)sp_val - (bq_val * (float64_t)sx_val)) /
+                            (float64_t)N_WIDE;
                         if (0u == p_f->b_ok)
                         {
                             p_f->order = order;
@@ -633,9 +647,10 @@ static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
                         }
                         p_f->b_ok  = 1u;
                         p_f->err   = err;
-                        p_f->a     = (float)((aq + (double)base) / (double)Q);
-                        p_f->b     = (float)(bq * 8.0 / (double)Q);
-                        p_f->ratio = (uint8_t)ri;
+                        p_f->a     = (float32_t)((aq_val + (float64_t)base) /
+                                             (float64_t)Q);
+                        p_f->b     = (float32_t)(bq_val * 8.0 / (float64_t)Q);
+                        p_f->ratio = (uint8_t)ri_val;
                     }
                 }
             } while (next_combo(idx, n_c));
@@ -662,26 +677,26 @@ static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
     for (key = 0u; key < (N_LETTERS * 2u); key++)
     {
         if ((0u != g_fit[key].b_ok) &&
-            (g_fit[key].err < ((float)C39G_ERR_MAX_X100 / 100.0f)))
+            (g_fit[key].err < ((float32_t)C39G_ERR_MAX_X100 / 100.0f)))
         {
             /* insertion sort by (err, order) */
-            uint32_t m = n_good;
-            while ((m > 0u) &&
-                   ((g_fit[good[m - 1u]].err > g_fit[key].err) ||
-                    ((g_fit[good[m - 1u]].err == g_fit[key].err) &&
-                     (g_fit[good[m - 1u]].order > g_fit[key].order))))
+            uint32_t m_val = n_good;
+            while ((m_val > 0u) &&
+                   ((g_fit[good[m_val - 1u]].err > g_fit[key].err) ||
+                    ((g_fit[good[m_val - 1u]].err == g_fit[key].err) &&
+                     (g_fit[good[m_val - 1u]].order > g_fit[key].order))))
             {
-                good[m] = good[m - 1u];
-                m--;
+                good[m_val] = good[m_val - 1u];
+                m_val--;
             }
             /* Cast: key < 52 */
-            good[m] = (uint8_t)key;
+            good[m_val] = (uint8_t)key;
             n_good++;
         }
     }
     if (0u == n_good)
     {
-        float best = 1.0e9f;
+        float32_t best = 1.0e9f;
         for (key = 0u; key < (N_LETTERS * 2u); key++)
         {
             if ((0u != g_fit[key].b_ok) && (g_fit[key].err < best))
@@ -699,17 +714,17 @@ static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
        a lone letter under the limit would be taken with nothing to beat;
        a test with one thin gap printed black read Z as Q that way. */
     n_sc = (n_good < TOP_MODEL) ? n_good : TOP_MODEL;
-    for (k = 0u; k < N_RIVAL; k++)
+    for (kdx = 0u; kdx < N_RIVAL; kdx++)
     {
         uint32_t pick = N_LETTERS * 2u;
         for (key = 0u; key < (N_LETTERS * 2u); key++)
         {
             bool b_taken =
                 (0u == g_fit[key].b_ok) ||
-                (g_fit[key].err < ((float)C39G_ERR_MAX_X100 / 100.0f));
-            for (i = 0u; (i < n_riv) && !b_taken; i++)
+                (g_fit[key].err < ((float32_t)C39G_ERR_MAX_X100 / 100.0f));
+            for (idx2 = 0u; (idx2 < n_riv) && !b_taken; idx2++)
             {
-                b_taken = (good[n_sc + i] == key);
+                b_taken = (good[n_sc + idx2] == key);
             }
             if ((!b_taken) && (((N_LETTERS * 2u) == pick) ||
                                (g_fit[key].err < g_fit[pick].err)))
@@ -727,52 +742,52 @@ static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
     }
 
     /* 6. blurred-bar model of the whole code for the best fits */
-    for (k = 0u; k < (n_sc + n_riv); k++)
+    for (kdx = 0u; kdx < (n_sc + n_riv); kdx++)
     {
-        static const float k_db[3] = { 0.985f, 1.0f, 1.015f };
-        const fit_t *      p_f     = &g_fit[good[k]];
-        layout_t           lay;
-        double             best    = 0.0;
-        double             best_r2 = 0.0;
-        float              best_b  = p_f->b;
-        uint32_t           di;
-        uint32_t           ai;
+        static const float32_t k_db[3] = { 0.985f, 1.0f, 1.015f };
+        const fit_t *          p_f     = &g_fit[good[kdx]];
+        layout_t               lay;
+        float64_t              best    = 0.0;
+        float64_t              best_r2 = 0.0;
+        float32_t              best_b  = p_f->b;
+        uint32_t               di_val;
+        uint32_t               ai_val;
 
-        make_layout(good[k] / 2u, k_ratio_q4[p_f->ratio],
-                    (1u == (good[k] % 2u)), &lay);
-        for (di = 0u; di < 3u; di++)
+        make_layout(good[kdx] / 2u, k_ratio_q4[p_f->ratio],
+                    (1u == (good[kdx] % 2u)), &lay);
+        for (di_val = 0u; di_val < 3u; di_val++)
         {
-            for (ai = 0u; ai < 9u; ai++)
+            for (ai_val = 0u; ai_val < 9u; ai_val++)
             {
                 /* Cast: shift -1 .. +1 module in quarter steps */
-                float  da = ((float)ai - 4.0f) / 4.0f;
-                float  bb = p_f->b * k_db[di];
-                double r2 = 0.0;
-                double mse =
-                    model_mse(&lay, n, p_f->a + (da * p_f->b), bb, &r2);
-                if (((0u == di) && (0u == ai)) || (mse < best))
+                float32_t da_val = ((float32_t)ai_val - 4.0f) / 4.0f;
+                float32_t bb_val = p_f->b * k_db[di_val];
+                float64_t r2_val = 0.0;
+                float64_t mse    = model_mse(
+                    &lay, count2, p_f->a + (da_val * p_f->b), bb_val, &r2_val);
+                if (((0u == di_val) && (0u == ai_val)) || (mse < best))
                 {
                     best    = mse;
-                    best_r2 = r2;
-                    best_b  = bb;
+                    best_r2 = r2_val;
+                    best_b  = bb_val;
                 }
             }
         }
         /* insertion sort by (mse, letter, direction) */
         {
-            uint32_t m = k;
-            while ((m > 0u) &&
-                   ((sc[m - 1u].mse > best) ||
-                    ((sc[m - 1u].mse == best) && (sc[m - 1u].key > good[k]))))
+            uint32_t m_val = kdx;
+            while ((m_val > 0u) && ((sc_val[m_val - 1u].mse > best) ||
+                                    ((sc_val[m_val - 1u].mse == best) &&
+                                     (sc_val[m_val - 1u].key > good[kdx]))))
             {
-                sc[m] = sc[m - 1u];
-                m--;
+                sc_val[m_val] = sc_val[m_val - 1u];
+                m_val--;
             }
-            sc[m].mse     = best;
-            sc[m].r2      = best_r2;
-            sc[m].b       = best_b;
-            sc[m].key     = good[k];
-            sc[m].b_rival = (k >= n_sc) ? 1u : 0u;
+            sc_val[m_val].mse     = best;
+            sc_val[m_val].r2      = best_r2;
+            sc_val[m_val].b       = best_b;
+            sc_val[m_val].key     = good[kdx];
+            sc_val[m_val].b_rival = (kdx >= n_sc) ? 1u : 0u;
         }
         if (NULL != p_yield)
         {
@@ -783,36 +798,37 @@ static c39g_result_t decode_humps(uint32_t n, int32_t hi_permille,
     /* 7. the best letter must clearly beat the best other letter */
     n_sc += n_riv;
     margin = 9.9;
-    for (k = 1u; k < n_sc; k++)
+    for (kdx = 1u; kdx < n_sc; kdx++)
     {
-        if ((sc[k].key / 2u) != (sc[0].key / 2u))
+        if ((sc_val[kdx].key / 2u) != (sc_val[0].key / 2u))
         {
             /* Cast: letters are 'A' + 0..25 */
-            p_info->runner = (char)('A' + (int32_t)(sc[k].key / 2u));
-            if (sc[0].mse > 0.0)
+            p_info->runner = (char)('A' + (int32_t)(sc_val[kdx].key / 2u));
+            if (sc_val[0].mse > 0.0)
             {
-                margin = (sc[k].mse / sc[0].mse) - 1.0;
+                margin = (sc_val[kdx].mse / sc_val[0].mse) - 1.0;
             }
             break;
         }
     }
     {
-        const fit_t * p_f  = &g_fit[sc[0].key];
+        const fit_t * p_f  = &g_fit[sc_val[0].key];
         /* Casts: rounded values for the dashboard; letters 'A' + 0..25 */
-        p_info->best       = (char)('A' + (int32_t)(sc[0].key / 2u));
-        p_info->b_reversed = (1u == (sc[0].key % 2u));
+        p_info->best       = (char)('A' + (int32_t)(sc_val[0].key / 2u));
+        p_info->b_reversed = (1u == (sc_val[0].key % 2u));
         p_info->err_x100   = (uint16_t)((p_f->err * 100.0f) + 0.5f);
         p_info->margin_x100 =
             (uint16_t)((margin > 600.0) ? 60000.0 : ((margin * 100.0) + 0.5));
-        p_info->module_x10 = (uint16_t)((sc[0].b * 10.0f) + 0.5f);
+        p_info->module_x10 = (uint16_t)((sc_val[0].b * 10.0f) + 0.5f);
         p_info->ratio_x100 = (uint16_t)(k_ratio_q4[p_f->ratio] * 25);
-        p_info->fit_x100   = (uint8_t)((sc[0].r2 * 100.0) + 0.5);
+        p_info->fit_x100   = (uint8_t)((sc_val[0].r2 * 100.0) + 0.5);
     }
-    if ((0u != sc[0].b_rival) || (margin < ((double)C39G_MARGIN_X100 / 100.0)))
+    if ((0u != sc_val[0].b_rival) ||
+        (margin < ((float64_t)C39G_MARGIN_X100 / 100.0)))
     {
         return C39G_TIE; /* a rival fits the trace better, or about as well */
     }
-    if (sc[0].r2 < ((double)C39G_MIN_FIT_X100 / 100.0))
+    if (sc_val[0].r2 < ((float64_t)C39G_MIN_FIT_X100 / 100.0))
     {
         return C39G_WEAK; /* the bars do not look like this letter */
     }
@@ -827,19 +843,20 @@ int32_t c39g_min_hump(int32_t noise_margin)
 }
 
 c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
-                          const int8_t * p_yaw, uint32_t n, bool b_use_dist,
-                          void (*p_yield)(void), c39g_info_t * p_info)
+                          const int8_t * p_yaw, uint32_t count2,
+                          bool          b_use_dist, void (*p_yield)(void),
+                          c39g_info_t * p_info)
 {
-    return c39g_decode_hump(p_l, p_fwd, p_yaw, n, b_use_dist, C39G_MIN_HUMP,
-                            p_yield, p_info);
+    return c39g_decode_hump(p_l, p_fwd, p_yaw, count2, b_use_dist,
+                            C39G_MIN_HUMP, p_yield, p_info);
 }
 
 c39g_result_t c39g_decode_hump(const uint16_t * p_l, const uint8_t * p_fwd,
-                               const int8_t * p_yaw, uint32_t n,
+                               const int8_t * p_yaw, uint32_t count2,
                                bool b_use_dist, int32_t             min_hump,
                                void (*p_yield)(void), c39g_info_t * p_info)
 {
-    uint32_t      i;
+    uint32_t      idx2;
     c39g_result_t res;
     bool          b_dist = b_use_dist && (NULL != p_fwd) && (NULL != p_yaw);
 
@@ -850,8 +867,8 @@ c39g_result_t c39g_decode_hump(const uint16_t * p_l, const uint8_t * p_fwd,
     p_info->try_n      = 0u;
     p_info->first_res  = (uint8_t)C39G_ARG;
     p_info->first_best = 0;
-    if ((NULL == p_l) || (n < MIN_MODEL_N) || (n > C39G_MAX_SAMPLES) ||
-        (min_hump < 1))
+    if ((NULL == p_l) || (count2 < MIN_MODEL_N) ||
+        (count2 > C39G_MAX_SAMPLES) || (min_hump < 1))
     {
         return C39G_ARG;
     }
@@ -859,27 +876,28 @@ c39g_result_t c39g_decode_hump(const uint16_t * p_l, const uint8_t * p_fwd,
     /* 1. position and the signal above a rolling white floor */
     {
         int32_t pos = 0;
-        for (i = 0u; i < n; i++)
+        for (idx2 = 0u; idx2 < count2; idx2++)
         {
             if (b_dist)
             {
                 /* fwd - yaw = (L + R) - (R - L) = 2 x left wheel */
-                pos += ((int32_t)p_fwd[i] - (int32_t)p_yaw[i]) * Q;
+                pos += ((int32_t)p_fwd[idx2] - (int32_t)p_yaw[idx2]) * Q;
             }
             else
             {
                 /* Cast: i < C39G_MAX_SAMPLES */
-                pos = (int32_t)i * Q;
+                pos = (int32_t)idx2 * Q;
             }
-            g_pos[i] = pos;
+            g_pos[idx2] = pos;
         }
     }
-    fill_floor(p_l, n, (b_dist ? C39G_FLOOR_COUNTS : C39G_FLOOR_SAMPLES) * Q);
+    fill_floor(p_l, count2,
+               (b_dist ? C39G_FLOOR_COUNTS : C39G_FLOOR_SAMPLES) * Q);
 
     /* 2-7 at half height, then (if humps were found but no letter read)
        once more near the top.  The first try's details are kept unless
        the second one reads a letter. */
-    res                = decode_humps(n, 0, min_hump, p_yield, p_info);
+    res                = decode_humps(count2, 0, min_hump, p_yield, p_info);
     /* Casts: c39g_result_t values fit 8 bits */
     p_info->try_n      = 1u;
     p_info->first_res  = (uint8_t)res;
@@ -887,20 +905,20 @@ c39g_result_t c39g_decode_hump(const uint16_t * p_l, const uint8_t * p_fwd,
 #if (C39G_HI_PERMILLE > 0)
     if ((C39G_OK != res) && (C39G_FEW != res))
     {
-        c39g_info_t   hi;
+        c39g_info_t   high;
         c39g_result_t res_hi =
-            decode_humps(n, C39G_HI_PERMILLE, min_hump, p_yield, &hi);
+            decode_humps(count2, C39G_HI_PERMILLE, min_hump, p_yield, &high);
         /* stricter: near the top the humps say less about the thin
            bars, so the model must explain more of the trace */
-        if ((C39G_OK == res_hi) && (hi.fit_x100 >= C39G_HI_MIN_FIT_X100))
+        if ((C39G_OK == res_hi) && (high.fit_x100 >= C39G_HI_MIN_FIT_X100))
         {
             /* keep what the first try said (a TIE overridden here is
                counted on the dashboard, review R1) */
-            hi.try_n      = 2u;
-            hi.first_res  = p_info->first_res;
-            hi.first_best = p_info->first_best;
-            *p_info       = hi;
-            res           = res_hi;
+            high.try_n      = 2u;
+            high.first_res  = p_info->first_res;
+            high.first_best = p_info->first_best;
+            *p_info         = high;
+            res             = res_hi;
         }
     }
 #endif

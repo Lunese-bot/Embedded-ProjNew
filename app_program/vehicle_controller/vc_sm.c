@@ -538,29 +538,29 @@ static vc_ut_verdict_t ut_verdict(const vc_sm_t * p_sm, int32_t mask)
 {
     uint32_t        first = (p_sm->ut.dir > 0) ? UT_C : UT_R;
     uint32_t        other = (p_sm->ut.dir > 0) ? UT_R : UT_C;
-    vc_ut_verdict_t v;
+    vc_ut_verdict_t value2;
 
     if (0 != (mask & (VC_LINE_C | VC_LINE_R)))
     {
-        v = VC_UT_V_ON_LINE;
+        value2 = VC_UT_V_ON_LINE;
     }
     else if (0u != p_sm->ut.left[other])
     {
-        v = VC_UT_V_PASSED;
+        value2 = VC_UT_V_PASSED;
     }
     else if (0u != p_sm->ut.left[first])
     {
-        v = VC_UT_V_BETWEEN;
+        value2 = VC_UT_V_BETWEEN;
     }
     else if ((0u != p_sm->ut.seen[first]) || (0u != p_sm->ut.seen[other]))
     {
-        v = VC_UT_V_UNSURE; /* a sensor is just going white: wait */
+        value2 = VC_UT_V_UNSURE; /* a sensor is just going white: wait */
     }
     else
     {
-        v = VC_UT_V_NONE;
+        value2 = VC_UT_V_NONE;
     }
-    return v;
+    return value2;
 }
 
 static void ut_start(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
@@ -624,13 +624,13 @@ static void ut_fail(vc_sm_t * p_sm, int32_t reason, uint32_t now_ms,
 }
 
 /* The wheels have stopped and the fresh samples agree */
-static void ut_decide(vc_sm_t * p_sm, vc_ut_verdict_t v, uint32_t now_ms,
+static void ut_decide(vc_sm_t * p_sm, vc_ut_verdict_t value2, uint32_t now_ms,
                       vc_actions_t * p_out)
 {
     int8_t back = (int8_t)(-p_sm->ut.dir);
 
-    ut_trace(p_sm, p_out, VC_UT_VERDICT, (int32_t)v);
-    if ((VC_UT_V_ON_LINE == v) || (VC_UT_V_BETWEEN == v))
+    ut_trace(p_sm, p_out, VC_UT_VERDICT, (int32_t)value2);
+    if ((VC_UT_V_ON_LINE == value2) || (VC_UT_V_BETWEEN == value2))
     {
         ut_done(p_sm, now_ms, p_out);
     }
@@ -638,7 +638,7 @@ static void ut_decide(vc_sm_t * p_sm, vc_ut_verdict_t v, uint32_t now_ms,
     {
         ut_fail(p_sm, 1, now_ms, p_out);
     }
-    else if (VC_UT_V_PASSED == v)
+    else if (VC_UT_V_PASSED == value2)
     {
         /* turned past the line: slowly back toward where it was seen, at
            most VC_UTURN_CORRECT_DEG beyond that */
@@ -718,17 +718,18 @@ static void ut_sample(vc_sm_t * p_sm, const vc_event_t * p_event,
             break;
         case VC_EXEC_UT_VERIFY:
         {
-            vc_ut_verdict_t v;
+            vc_ut_verdict_t value2;
             bool            b_same;
 
             (void)ut_edges(p_sm, mask);
-            v      = ut_verdict(p_sm, mask);
+            value2 = ut_verdict(p_sm, mask);
             /* on the line and between C and R both mean aligned */
-            b_same = (v == (vc_ut_verdict_t)p_sm->ut.verdict) ||
-                     (((VC_UT_V_ON_LINE == v) || (VC_UT_V_BETWEEN == v)) &&
-                      ((VC_UT_V_ON_LINE == p_sm->ut.verdict) ||
-                       (VC_UT_V_BETWEEN == p_sm->ut.verdict)));
-            if (VC_UT_V_UNSURE == v)
+            b_same =
+                (value2 == (vc_ut_verdict_t)p_sm->ut.verdict) ||
+                (((VC_UT_V_ON_LINE == value2) || (VC_UT_V_BETWEEN == value2)) &&
+                 ((VC_UT_V_ON_LINE == p_sm->ut.verdict) ||
+                  (VC_UT_V_BETWEEN == p_sm->ut.verdict)));
+            if (VC_UT_V_UNSURE == value2)
             {
                 p_sm->ut.verdict_n = 0u;
             }
@@ -740,10 +741,10 @@ static void ut_sample(vc_sm_t * p_sm, const vc_event_t * p_event,
             {
                 p_sm->ut.verdict_n = 1u;
             }
-            p_sm->ut.verdict = (uint8_t)v;
+            p_sm->ut.verdict = (uint8_t)value2;
             if (p_sm->ut.verdict_n >= VC_UTURN_VERIFY_SAMPLES)
             {
-                ut_decide(p_sm, v, now_ms, p_out);
+                ut_decide(p_sm, value2, now_ms, p_out);
             }
             break;
         }

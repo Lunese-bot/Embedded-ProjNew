@@ -730,49 +730,50 @@ static const char k_hdr_js[] =
 /* "&id=<hex>" in the request line -> client id (0 if missing) */
 static uint32_t parse_id(const char * p_req)
 {
-    const char * p = strstr(p_req, "id=");
-    uint32_t     v = 0U;
+    const char * p_val = strstr(p_req, "id=");
+    uint32_t     value = 0U;
 
-    if (NULL == p)
+    if (NULL == p_val)
     {
         return 0U;
     }
-    for (p += 3;; p++)
+    for (p_val += 3;; p_val++)
     {
-        if ((*p >= '0') && (*p <= '9'))
+        if ((*p_val >= '0') && (*p_val <= '9'))
         {
-            v = (v << 4) | (uint32_t)(*p - '0');
+            value = (value << 4) | (uint32_t)(*p_val - '0');
         }
-        else if ((*p >= 'a') && (*p <= 'f'))
+        else if ((*p_val >= 'a') && (*p_val <= 'f'))
         {
-            v = (v << 4) | (uint32_t)(*p - 'a' + 10);
+            value = (value << 4) | (uint32_t)(*p_val - 'a' + 10);
         }
         else
         {
             break;
         }
     }
-    return v;
+    return value;
 }
 
 /* "x=<letters>" -> section filter string ("" if missing = all) */
 static const char * parse_x(const char * p_req, char * p_out, int32_t max)
 {
-    const char * p = strstr(p_req, "x=");
-    int32_t      n = 0;
+    const char * p_val = strstr(p_req, "x=");
+    int32_t      count = 0;
 
-    if (NULL != p)
+    if (NULL != p_val)
     {
-        for (p += 2; (n < (max - 1)) && (*p >= 'a') && (*p <= 'z'); p++)
+        for (p_val += 2;
+             (count < (max - 1)) && (*p_val >= 'a') && (*p_val <= 'z'); p_val++)
         {
-            p_out[n++] = *p;
+            p_out[count++] = *p_val;
         }
     }
-    p_out[n] = '\0';
+    p_out[count] = '\0';
     return p_out;
 }
 
-static struct tcp_pcb * g_listen_pcb;
+static struct tcp_pcb * g_p_listen_pcb;
 static char g_snap[WD_SNAP_MAX]; /* static: keeps the task stack small */
 
 /* Send the reply and close.  Data already queued is still delivered. */
@@ -798,20 +799,20 @@ static void tx_free(wd_tx_t * p_tx)
 static void tx_more(wd_tx_t * p_tx)
 {
     struct tcp_pcb * p_pcb = p_tx->p_pcb;
-    uint32_t         n;
+    uint32_t         count;
 
     while ((p_tx->left > 0U) && (tcp_sndbuf(p_pcb) > 0U) &&
            (tcp_sndqueuelen(p_pcb) < TCP_SND_QUEUELEN))
     {
-        n = tcp_sndbuf(p_pcb);
-        n = (n > TCP_MSS) ? TCP_MSS : n;
-        n = (n > p_tx->left) ? p_tx->left : n;
-        if (ERR_OK != tcp_write(p_pcb, p_tx->p_next, (uint16_t)n, 0))
+        count = tcp_sndbuf(p_pcb);
+        count = (count > TCP_MSS) ? TCP_MSS : count;
+        count = (count > p_tx->left) ? p_tx->left : count;
+        if (ERR_OK != tcp_write(p_pcb, p_tx->p_next, (uint16_t)count, 0))
         {
             break; /* no room yet: the next tcp_sent() continues */
         }
-        p_tx->p_next += n;
-        p_tx->left -= n;
+        p_tx->p_next += count;
+        p_tx->left -= count;
     }
     (void)tcp_output(p_pcb);
     if (0U == p_tx->left)
@@ -873,8 +874,8 @@ static err_t on_recv(void * p_arg, struct tcp_pcb * p_pcb, struct pbuf * p_buf,
 {
     char     req[WD_REQ_MAX];
     char     status[WD_REPLY_MAX];
-    char     xs[8];
-    uint16_t n;
+    char     xs_val[8];
+    uint16_t count;
 
     if ((NULL == p_buf) || (ERR_OK != err))
     {
@@ -900,10 +901,10 @@ static err_t on_recv(void * p_arg, struct tcp_pcb * p_pcb, struct pbuf * p_buf,
         return ERR_OK;
     }
 
-    n = (uint16_t)((p_buf->tot_len < (WD_REQ_MAX - 1)) ? p_buf->tot_len
-                                                       : (WD_REQ_MAX - 1));
-    (void)pbuf_copy_partial(p_buf, req, n, 0);
-    req[n] = '\0';
+    count = (uint16_t)((p_buf->tot_len < (WD_REQ_MAX - 1)) ? p_buf->tot_len
+                                                           : (WD_REQ_MAX - 1));
+    (void)pbuf_copy_partial(p_buf, req, count, 0);
+    req[count] = '\0';
     tcp_recved(p_pcb, p_buf->tot_len);
     pbuf_free(p_buf);
 
@@ -916,7 +917,7 @@ static err_t on_recv(void * p_arg, struct tcp_pcb * p_pcb, struct pbuf * p_buf,
     else if (0 == strncmp(req, "GET /s", 6))
     {
         (void)web_debug_snapshot(g_snap, (int32_t)sizeof(g_snap), parse_id(req),
-                                 parse_x(req, xs, (int32_t)sizeof(xs)));
+                                 parse_x(req, xs_val, (int32_t)sizeof(xs_val)));
         reply_and_close(p_pcb, k_hdr_text, g_snap, (uint16_t)strlen(g_snap), 1);
     }
     else if (0 == strncmp(req, "GET /r", 6))
@@ -989,7 +990,7 @@ void web_debug_start(void)
 {
     struct tcp_pcb * p_pcb;
 
-    if (NULL != g_listen_pcb)
+    if (NULL != g_p_listen_pcb)
     {
         return; /* already running */
     }
@@ -1003,13 +1004,13 @@ void web_debug_start(void)
         }
         return;
     }
-    g_listen_pcb = tcp_listen(p_pcb); /* frees p_pcb, returns the listener */
-    if (NULL == g_listen_pcb)
+    g_p_listen_pcb = tcp_listen(p_pcb); /* frees p_pcb, returns the listener */
+    if (NULL == g_p_listen_pcb)
     {
         tm_printf((UB *)"webdebug: listen failed (out of memory)\n");
         return;
     }
-    tcp_accept(g_listen_pcb, on_accept);
+    tcp_accept(g_p_listen_pcb, on_accept);
     tm_printf((UB *)"webdebug: open http://<robot ip>/ in a browser\n");
 }
 

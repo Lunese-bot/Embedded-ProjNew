@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include "s1_txq.h"
 
-static void item_copy(S1_TXQ_ITEM * p_dst, const S1_TXQ_ITEM * p_src)
+static void item_copy(s1_txq_item_t * p_dst, const s1_txq_item_t * p_src)
 {
     int32_t idx;
 
@@ -19,7 +19,7 @@ static void item_copy(S1_TXQ_ITEM * p_dst, const S1_TXQ_ITEM * p_src)
 }
 
 /* Drop the oldest waiting telemetry frame (counted once). */
-static void tlm_drop_oldest(S1_TXQ * p_q, S1_STATS * p_st)
+static void tlm_drop_oldest(s1_txq_t * p_q, s1_stats_t * p_st)
 {
     p_q->tlm_head = (p_q->tlm_head + 1) % S1_TLM_QUEUE_MAX;
     p_q->tlm_count--;
@@ -28,7 +28,7 @@ static void tlm_drop_oldest(S1_TXQ * p_q, S1_STATS * p_st)
 
 /* Keep only the newest unsent telemetry frame.  A claimed staged frame is
    being published right now and is left alone. */
-static void tlm_coalesce(S1_TXQ * p_q, S1_STATS * p_st)
+static void tlm_coalesce(s1_txq_t * p_q, s1_stats_t * p_st)
 {
     if ((p_q->tlm_count > 0) && p_q->has_tlm && (!p_q->tlm_claimed))
     {
@@ -41,12 +41,12 @@ static void tlm_coalesce(S1_TXQ * p_q, S1_STATS * p_st)
     }
 }
 
-static int32_t tlm_at_cap(const S1_TXQ * p_q, const S1_STATS * p_st)
+static int32_t tlm_at_cap(const s1_txq_t * p_q, const s1_stats_t * p_st)
 {
     return (!p_q->connected) || (p_st->inflight_tlm >= S1_TLM_INFLIGHT_MAX);
 }
 
-void s1_txq_reset(S1_TXQ * p_q)
+void s1_txq_reset(s1_txq_t * p_q)
 {
     uint8_t * p_byte = (uint8_t *)p_q;
     size_t    idx;
@@ -57,11 +57,11 @@ void s1_txq_reset(S1_TXQ * p_q)
     }
 }
 
-void s1_txq_post_tlm(S1_TXQ * p_q, S1_STATS * p_st, const uint8_t * p_line,
+void s1_txq_post_tlm(s1_txq_t * p_q, s1_stats_t * p_st, const uint8_t * p_line,
                      int32_t len)
 {
-    S1_TXQ_ITEM * p_slot;
-    int32_t       idx;
+    s1_txq_item_t * p_slot;
+    int32_t         idx;
 
     if (tlm_at_cap(p_q, p_st))
     {
@@ -90,7 +90,7 @@ void s1_txq_post_tlm(S1_TXQ * p_q, S1_STATS * p_st, const uint8_t * p_line,
     p_st->tlm_posted++;
 }
 
-static int32_t stage_event(S1_TXQ * p_q, s1_txq_pull_fn pull)
+static int32_t stage_event(s1_txq_t * p_q, s1_txq_pull_fn_t pull)
 {
     int32_t len;
 
@@ -112,7 +112,7 @@ static int32_t stage_event(S1_TXQ * p_q, s1_txq_pull_fn pull)
     return 1;
 }
 
-static void stage_tlm(S1_TXQ * p_q)
+static void stage_tlm(s1_txq_t * p_q)
 {
     if ((!p_q->has_tlm) && (p_q->tlm_count > 0))
     {
@@ -123,8 +123,8 @@ static void stage_tlm(S1_TXQ * p_q)
     }
 }
 
-int32_t s1_txq_claim(S1_TXQ * p_q, S1_STATS * p_st, s1_txq_pull_fn pull,
-                     S1_TXQ_CLAIM * p_claim)
+int32_t s1_txq_claim(s1_txq_t * p_q, s1_stats_t * p_st, s1_txq_pull_fn_t pull,
+                     s1_txq_claim_t * p_claim)
 {
     if (p_q->tlm_claimed || p_q->evt_claimed)
     {
@@ -162,8 +162,8 @@ int32_t s1_txq_claim(S1_TXQ * p_q, S1_STATS * p_st, s1_txq_pull_fn pull,
     return 1;
 }
 
-void s1_txq_finish(S1_TXQ * p_q, S1_STATS * p_st, const S1_TXQ_CLAIM * p_claim,
-                   int32_t err)
+void s1_txq_finish(s1_txq_t * p_q, s1_stats_t * p_st,
+                   const s1_txq_claim_t * p_claim, int32_t err)
 {
     int32_t b_tlm = (p_claim->kind == S1_KIND_TLM);
 
@@ -204,8 +204,8 @@ void s1_txq_finish(S1_TXQ * p_q, S1_STATS * p_st, const S1_TXQ_CLAIM * p_claim,
     }
 }
 
-void s1_txq_drop_claim(S1_TXQ * p_q, S1_STATS * p_st,
-                       const S1_TXQ_CLAIM * p_claim)
+void s1_txq_drop_claim(s1_txq_t * p_q, s1_stats_t * p_st,
+                       const s1_txq_claim_t * p_claim)
 {
     if (p_claim->kind == S1_KIND_TLM)
     {
@@ -220,7 +220,7 @@ void s1_txq_drop_claim(S1_TXQ * p_q, S1_STATS * p_st,
     s1_stats_lost(p_st, p_claim->kind);
 }
 
-void s1_txq_done(S1_TXQ * p_q, S1_STATS * p_st, int32_t kind, uint32_t gen,
+void s1_txq_done(s1_txq_t * p_q, s1_stats_t * p_st, int32_t kind, uint32_t gen,
                  int32_t err)
 {
     uint32_t * p_inflight =
@@ -242,7 +242,7 @@ void s1_txq_done(S1_TXQ * p_q, S1_STATS * p_st, int32_t kind, uint32_t gen,
     }
 }
 
-void s1_txq_set_connected(S1_TXQ * p_q, S1_STATS * p_st, int32_t connected)
+void s1_txq_set_connected(s1_txq_t * p_q, s1_stats_t * p_st, int32_t connected)
 {
     p_q->gen = (p_q->gen + 1U) & S1_TXQ_GEN_MASK;
     p_st->unconfirmed += p_st->inflight_tlm + p_st->inflight_evt;
@@ -255,7 +255,8 @@ void s1_txq_set_connected(S1_TXQ * p_q, S1_STATS * p_st, int32_t connected)
     }
 }
 
-int32_t s1_txq_take(S1_TXQ * p_q, s1_txq_pull_fn pull, S1_TXQ_ITEM * p_item)
+int32_t s1_txq_take(s1_txq_t * p_q, s1_txq_pull_fn_t pull,
+                    s1_txq_item_t * p_item)
 {
     if (p_q->tlm_claimed || p_q->evt_claimed)
     {
@@ -277,7 +278,7 @@ int32_t s1_txq_take(S1_TXQ * p_q, s1_txq_pull_fn pull, S1_TXQ_ITEM * p_item)
     return 0;
 }
 
-int32_t s1_txq_tlm_pending(const S1_TXQ * p_q)
+int32_t s1_txq_tlm_pending(const s1_txq_t * p_q)
 {
     return p_q->tlm_count + (p_q->has_tlm ? 1 : 0);
 }

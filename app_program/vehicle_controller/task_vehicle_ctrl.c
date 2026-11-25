@@ -120,30 +120,35 @@ static void run_actions(const vc_actions_t * p_acts)
                 static const char * const k_verdict[] = {
                     "unsure", "on-line", "between-C-R", "turned-past", "no-line"
                 };
-                const uint32_t what = (uint32_t)p_action->p1;
-                const int32_t  h    = p_action->p2;
-                const int32_t  x    = (int32_t)p_action->rsv;
-                const int32_t  deg  = (h * 180) / (int32_t)VC_PIVOT_COUNTS(180);
+                const uint32_t what  = (uint32_t)p_action->p1;
+                const int32_t  h_val = p_action->p2;
+                const int32_t  x_val = (int32_t)p_action->rsv;
+                const int32_t  deg =
+                    (h_val * 180) / (int32_t)VC_PIVOT_COUNTS(180);
 
                 if ((uint32_t)VC_UT_VERDICT == what)
                 {
-                    tm_printf((uint8_t *)"vc: ut verdict %s h=%d (%d deg)\n",
-                              k_verdict[((uint32_t)x <= 4u) ? (uint32_t)x : 0u],
-                              h, deg);
+                    tm_printf(
+                        (uint8_t *)"vc: ut verdict %s h=%d (%d deg)\n",
+                        k_verdict[((uint32_t)x_val <= 4u) ? (uint32_t)x_val
+                                                          : 0u],
+                        h_val, deg);
                 }
                 else if (((uint32_t)VC_UT_SIGHT == what) ||
                          ((uint32_t)VC_UT_EARLY == what))
                 {
-                    tm_printf(
-                        (uint8_t *)"vc: ut %s %s h=%d (%d deg)\n", k_what[what],
-                        (VC_LINE_C == x) ? "C"
-                                         : ((VC_LINE_R == x) ? "R" : "C+R"),
-                        h, deg);
+                    tm_printf((uint8_t *)"vc: ut %s %s h=%d (%d deg)\n",
+                              k_what[what],
+                              (VC_LINE_C == x_val)
+                                  ? "C"
+                                  : ((VC_LINE_R == x_val) ? "R" : "C+R"),
+                              h_val, deg);
                 }
                 else
                 {
                     tm_printf((uint8_t *)"vc: ut %s h=%d (%d deg) x=%d\n",
-                              k_what[(what <= 10u) ? what : 0u], h, deg, x);
+                              k_what[(what <= 10u) ? what : 0u], h_val, deg,
+                              x_val);
                 }
                 break;
             }
@@ -187,9 +192,9 @@ static void publish_status(bool b_state_changed)
 /* One event through the state machine, then out to the ports */
 static void handle(const vc_event_t * p_event, uint32_t now, bool b_from_s5)
 {
-    vc_state_t before     = g_vc_sm.st.state;
-    uint32_t   rejected   = g_vc_sm.st.moves_rejected;
-    bool       was_paused = g_vc_sm.st.paused;
+    vc_state_t before       = g_vc_sm.st.state;
+    uint32_t   rejected     = g_vc_sm.st.moves_rejected;
+    bool       b_was_paused = g_vc_sm.st.paused;
     bool       b_avoiding;
 
     vc_sm_handle(&g_vc_sm, p_event, now, &g_vc_actions);
@@ -204,10 +209,10 @@ static void handle(const vc_event_t * p_event, uint32_t now, bool b_from_s5)
     if ((VC_SRC_COMMS == p_event->src) && ((VC_EV_CMD_PAUSE == p_event->type) ||
                                            (VC_EV_CMD_RESUME == p_event->type)))
     {
-        bool accepted = (VC_EV_CMD_PAUSE == p_event->type)
-                            ? (!was_paused && g_vc_sm.st.paused)
-                            : (was_paused && !g_vc_sm.st.paused);
-        s1_bridge_command_result((uint8_t)p_event->p1, accepted);
+        bool b_accepted = (VC_EV_CMD_PAUSE == p_event->type)
+                              ? (!b_was_paused && g_vc_sm.st.paused)
+                              : (b_was_paused && !g_vc_sm.st.paused);
+        s1_bridge_command_result((uint8_t)p_event->p1, b_accepted);
     }
     if (b_from_s5)
     {

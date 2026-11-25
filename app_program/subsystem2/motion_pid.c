@@ -48,7 +48,7 @@ float32_t pid_update(pid_ctrl_t * p_pid, float32_t target, float32_t measured,
 {
     float32_t err   = target - measured;
     float32_t deriv = 0.0f;
-    float32_t out;
+    float32_t output;
 
     if (dt_s <= 0.0f)
     {
@@ -66,19 +66,19 @@ float32_t pid_update(pid_ctrl_t * p_pid, float32_t target, float32_t measured,
     p_pid->prev_err = err;
     p_pid->first    = false;
 
-    out = (p_pid->kff * target) + (p_pid->kp * err) + p_pid->integral +
-          (p_pid->kd * deriv);
+    output = (p_pid->kff * target) + (p_pid->kp * err) + p_pid->integral +
+             (p_pid->kd * deriv);
 
     /* BARR-C 5.4: never pass on an INFINITY or NAN (e.g. from a bad
        measurement): restart the controller and output nothing.
        __builtin_isfinite() is what <math.h>'s isfinite() expands to;
        <math.h> itself clashes with the kernel's size_t typedef. */
-    if (!__builtin_isfinite(out))
+    if (!__builtin_isfinite(output))
     {
         pid_reset(p_pid);
-        out = 0.0f;
+        output = 0.0f;
     }
-    return clampf(out, p_pid->out_limit);
+    return clampf(output, p_pid->out_limit);
 }
 
 int32_t motion_ramp(int32_t cur, int32_t target, int32_t step)

@@ -29,7 +29,7 @@ void subsystem1_test(void)
     char           topic[S1_BRIDGE_FULL_TOPIC_MAX];
     uint8_t        payload[S1_BRIDGE_LINE_MAX] = { 0 };
     comms_status_t comms;
-    S1_TLM         tlm;
+    s1_tlm_t       tlm;
     uint8_t        invalid_command = 0xC0;
     const uint8_t  binary_sample[] = { 0x41, 0x00, 0xFF };
     uint32_t       before;

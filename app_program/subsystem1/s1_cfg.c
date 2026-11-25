@@ -4,20 +4,21 @@
  */
 #include "s1_cfg.h"
 
-static uint16_t get_be16(const uint8_t * p)
+static uint16_t get_be16(const uint8_t * p_val)
 {
-    return (uint16_t)(((unsigned)p[0] << 8) | p[1]);
+    return (uint16_t)(((uint32_t)p_val[0] << 8) | p_val[1]);
 }
 
-static void put_be16(uint8_t * p, uint16_t v)
+static void put_be16(uint8_t * p_val, uint16_t value)
 {
-    p[0] = (uint8_t)(v >> 8);
-    p[1] = (uint8_t)v;
+    p_val[0] = (uint8_t)(value >> 8);
+    p_val[1] = (uint8_t)value;
 }
 
-int s1_cfg_decode_request(const uint8_t * p_in, int len, S1_CFG_REQ * p_req)
+int32_t s1_cfg_decode_request(const uint8_t * p_in, int32_t len,
+                              s1_cfg_req_t * p_req)
 {
-    unsigned i;
+    uint32_t idx;
 
     if (p_req == 0)
     {
@@ -26,9 +27,9 @@ int s1_cfg_decode_request(const uint8_t * p_in, int len, S1_CFG_REQ * p_req)
     p_req->op           = 0u;
     p_req->request_id   = 0u;
     p_req->expected_gen = 0u;
-    for (i = 0u; i < S1_CFG_MAP_BYTES; i++)
+    for (idx = 0u; idx < S1_CFG_MAP_BYTES; idx++)
     {
-        p_req->map[i] = 0u;
+        p_req->map[idx] = 0u;
     }
     if (p_in == 0 || len < S1_CFG_READ_LEN || p_in[0] != S1_CFG_MARKER)
     {
@@ -53,66 +54,67 @@ int s1_cfg_decode_request(const uint8_t * p_in, int len, S1_CFG_REQ * p_req)
         return -1;
     }
     p_req->expected_gen = get_be16(&p_in[4]);
-    for (i = 0u; i < S1_CFG_MAP_BYTES; i++)
+    for (idx = 0u; idx < S1_CFG_MAP_BYTES; idx++)
     {
-        p_req->map[i] = p_in[6u + i];
+        p_req->map[idx] = p_in[6u + idx];
     }
     return 0;
 }
 
-int s1_cfg_encode_read(uint16_t request_id, uint8_t out[S1_CFG_READ_LEN])
+int32_t s1_cfg_encode_read(uint16_t request_id,
+                           uint8_t  p_output[S1_CFG_READ_LEN])
 {
-    out[0] = S1_CFG_MARKER;
-    out[1] = S1_CFG_OP_READ;
-    put_be16(&out[2], request_id);
+    p_output[0] = S1_CFG_MARKER;
+    p_output[1] = S1_CFG_OP_READ;
+    put_be16(&p_output[2], request_id);
     return S1_CFG_READ_LEN;
 }
 
-int s1_cfg_encode_write(uint16_t request_id, uint16_t expected_gen,
-                        const uint8_t map[S1_CFG_MAP_BYTES],
-                        uint8_t       out[S1_CFG_WRITE_LEN])
+int32_t s1_cfg_encode_write(uint16_t request_id, uint16_t expected_gen,
+                            const uint8_t p_map[S1_CFG_MAP_BYTES],
+                            uint8_t       p_output[S1_CFG_WRITE_LEN])
 {
-    unsigned i;
+    uint32_t idx;
 
-    out[0] = S1_CFG_MARKER;
-    out[1] = S1_CFG_OP_WRITE;
-    put_be16(&out[2], request_id);
-    put_be16(&out[4], expected_gen);
-    for (i = 0u; i < S1_CFG_MAP_BYTES; i++)
+    p_output[0] = S1_CFG_MARKER;
+    p_output[1] = S1_CFG_OP_WRITE;
+    put_be16(&p_output[2], request_id);
+    put_be16(&p_output[4], expected_gen);
+    for (idx = 0u; idx < S1_CFG_MAP_BYTES; idx++)
     {
-        out[6u + i] = map[i];
+        p_output[6u + idx] = p_map[idx];
     }
     return S1_CFG_WRITE_LEN;
 }
 
-int s1_cfg_encode_reply(uint8_t op, uint16_t request_id, uint8_t result,
-                        uint16_t gen, uint8_t flags,
-                        const uint8_t map[S1_CFG_MAP_BYTES],
-                        uint8_t       out[S1_CFG_REPLY_LEN])
+int32_t s1_cfg_encode_reply(uint8_t opcode, uint16_t request_id, uint8_t result,
+                            uint16_t gen, uint8_t flags,
+                            const uint8_t p_map[S1_CFG_MAP_BYTES],
+                            uint8_t       p_output[S1_CFG_REPLY_LEN])
 {
-    unsigned i;
+    uint32_t idx;
 
-    out[0] = S1_CFG_MARKER;
-    out[1] = (uint8_t)(S1_CFG_OP_REPLY | (op & 0x7Fu));
-    put_be16(&out[2], request_id);
-    out[4] = result;
-    put_be16(&out[5], gen);
-    out[7] = flags;
-    for (i = 0u; i < S1_CFG_MAP_BYTES; i++)
+    p_output[0] = S1_CFG_MARKER;
+    p_output[1] = (uint8_t)(S1_CFG_OP_REPLY | (opcode & 0x7Fu));
+    put_be16(&p_output[2], request_id);
+    p_output[4] = result;
+    put_be16(&p_output[5], gen);
+    p_output[7] = flags;
+    for (idx = 0u; idx < S1_CFG_MAP_BYTES; idx++)
     {
-        out[8u + i] = map[i];
+        p_output[8u + idx] = p_map[idx];
     }
     return S1_CFG_REPLY_LEN;
 }
 
-int s1_cfg_encode_junction(uint8_t kind, uint8_t letter, uint8_t code,
-                           uint16_t gen, uint8_t out[S1_JX_LEN])
+int32_t s1_cfg_encode_junction(uint8_t kind, uint8_t letter, uint8_t code,
+                               uint16_t gen, uint8_t p_output[S1_JX_LEN])
 {
-    out[0] = S1_JX_MARKER;
-    out[1] = kind;
-    out[2] = letter;
-    out[3] = (uint8_t)(code & 3u);
-    put_be16(&out[4], gen);
+    p_output[0] = S1_JX_MARKER;
+    p_output[1] = kind;
+    p_output[2] = letter;
+    p_output[3] = (uint8_t)(code & 3u);
+    put_be16(&p_output[4], gen);
     return S1_JX_LEN;
 }
 

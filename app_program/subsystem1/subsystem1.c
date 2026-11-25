@@ -8,8 +8,8 @@
 ID             g_tid_telemetry;
 ID             g_mbf_telemetry; /* IF-T1 */
 comms_status_t g_s1_stat;
-S1_STATS       g_s1_stats;
-S1_TXQ         g_s1_txq;
+s1_stats_t     g_s1_stats;
+s1_txq_t       g_s1_txq;
 
 static ID g_cyc_telemetry;
 
@@ -130,7 +130,7 @@ static ER post_event(const uint8_t * p_line, int32_t len, int32_t kind)
 ER s1_post(const char * p_topic, const void * p_data, int32_t data_len)
 {
     uint8_t         line[S1_LINE_MAX];
-    const uint8_t * data      = (const uint8_t *)p_data;
+    const uint8_t * p_data2   = (const uint8_t *)p_data;
     int32_t         topic_len = 0;
     int32_t         len;
     int32_t         idx;
@@ -158,7 +158,7 @@ ER s1_post(const char * p_topic, const void * p_data, int32_t data_len)
     line[topic_len] = '\0';
     for (idx = 0; idx < data_len; idx++)
     {
-        line[topic_len + 1 + idx] = data[idx];
+        line[topic_len + 1 + idx] = p_data2[idx];
     }
     len = topic_len + 1 + data_len;
 
@@ -218,7 +218,7 @@ ER s1_get_status(comms_status_t * p_status)
     return E_OK;
 }
 
-ER s1_get_stats(S1_STATS * p_stats)
+ER s1_get_stats(s1_stats_t * p_stats)
 {
     if (!s1_lock())
     {

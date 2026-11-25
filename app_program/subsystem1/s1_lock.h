@@ -27,7 +27,7 @@ int32_t s1_lock_init(void);
 int32_t s1_lock(void);
 void    s1_unlock(void);
 
-/* Best-effort count of failed s1_lock() calls (S1_STATS.lock_fail). */
+/* Best-effort count of failed s1_lock() calls (s1_stats_t.lock_fail). */
 void     s1_lock_failed(void);
 uint32_t s1_lock_fail_count(void);
 

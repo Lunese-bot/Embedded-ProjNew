@@ -53,24 +53,25 @@ static bool is_hit(const s5_sample_t * p_sample)
                                                                       : false;
 }
 
-int32_t s5_merge_samples(const s5_sample_t * a, int32_t na,
-                         const s5_sample_t * b, int32_t nb, s5_sample_t * out,
-                         int32_t max)
+int32_t s5_merge_samples(const s5_sample_t * p_a_val, int32_t na_val,
+                         const s5_sample_t * p_b_val, int32_t nb_val,
+                         s5_sample_t * p_output, int32_t max)
 {
-    int32_t i = 0, j = 0, n = 0;
-    while (n < max && (i < na || j < nb))
+    int32_t idx2 = 0, j = 0, n = 0;
+    while (n < max && (idx2 < na_val || j < nb_val))
     {
-        if (j >= nb || (i < na && a[i].deg < b[j].deg))
+        if (j >= nb_val ||
+            (idx2 < na_val && p_a_val[idx2].deg < p_b_val[j].deg))
         {
-            out[n++] = a[i++];
+            p_output[n++] = p_a_val[idx2++];
         }
         else
         {
-            if (i < na && a[i].deg == b[j].deg)
+            if (idx2 < na_val && p_a_val[idx2].deg == p_b_val[j].deg)
             {
-                i++;
+                idx2++;
             }
-            out[n++] = b[j++];
+            p_output[n++] = p_b_val[j++];
         }
     }
     return n;
@@ -304,19 +305,19 @@ int32_t s5_pivot_min_axle_mm(const s5_geom_t * p_geom, int32_t gap_mm)
 
     for (phi = 1; phi <= p_geom->return_turn_deg; phi++)
     {
-        int32_t sn = s5_sin1000(phi);
-        int32_t cs = s5_sin1000(90 - phi);
+        int32_t sn_val = s5_sin1000(phi);
+        int32_t cs_val = s5_sin1000(90 - phi);
 
         for (idx = 0; idx < 2; idx++)
         {
-            int32_t x  = corner_x[idx];
-            int32_t u  = p_geom->half_width_mm;
-            int32_t xr = (x * cs - u * sn) / 1000;
-            int32_t ur = (x * sn + u * cs) / 1000;
+            int32_t x_val  = corner_x[idx];
+            int32_t u_val  = p_geom->half_width_mm;
+            int32_t xr_val = (x_val * cs_val - u_val * sn_val) / 1000;
+            int32_t ur_val = (x_val * sn_val + u_val * cs_val) / 1000;
 
-            if ((ur >= gap_mm) && (-xr > need))
+            if ((ur_val >= gap_mm) && (-xr_val > need))
             {
-                need = -xr;
+                need = -xr_val;
             }
         }
     }

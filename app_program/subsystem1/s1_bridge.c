@@ -64,7 +64,7 @@ static bool args_ok(const char * p_topic, int32_t topic_max,
            (payload_max >= 0);
 }
 
-/* s1_txq_pull_fn for the event buffer (S1 lock held) */
+/* s1_txq_pull_fn_t for the event buffer (S1 lock held) */
 static int32_t pull_event(uint8_t * p_line)
 {
     int32_t len = tk_rcv_mbf(g_mbf_telemetry, (char *)p_line, TMO_POL);
@@ -76,8 +76,8 @@ static int32_t pull_event(uint8_t * p_line)
 int32_t s1_bridge_pop(char * p_topic, int32_t topic_max, uint8_t * p_payload,
                       int32_t payload_max)
 {
-    S1_TXQ_ITEM item;
-    int32_t     len;
+    s1_txq_item_t item;
+    int32_t       len;
 
     if (!args_ok(p_topic, topic_max, p_payload, payload_max))
     {
@@ -127,7 +127,7 @@ int32_t s1_test_bridge_pop(char * p_topic, int32_t topic_max,
 }
 #endif
 
-static void post_ack(S1_ACK result, uint8_t seq)
+static void post_ack(s1_ack_t result, uint8_t seq)
 {
     uint8_t ack = s1_ack_encode(result, seq);
 
@@ -142,7 +142,7 @@ void s1_bridge_command_result(uint8_t seq, int32_t accepted)
 void s1_bridge_on_command(const uint8_t * p_payload, int32_t len)
 {
     uint8_t         command_byte;
-    S1_REQUEST      command;
+    s1_request_t    command;
     vc_event_type_t event;
 
     g_s1_stat.commands++;
@@ -196,7 +196,7 @@ void s1_bridge_on_command(const uint8_t * p_payload, int32_t len)
 
 /* ---- barcode map read / replace (s1_cfg.h) -------------------------- */
 
-void s1_bridge_config_reply(uint8_t op, uint16_t request_id, uint8_t result)
+void s1_bridge_config_reply(uint8_t opcode, uint16_t request_id, uint8_t result)
 {
     vc_bcmap_snapshot_t snap;
     uint8_t             reply[S1_CFG_REPLY_LEN];
@@ -206,19 +206,20 @@ void s1_bridge_config_reply(uint8_t op, uint16_t request_id, uint8_t result)
         /* the map was being replaced during the copy: say BUSY, no map */
         uint8_t none[S1_CFG_MAP_BYTES] = { 0 };
 
-        (void)s1_cfg_encode_reply(op, request_id, (uint8_t)VC_BCMAP_BUSY, 0u,
-                                  0u, none, reply);
+        (void)s1_cfg_encode_reply(opcode, request_id, (uint8_t)VC_BCMAP_BUSY,
+                                  0u, 0u, none, reply);
     }
     else
     {
-        if (S1_CFG_OP_FACTORY == op)
+        if (S1_CFG_OP_FACTORY == opcode)
         {
             /* the firmware's factory map; gen and flags stay the active
                map's */
             vc_bcmap_factory(snap.packed);
         }
-        (void)s1_cfg_encode_reply(op, request_id, result, (uint16_t)snap.gen,
-                                  snap.flags, snap.packed, reply);
+        (void)s1_cfg_encode_reply(opcode, request_id, result,
+                                  (uint16_t)snap.gen, snap.flags, snap.packed,
+                                  reply);
     }
     app_check(s1_post(S1_TOPIC_CFG_REPLY, reply, (int32_t)sizeof(reply)),
               "s1 config reply");
@@ -241,10 +242,10 @@ void s1_bridge_junction(uint8_t kind, uint8_t letter, uint8_t code)
 
 void s1_bridge_on_config(const uint8_t * p_payload, int32_t len)
 {
-    S1_CFG_REQ req;
+    s1_cfg_req_t req;
 
     g_s1_stat.commands++;
-    if (0 != s1_cfg_decode_request(p_payload, (int)len, &req))
+    if (0 != s1_cfg_decode_request(p_payload, (int32_t)len, &req))
     {
         s1_bridge_config_reply(req.op, req.request_id,
                                (uint8_t)VC_BCMAP_REJ_MALFORMED);
@@ -295,10 +296,10 @@ void s1_bridge_set_connected(int32_t connected)
 }
 
 /* A publish whose result could not be recorded (S1 lock busy afterwards) */
-static S1_TXQ_CLAIM s_unfinished;
-static int32_t      s_unfinished_err;
-static bool         s_unfinished_bad;
-static bool         s_b_unfinished;
+static s1_txq_claim_t s_unfinished;
+static int32_t        s_unfinished_err;
+static bool           s_b_unfinished_bad;
+static bool           s_b_unfinished;
 
 static void * make_tag(int32_t kind, uint32_t gen)
 {
@@ -308,11 +309,11 @@ static void * make_tag(int32_t kind, uint32_t gen)
     return (void *)tag;
 }
 
-int32_t s1_bridge_service(s1_publish_fn publish, int32_t max_attempts)
+int32_t s1_bridge_service(s1_publish_fn_t publish, int32_t max_attempts)
 {
     static char    topic[S1_BRIDGE_FULL_TOPIC_MAX];
     static uint8_t payload[S1_BRIDGE_LINE_MAX];
-    S1_TXQ_CLAIM   claim;
+    s1_txq_claim_t claim;
     int32_t        accepted = 0;
     int32_t        attempt;
     int32_t        len;
@@ -325,7 +326,7 @@ int32_t s1_bridge_service(s1_publish_fn publish, int32_t max_attempts)
             s1_lock_failed();
             return 0;
         }
-        if (s_unfinished_bad)
+        if (s_b_unfinished_bad)
         {
             s1_txq_drop_claim(&g_s1_txq, &g_s1_stats, &s_unfinished);
         }
@@ -336,7 +337,7 @@ int32_t s1_bridge_service(s1_publish_fn publish, int32_t max_attempts)
         }
         s1_unlock();
         s_b_unfinished = false;
-        if ((!s_unfinished_bad) && (s_unfinished_err == S1_ERR_OK))
+        if ((!s_b_unfinished_bad) && (s_unfinished_err == S1_ERR_OK))
         {
             g_s1_stat.sent++;
             accepted++;
@@ -371,10 +372,10 @@ int32_t s1_bridge_service(s1_publish_fn publish, int32_t max_attempts)
             /* Record the result on the next drain, before anything else;
                the item stays claimed until then. */
             s1_lock_failed();
-            s_unfinished     = claim;
-            s_unfinished_err = (len < 0) ? S1_ERR_OK : err;
-            s_unfinished_bad = (len < 0);
-            s_b_unfinished   = true;
+            s_unfinished       = claim;
+            s_unfinished_err   = (len < 0) ? S1_ERR_OK : err;
+            s_b_unfinished_bad = (len < 0);
+            s_b_unfinished     = true;
             break;
         }
         if (len < 0)
@@ -439,9 +440,9 @@ void s1_bridge_heartbeat_result(int32_t err)
 
 int32_t s1_bridge_format_counters(char * p_buf, int32_t size)
 {
-    S1_STATS stats;
-    S1_LATCH latch;
-    int32_t  len;
+    s1_stats_t stats;
+    s1_latch_t latch;
+    int32_t    len;
 
     if (E_OK != s1_get_stats(&stats))
     {

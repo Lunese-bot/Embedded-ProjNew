@@ -233,7 +233,7 @@ static int32_t edge_range(int32_t deg)
 static void print_diag(void)
 {
     static char          line[(8 * 26) + 1];
-    const s5_profile_t * p = &g_diag.prof;
+    const s5_profile_t * p_val = &g_diag.prof;
     int32_t              first;
     int32_t              lines = (g_diag.n + 7) / 8;
     int32_t              lat   = 0;
@@ -250,22 +250,22 @@ static void print_diag(void)
         tm_printf((uint8_t *)"s5d: #%d p %d/%d:%s\n", (int32_t)g_diag.id,
                   (first / 8) + 1, lines, line);
     }
-    if (0U == p->valid)
+    if (0U == p_val->valid)
     {
         tm_printf((uint8_t *)"s5d: #%d raw none\n", (int32_t)g_diag.id);
         return;
     }
-    if (S5_SIDE_NONE != (s5_side_t)p->bypass_side)
+    if (S5_SIDE_NONE != (s5_side_t)p_val->bypass_side)
     {
-        lat = s5_lateral_needed_mm(p, (s5_side_t)p->bypass_side);
+        lat = s5_lateral_needed_mm(p_val, (s5_side_t)p_val->bypass_side);
     }
     tm_printf((uint8_t *)"s5d: #%d raw d=%d R%d:%d L%d:%d rmm=%d lmm=%d w=%d "
                          "side=%d lat=%d\n",
-              (int32_t)g_diag.id, (int32_t)p->distance_mm,
-              (int32_t)p->right_edge_deg, edge_range(p->right_edge_deg),
-              (int32_t)p->left_edge_deg, edge_range(p->left_edge_deg),
-              (int32_t)p->right_mm, (int32_t)p->left_mm, (int32_t)p->width_mm,
-              (int32_t)p->bypass_side, lat);
+              (int32_t)g_diag.id, (int32_t)p_val->distance_mm,
+              (int32_t)p_val->right_edge_deg, edge_range(p_val->right_edge_deg),
+              (int32_t)p_val->left_edge_deg, edge_range(p_val->left_edge_deg),
+              (int32_t)p_val->right_mm, (int32_t)p_val->left_mm,
+              (int32_t)p_val->width_mm, (int32_t)p_val->bypass_side, lat);
     tm_printf(
         (uint8_t *)"s5d: #%d sup st=%s rawsup R%d L%d | R%d:%d/%d L%d:%d/%d "
                    "rmm=%d lmm=%d w=%d\n",
@@ -299,7 +299,7 @@ static void do_side_look(void)
     SYSTIM   start_time;
     SYSTIM   end_time;
     int32_t  used;
-    uint16_t mm;
+    uint16_t dist_mm2;
 
     point_and_wait(s5_side_deg());
     s5_side_arm();
@@ -315,10 +315,10 @@ static void do_side_look(void)
             break;
         }
         tk_get_tim(&start_time);
-        mm = us_read_mm();
-        s5_side_publish((US_NO_ECHO == mm) ? (uint8_t)S5_SIDE_ST_NO_ECHO
-                                           : (uint8_t)S5_SIDE_ST_ECHO,
-                        mm);
+        dist_mm2 = us_read_mm();
+        s5_side_publish((US_NO_ECHO == dist_mm2) ? (uint8_t)S5_SIDE_ST_NO_ECHO
+                                                 : (uint8_t)S5_SIDE_ST_ECHO,
+                        dist_mm2);
         tk_get_tim(&end_time);
         used = (int32_t)(end_time.lo - start_time.lo);
         if (used < S5_PERIOD_MS)
@@ -405,7 +405,7 @@ static const int8_t g_probe_deg[] = { 30, 45, 60, 75, 90 };
 /* One angle: print the raw readings.  0 = no echo. */
 static void probe_angle(int32_t deg)
 {
-    uint16_t mm;
+    uint16_t dist_mm2;
     int32_t  idx;
     int32_t  echoes = 0;
 
@@ -413,9 +413,9 @@ static void probe_angle(int32_t deg)
     tm_printf((uint8_t *)"s5: probe deg=%d:", deg);
     for (idx = 0; idx < S5_PROBE_READS; idx++)
     {
-        mm = us_read_mm();
-        echoes += (US_NO_ECHO != mm) ? 1 : 0;
-        tm_printf((uint8_t *)" %d", mm);
+        dist_mm2 = us_read_mm();
+        echoes += (US_NO_ECHO != dist_mm2) ? 1 : 0;
+        tm_printf((uint8_t *)" %d", dist_mm2);
         tk_dly_tsk(S5_PROBE_GAP_MS);
     }
     tm_printf((uint8_t *)" | echoes=%d/%d\n", echoes, S5_PROBE_READS);

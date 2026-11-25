@@ -218,9 +218,9 @@ extern bool s5_build_profile(const s5_sample_t * p_samples, int32_t count,
                              s5_profile_t * p_profile);
 
 /* Ordered coarse + fine samples; the fine value wins at equal angles. */
-extern int32_t s5_merge_samples(const s5_sample_t * a, int32_t na,
-                                const s5_sample_t * b, int32_t nb,
-                                s5_sample_t * out, int32_t max);
+extern int32_t s5_merge_samples(const s5_sample_t * p_a_val, int32_t na_val,
+                                const s5_sample_t * p_b_val, int32_t nb_val,
+                                s5_sample_t * p_output, int32_t max);
 
 /* Pick the bypass side for a profile (also stored in p->bypass_side). */
 extern s5_side_t s5_choose_side(s5_profile_t * p_profile);

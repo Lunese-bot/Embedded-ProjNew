@@ -436,7 +436,7 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us,
                    and when the requested speed first rose again */
                 volatile s3_bc_rec_t * p_rec =
                     &g_s3_bc_rec[g_s3_bc_rec_seq % S3_BC_REC_N];
-                int16_t v = g_s3_bc_speed_now;
+                int16_t value = g_s3_bc_speed_now;
                 if ((0U != g_s3_bc_rec_seq) && (0U == p_rec->up_len))
                 {
                     if (b_was && !g_b_s3_bc_lock && (0U == p_rec->lock_why))
@@ -445,13 +445,13 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us,
                         p_rec->lock_len = s3_bc_pos() - p_rec->pos;
                         g_s3_bc_rec_gen++;
                     }
-                    if (v < p_rec->v_min)
+                    if (value < p_rec->v_min)
                     {
-                        p_rec->v_min = v;
+                        p_rec->v_min = value;
                     }
-                    else if (v > (p_rec->v_min + 5))
+                    else if (value > (p_rec->v_min + 5))
                     {
-                        p_rec->v_up   = v;
+                        p_rec->v_up   = value;
                         p_rec->up_len = s3_bc_pos() - p_rec->pos;
                         if (0U == p_rec->up_len)
                         {
@@ -497,16 +497,16 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us,
     {
         /* Casts: per-sample wheel steps are a handful of counts; wrapped
            differences of the up-counters are taken as signed. */
-        uint32_t slot = g_s3_ltrace_idx % S3_LTRACE_N;
-        uint32_t tl   = g_s2_ticks_l;
-        uint32_t tr   = g_s2_ticks_r;
-        int32_t  dl   = (int32_t)(tl - g_tr_last_l);
-        int32_t  dr   = (int32_t)(tr - g_tr_last_r);
-        int32_t  fwd  = dl + dr;
-        int32_t  yaw  = dr - dl;
+        uint32_t slot   = g_s3_ltrace_idx % S3_LTRACE_N;
+        uint32_t tl_val = g_s2_ticks_l;
+        uint32_t tr_val = g_s2_ticks_r;
+        int32_t  dl_val = (int32_t)(tl_val - g_tr_last_l);
+        int32_t  dr_val = (int32_t)(tr_val - g_tr_last_r);
+        int32_t  fwd    = dl_val + dr_val;
+        int32_t  yaw    = dr_val - dl_val;
 
-        g_tr_last_l           = tl;
-        g_tr_last_r           = tr;
+        g_tr_last_l           = tl_val;
+        g_tr_last_r           = tr_val;
         fwd                   = (fwd > 255) ? 255 : ((fwd < 0) ? 0 : fwd);
         yaw                   = (yaw > 127) ? 127 : ((yaw < -127) ? -127 : yaw);
         g_s3_ltrace[slot]     = p_raw[S3_BC_SENSOR];

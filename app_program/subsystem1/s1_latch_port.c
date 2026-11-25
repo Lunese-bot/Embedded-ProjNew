@@ -15,18 +15,18 @@
 #include "../subsystem2/subsystem2.h"
 #include "../subsystem4/subsystem4.h"
 
-void s1_latch_read(S1_LATCH * p_out)
+void s1_latch_read(s1_latch_t * p_out)
 {
     imu_status_t status;
     uint32_t     before;
     uint32_t     after;
-    int32_t      ok;
+    int32_t      b_ok;
 
     before = g_s2_imu_stop;
-    ok     = (E_OK == s4_get_status(&status)) ? 1 : 0; /* bounded wait */
+    b_ok   = (E_OK == s4_get_status(&status)) ? 1 : 0; /* bounded wait */
     after  = g_s2_imu_stop;
-    s1_latch_resolve(p_out, before, ok,
-                     (ok != 0) ? (uint32_t)status.safety_stop : 0U, after);
+    s1_latch_resolve(p_out, before, b_ok,
+                     (b_ok != 0) ? (uint32_t)status.safety_stop : 0U, after);
 }
 
 /*** end of file ***/

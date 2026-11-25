@@ -47,7 +47,7 @@ typedef struct
     uint32_t fault_code;
     uint8_t  wifi_up;
     uint8_t  paused;
-} S1_TLM;
+} s1_tlm_t;
 
 typedef enum
 {
@@ -55,13 +55,13 @@ typedef enum
     S1_CMD_STOP     = 1,
     S1_CMD_RESET    = 2,
     S1_CMD_RESERVED = 3
-} S1_CMD;
+} s1_cmd_t;
 
 typedef enum
 {
     S1_EXT_PAUSE  = 0,
     S1_EXT_RESUME = 1
-} S1_EXT_CMD;
+} s1_ext_cmd_t;
 
 typedef enum
 {
@@ -71,7 +71,7 @@ typedef enum
     S1_REQ_RESET,
     S1_REQ_PAUSE,
     S1_REQ_RESUME
-} S1_REQUEST;
+} s1_request_t;
 
 typedef enum
 {
@@ -79,23 +79,23 @@ typedef enum
     S1_ACK_BUSY     = 1,
     S1_ACK_REJECTED = 2,
     S1_ACK_RESERVED = 3
-} S1_ACK;
+} s1_ack_t;
 
-void s1_tlm_encode(const S1_TLM * tlm, uint8_t out[S1_TLM_BYTES]);
-int  s1_tlm_decode(const uint8_t * in, int len, S1_TLM * tlm);
+void    s1_tlm_encode(const s1_tlm_t * p_tlm, uint8_t p_output[S1_TLM_BYTES]);
+int32_t s1_tlm_decode(const uint8_t * p_input, int32_t len, s1_tlm_t * p_tlm);
 
 /* Code 39 data characters, six bits each, MSB first, zero-padded. */
-int s1_barcode_encode(const uint8_t * text, int len,
-                      uint8_t out[S1_BARCODE_MAX_BYTES]);
+int32_t s1_barcode_encode(const uint8_t * p_text, int32_t len,
+                          uint8_t p_output[S1_BARCODE_MAX_BYTES]);
 
-uint8_t    s1_cmd_encode(S1_CMD command, uint8_t seq);
-S1_CMD     s1_cmd_code(uint8_t byte);
-uint8_t    s1_cmd_seq(uint8_t byte);
-S1_REQUEST s1_cmd_decode(const uint8_t * payload, int len);
+uint8_t      s1_cmd_encode(s1_cmd_t command, uint8_t seq);
+s1_cmd_t     s1_cmd_code(uint8_t byte);
+uint8_t      s1_cmd_seq(uint8_t byte);
+s1_request_t s1_cmd_decode(const uint8_t * p_payload, int32_t len);
 
-uint8_t s1_ack_encode(S1_ACK result, uint8_t seq);
-S1_ACK  s1_ack_result(uint8_t byte);
-uint8_t s1_ack_seq(uint8_t byte);
+uint8_t  s1_ack_encode(s1_ack_t result, uint8_t seq);
+s1_ack_t s1_ack_result(uint8_t byte);
+uint8_t  s1_ack_seq(uint8_t byte);
 
 #endif
 

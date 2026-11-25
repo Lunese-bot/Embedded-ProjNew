@@ -10,7 +10,7 @@
 #include "vc_types.h"
 
 /* Exact, case-sensitive match. Unknown/empty text returns NAV_NONE. */
-navigation_command_t vc_barcode_lookup(const char * text);
+navigation_command_t vc_barcode_lookup(const char * p_text);
 
 #endif /* VC_BARCODE_RULES_H */
 

@@ -61,7 +61,8 @@ void s1_bridge_command_result(uint8_t seq, int32_t accepted);
    refused).  len -1 = truncated message. */
 void s1_bridge_on_config(const uint8_t * p_payload, int32_t len);
 /* Vehicle Controller: publish the reply to a config request. */
-void s1_bridge_config_reply(uint8_t op, uint16_t request_id, uint8_t result);
+void s1_bridge_config_reply(uint8_t opcode, uint16_t request_id,
+                            uint8_t result);
 /* VC task: junction evidence (vc_junction_note_t kind, letter or 0, wire
    action code) on robot/g10/jx with the active map's generation. */
 void s1_bridge_junction(uint8_t kind, uint8_t letter, uint8_t code);
@@ -83,15 +84,15 @@ void s1_bridge_set_connected(int32_t connected);
 /* Publish adapter: the only place that calls mqtt_publish() (mqtt_utk.c).
    Returns lwIP's err_t; p_tag is passed to lwIP as the callback argument
    and comes back through s1_bridge_publish_done(). */
-typedef int32_t (*s1_publish_fn)(const char *    p_topic,
-                                 const uint8_t * p_payload, uint16_t len,
-                                 void * p_tag);
+typedef int32_t (*s1_publish_fn_t)(const char *    p_topic,
+                                   const uint8_t * p_payload, uint16_t len,
+                                   void * p_tag);
 
 /* Offer up to max_attempts queued messages to publish, events first (see
    s1_txq.h).  Stops at the first refusal; the refused message stays in S1
    for the next call.  Never holds the S1 lock while publish runs.
    Returns the number accepted. */
-int32_t s1_bridge_service(s1_publish_fn publish, int32_t max_attempts);
+int32_t s1_bridge_service(s1_publish_fn_t publish, int32_t max_attempts);
 
 /* lwIP's completion callback (mqtt_request_cb_t) for a tagged publish. */
 void s1_bridge_publish_done(void * p_tag, int32_t err);

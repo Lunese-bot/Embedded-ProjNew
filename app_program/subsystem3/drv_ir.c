@@ -78,19 +78,19 @@ volatile uint32_t g_s3_lf_adc_err; /* conversion timeout or error */
 volatile uint32_t g_s3_lf_stall;   /* 10 ms reads with no sample  */
 volatile uint32_t g_s3_lf_used;    /* samples in the last record  */
 
-static uint16_t lf_convert(uint32_t ch)
+static uint16_t lf_convert(uint32_t chr)
 {
-    uint32_t k;
-    uint32_t cs;
+    uint32_t kdx;
+    uint32_t cs_val;
 
-    out_w(LF_ADC_CS, (ch << LF_CS_AINSEL) | LF_CS_EN);
-    out_w(LF_ADC_CS, (ch << LF_CS_AINSEL) | LF_CS_EN | LF_CS_START);
-    for (k = 0u; k < LF_READY_SPIN; k++)
+    out_w(LF_ADC_CS, (chr << LF_CS_AINSEL) | LF_CS_EN);
+    out_w(LF_ADC_CS, (chr << LF_CS_AINSEL) | LF_CS_EN | LF_CS_START);
+    for (kdx = 0u; kdx < LF_READY_SPIN; kdx++)
     {
-        cs = in_w(LF_ADC_CS);
-        if ((0u == (cs & LF_CS_START)) && (0u != (cs & LF_CS_READY)))
+        cs_val = in_w(LF_ADC_CS);
+        if ((0u == (cs_val & LF_CS_START)) && (0u != (cs_val & LF_CS_READY)))
         {
-            if (0u != (cs & LF_CS_ERR))
+            if (0u != (cs_val & LF_CS_ERR))
             {
                 g_s3_lf_adc_err++;
             }
@@ -105,42 +105,42 @@ static uint16_t lf_convert(uint32_t ch)
 /* TIMER alarm interrupt, every S3_L_FAST_PERIOD_US.  No kernel calls. */
 static void lf_isr(UINT intno)
 {
-    uint32_t t0  = in_w(RP2040_TIMERAWL);
-    uint32_t sum = 0u;
-    uint32_t k;
-    uint16_t c = 0u;
-    uint16_t r = 0u;
-    uint32_t dt;
+    uint32_t t0_val = in_w(RP2040_TIMERAWL);
+    uint32_t sum    = 0u;
+    uint32_t kdx;
+    uint16_t chr   = 0u;
+    uint16_t r_val = 0u;
+    uint32_t dt_val;
 
     out_w(LF_TIMER_INTR, LF_ALARM_BIT); /* clear the alarm */
     g_lf_next += S3_L_FAST_PERIOD_US;
     /* Cast: wrapped difference taken as signed */
-    if ((int32_t)(g_lf_next - t0) < 20)
+    if ((int32_t)(g_lf_next - t0_val) < 20)
     {
-        g_lf_next = t0 + S3_L_FAST_PERIOD_US; /* fell behind: start again */
+        g_lf_next = t0_val + S3_L_FAST_PERIOD_US; /* fell behind: start again */
         g_s3_lf_late++;
     }
     out_w(LF_TIMER_ALARM, g_lf_next); /* writing it arms the alarm */
 
-    for (k = 0u; k < S3_L_FAST_CONV; k++)
+    for (kdx = 0u; kdx < S3_L_FAST_CONV; kdx++)
     {
         sum += lf_convert(ADC_CH_IR_L);
     }
 #if C_IS_ADC
-    c = lf_convert(ADC_CH_IR_C);
+    chr = lf_convert(ADC_CH_IR_C);
 #endif
 #if R_IS_ADC
-    r = lf_convert(ADC_CH_IR_R);
+    r_val = lf_convert(ADC_CH_IR_R);
 #endif
     /* Cast: a mean of 12-bit values fits 16 bits */
     l_fast_put(&g_lf,
-               (uint16_t)((sum + (S3_L_FAST_CONV / 2u)) / S3_L_FAST_CONV), c,
-               r);
+               (uint16_t)((sum + (S3_L_FAST_CONV / 2u)) / S3_L_FAST_CONV), chr,
+               r_val);
     g_s3_lf_isr++;
-    dt = in_w(RP2040_TIMERAWL) - t0;
-    if (dt > g_s3_lf_max_us)
+    dt_val = in_w(RP2040_TIMERAWL) - t0_val;
+    if (dt_val > g_s3_lf_max_us)
     {
-        g_s3_lf_max_us = dt;
+        g_s3_lf_max_us = dt_val;
     }
     ClearInt(intno);
 }
@@ -227,14 +227,14 @@ ER drv_ir_init(void)
 }
 
 #if DRV_IR_DEV_ADC
-static ER read_adc(int32_t ch, uint16_t * p_val)
+static ER read_adc(int32_t chr, uint16_t * p_val)
 {
     uint32_t val = 0;
     SZ       asz;
     ER       ercd;
 
     /* start = channel, size = 1 sample (the driver allows only 1) */
-    ercd   = tk_srea_dev(g_adc_dd, ch, &val, 1, &asz);
+    ercd   = tk_srea_dev(g_adc_dd, chr, &val, 1, &asz);
     *p_val = (uint16_t)(val & ADC_MASK); /* Cast: masked to 12 bits */
     return ercd;
 }
@@ -247,29 +247,29 @@ ER drv_ir_read(uint16_t p_raw[S3_IR_COUNT])
     /* Digital sensors read as 0 or 1, analogue ones as 0..4095. */
 #if S3_L_FAST
     {
-        uint32_t sum  = 0u;
-        uint32_t n    = 0u;
-        uint32_t used = 0u;
-        uint16_t c    = 0u;
-        uint16_t r    = 0u;
+        uint32_t sum   = 0u;
+        uint32_t count = 0u;
+        uint32_t used  = 0u;
+        uint16_t chr   = 0u;
+        uint16_t r_val = 0u;
 
-        if (!l_fast_get(&g_lf, &sum, &n, &c, &r))
+        if (!l_fast_get(&g_lf, &sum, &count, &chr, &r_val))
         {
             return E_BUSY; /* counted by line_task as a read error */
         }
-        p_raw[S3_IR_L] = l_fast_record(&g_lf_rd, sum, n, &used);
+        p_raw[S3_IR_L] = l_fast_record(&g_lf_rd, sum, count, &used);
         g_s3_lf_used   = used;
         if (0u == used)
         {
             g_s3_lf_stall++; /* no 2 ms sample since the last read */
         }
 #if C_IS_ADC
-        p_raw[S3_IR_C] = c;
+        p_raw[S3_IR_C] = chr;
 #else
         p_raw[S3_IR_C] = (0U != gpio_get_val(S3_PIN_IR_C)) ? 1U : 0U;
 #endif
 #if R_IS_ADC
-        p_raw[S3_IR_R] = r;
+        p_raw[S3_IR_R] = r_val;
 #else
         p_raw[S3_IR_R] = (0U != gpio_get_val(S3_PIN_IR_R)) ? 1U : 0U;
 #endif
@@ -280,10 +280,10 @@ ER drv_ir_read(uint16_t p_raw[S3_IR_COUNT])
     {
         /* S3_L_OVERSAMPLE reads averaged (s3_config.h) */
         uint32_t sum = 0U;
-        uint32_t k;
+        uint32_t kdx;
         uint16_t one = 0U;
 
-        for (k = 0U; k < (uint32_t)S3_L_OVERSAMPLE; k++)
+        for (kdx = 0U; kdx < (uint32_t)S3_L_OVERSAMPLE; kdx++)
         {
             ercd = read_adc(ADC_CH_IR_L, &one);
             if (ercd < E_OK)

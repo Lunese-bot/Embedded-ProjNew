@@ -125,20 +125,22 @@ void subsystem5_test(void)
     /* ---- 16-bit telemetry word (min-bit, s5_pack.h) ---- */
     {
         uint16_t word;
-        uint16_t mm;
-        uint8_t  st;
-        bool     det;
+        uint16_t dist_mm2;
+        uint8_t  state;
+        bool     b_det;
 
         word = s5_pack_status(230U, (uint8_t)S5_ST_DETECTED, true);
-        s5_unpack_status(word, &mm, &st, &det);
+        s5_unpack_status(word, &dist_mm2, &state, &b_det);
         TEST_CHECK("S5-U17",
-                   (230U == mm) && ((uint8_t)S5_ST_DETECTED == st) && det,
+                   (230U == dist_mm2) && ((uint8_t)S5_ST_DETECTED == state) &&
+                       b_det,
                    "pack/unpack round trip: 230 mm, DETECTED, det=1");
 
         word = s5_pack_status(3000U, (uint8_t)S5_ST_ERROR, false);
-        s5_unpack_status(word, &mm, &st, NULL);
+        s5_unpack_status(word, &dist_mm2, &state, NULL);
         TEST_CHECK("S5-U18",
-                   (S5_PACK_DIST_MAX_MM == mm) && ((uint8_t)S5_ST_ERROR == st),
+                   (S5_PACK_DIST_MAX_MM == dist_mm2) &&
+                       ((uint8_t)S5_ST_ERROR == state),
                    "distance above 2047 mm saturates, state kept");
 
         TEST_CHECK("S5-U19",

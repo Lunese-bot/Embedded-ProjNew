@@ -627,17 +627,17 @@ static void update_height(imu_terrain_t * p_terrain, int32_t speed_mm_s)
         /* One wheel on the hump: the robot tilts by asin(h / lever), in
            whatever direction, so use the size of the slow-filtered
            sideways + forward tilt.  No adding up, so no drift. */
-        int32_t sx = ema_step(&p_terrain->f_hump_ax, p_terrain->st.ax_mg,
-                              p_terrain->cfg.hump_lpf_shift);
-        int32_t sy = ema_step(&p_terrain->f_hump_ay, p_terrain->st.ay_mg,
-                              p_terrain->cfg.hump_lpf_shift);
+        int32_t sx_val = ema_step(&p_terrain->f_hump_ax, p_terrain->st.ax_mg,
+                                  p_terrain->cfg.hump_lpf_shift);
+        int32_t sy_val = ema_step(&p_terrain->f_hump_ay, p_terrain->st.ay_mg,
+                                  p_terrain->cfg.hump_lpf_shift);
         int32_t tilt_mg;
 
         /* Cast: |sx|, |sy| are under 2000 mg, so the squares fit. */
-        tilt_mg =
-            (int32_t)imu_isqrt32((uint32_t)(sx * sx) + (uint32_t)(sy * sy));
-        norm = (int32_t)imu_norm3(p_terrain->st.ax_mg, p_terrain->st.ay_mg,
-                                  p_terrain->st.az_mg);
+        tilt_mg = (int32_t)imu_isqrt32((uint32_t)(sx_val * sx_val) +
+                                       (uint32_t)(sy_val * sy_val));
+        norm    = (int32_t)imu_norm3(p_terrain->st.ax_mg, p_terrain->st.ay_mg,
+                                     p_terrain->st.az_mg);
         if (norm > 0)
         {
             p_terrain->st.hump_height_um =
@@ -668,21 +668,21 @@ static uint32_t check_safety(imu_terrain_t *      p_terrain,
     int32_t base_scale = (int32_t)(1U << (uint32_t)S4_LIFT_BASE_SHIFT);
     int32_t leak_scale = (int32_t)(1U << (uint32_t)S4_LIFT_LEAK_SHIFT);
     int32_t up_mg;
-    bool    lifted = false;
-    bool    low_g  = (norm < S4_LIFT_LOW_G_MG);
-    bool    overturned =
+    bool    b_lifted = false;
+    bool    b_low_g  = (norm < S4_LIFT_LOW_G_MG);
+    bool    b_overturned =
         (norm >= S4_LIFT_LOW_G_MG) &&
         ((int32_t)p_sample->az_mg * 1000 < norm * S4_SAFETY_UP_COS);
     /* "1 g" as THIS sensor reads it (the GY-511 reads ~1.12 g at rest):
        the learned average once warmed up, else the nominal 1000 mg.
        2026-11-11: a fixed 1000 meant the stop could never clear. */
-    int32_t one_g   = (p_terrain->lift_warm >= S4_LIFT_WARMUP)
-                          ? (p_terrain->lift_base /
+    int32_t one_g  = (p_terrain->lift_warm >= S4_LIFT_WARMUP)
+                         ? (p_terrain->lift_base /
                            (int32_t)(1U << (uint32_t)S4_LIFT_BASE_SHIFT))
-                          : 1000;
-    int32_t dev     = (norm > one_g) ? (norm - one_g) : (one_g - norm);
-    bool    settled = (dev < S4_SETTLE_MG) &&
-                   ((int32_t)p_sample->az_mg * 1000 >= norm * S4_SETTLE_UP_COS);
+                         : 1000;
+    int32_t dev    = (norm > one_g) ? (norm - one_g) : (one_g - norm);
+    bool b_settled = (dev < S4_SETTLE_MG) && ((int32_t)p_sample->az_mg * 1000 >=
+                                              norm * S4_SETTLE_UP_COS);
 
     /* Upward speed: sum of (|a| - its slow average), with a leak. */
     if (p_terrain->lift_warm < S4_LIFT_WARMUP)
@@ -719,7 +719,7 @@ static uint32_t check_safety(imu_terrain_t *      p_terrain,
             /* within the cap */
         }
         p_terrain->lift_v += up_mg - (p_terrain->lift_v / leak_scale);
-        lifted = (p_terrain->lift_v > S4_LIFT_VEL_MGS);
+        b_lifted = (p_terrain->lift_v > S4_LIFT_VEL_MGS);
     }
 
     if (p_terrain->st.safety_stop != IMU_SAFETY_NONE)
@@ -727,7 +727,7 @@ static uint32_t check_safety(imu_terrain_t *      p_terrain,
         /* Stopped: clear once set down level and still for a while.  The
            motors stay off until Start / Reset (S2 keeps its own latch). */
         p_terrain->settle_cnt =
-            settled ? (uint8_t)(p_terrain->settle_cnt + 1U) : 0U;
+            b_settled ? (uint8_t)(p_terrain->settle_cnt + 1U) : 0U;
         if (p_terrain->settle_cnt >= S4_SETTLE_SAMPLES)
         {
             p_terrain->st.safety_stop   = IMU_SAFETY_NONE;
@@ -741,14 +741,14 @@ static uint32_t check_safety(imu_terrain_t *      p_terrain,
 
     /* Cast: counts are capped well below 255. */
     p_terrain->lift_confirm =
-        low_g ? (uint8_t)(p_terrain->lift_confirm + 1U) : 0U;
+        b_low_g ? (uint8_t)(p_terrain->lift_confirm + 1U) : 0U;
     p_terrain->overturn_confirm =
-        overturned ? (uint8_t)(p_terrain->overturn_confirm + 1U) : 0U;
+        b_overturned ? (uint8_t)(p_terrain->overturn_confirm + 1U) : 0U;
     if (p_terrain->overturn_confirm >= S4_OVERTURN_CONFIRM)
     {
         p_terrain->st.safety_stop = IMU_SAFETY_OVERTURN;
     }
-    else if (lifted || (p_terrain->lift_confirm >= S4_LOW_G_CONFIRM))
+    else if (b_lifted || (p_terrain->lift_confirm >= S4_LOW_G_CONFIRM))
     {
         p_terrain->st.safety_stop = IMU_SAFETY_LIFT;
     }

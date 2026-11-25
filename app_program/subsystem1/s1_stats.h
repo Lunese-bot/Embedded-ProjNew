@@ -91,7 +91,7 @@ typedef struct
     uint32_t inflight_evt;
     uint32_t hb_refused;
     uint32_t lock_fail;
-} S1_STATS;
+} s1_stats_t;
 
 /* One text line, NUL included, with every counter at 4294967295. */
 #define S1_STATS_TEXT_MAX 288
@@ -105,15 +105,15 @@ int32_t s1_stats_kind(const char * p_topic);
 int32_t s1_stats_line_kind(const uint8_t * p_line, int32_t len);
 
 /* Count one message discarded before lwIP accepted it. */
-void s1_stats_lost(S1_STATS * p_stats, int32_t kind);
+void s1_stats_lost(s1_stats_t * p_stats, int32_t kind);
 
 /* Count one mqtt_publish() call and its result. */
-void s1_stats_publish(S1_STATS * p_stats, int32_t kind, int32_t err);
+void s1_stats_publish(s1_stats_t * p_stats, int32_t kind, int32_t err);
 
 /* Write "s1 tq=.. tl=.. ..." into p_buf; never writes past p_buf[size-1],
    always NUL-terminates when size > 0.  Returns the length written (without
    the NUL); a line that did not fit is cut short. */
-int32_t s1_stats_format(const S1_STATS * p_stats, char * p_buf, int32_t size);
+int32_t s1_stats_format(const s1_stats_t * p_stats, char * p_buf, int32_t size);
 
 /* ---------------------------------------------------------------------
  *  IMU stop interlock, appended to the counters line for the operator
@@ -146,21 +146,22 @@ typedef struct
 {
     int32_t active; /* 0 or 1: the S2 motor interlock as read the 2nd time */
     int32_t cause;  /* S1_LATCH_CAUSE_*; NONE whenever active == 0 */
-} S1_LATCH;
+} s1_latch_t;
 
 /* Combine two reads of the S2 interlock taken before and after one read of
    S4's status (status_ok == 0 if that read failed) into one coherent
    value.  safety_stop is imu_status_t.safety_stop (IMU_SAFETY_*). */
-void s1_latch_resolve(S1_LATCH * p_out, uint32_t stop_before, int32_t status_ok,
-                      uint32_t safety_stop, uint32_t stop_after);
+void s1_latch_resolve(s1_latch_t * p_out, uint32_t stop_before,
+                      int32_t status_ok, uint32_t safety_stop,
+                      uint32_t stop_after);
 
 /* Write the text above into p_buf; same bounds rules as s1_stats_format.
    Returns the length written (0 if it did not fit: never a cut field). */
-int32_t s1_latch_format(const S1_LATCH * p_latch, char * p_buf, int32_t size);
+int32_t s1_latch_format(const s1_latch_t * p_latch, char * p_buf, int32_t size);
 
 /* Read the live interlock and cause (s1_latch_port.c on the target; the
    host tests supply their own). */
-void s1_latch_read(S1_LATCH * p_out);
+void s1_latch_read(s1_latch_t * p_out);
 
 #endif /* S1_STATS_H */
 

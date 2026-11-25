@@ -19,9 +19,9 @@ static int failed;
 		} \
 	} while (0)
 
-static S1_TLM sample_telemetry(void)
+static s1_tlm_t sample_telemetry(void)
 {
-	S1_TLM tlm = {0};
+	s1_tlm_t tlm = {0};
 
 	tlm.version = S1_PROTO_VERSION;
 	tlm.seq = 200;
@@ -50,8 +50,8 @@ int main(void)
 		0xb6, 0xf1, 0xfe, 0x84, 0x2c, 0xc0, 0x06
 	};
 	uint8_t frame[S1_TLM_BYTES];
-	S1_TLM input = sample_telemetry();
-	S1_TLM output;
+	s1_tlm_t input = sample_telemetry();
+	s1_tlm_t output;
 	int valid;
 	int command;
 	int seq;
@@ -123,9 +123,9 @@ int main(void)
 	valid = 1;
 	for (command = S1_CMD_START; command <= S1_CMD_RESET; command++) {
 		for (seq = 0; seq < 64; seq++) {
-			uint8_t byte = s1_cmd_encode((S1_CMD)command, (uint8_t)seq);
+			uint8_t byte = s1_cmd_encode((s1_cmd_t)command, (uint8_t)seq);
 
-			if (s1_cmd_code(byte) != (S1_CMD)command ||
+			if (s1_cmd_code(byte) != (s1_cmd_t)command ||
 			    s1_cmd_seq(byte) != seq) {
 				valid = 0;
 			}
@@ -141,9 +141,9 @@ int main(void)
 	valid = 1;
 	for (result = S1_ACK_QUEUED; result <= S1_ACK_REJECTED; result++) {
 		for (seq = 0; seq < 64; seq++) {
-			uint8_t byte = s1_ack_encode((S1_ACK)result, (uint8_t)seq);
+			uint8_t byte = s1_ack_encode((s1_ack_t)result, (uint8_t)seq);
 
-			if (s1_ack_result(byte) != (S1_ACK)result ||
+			if (s1_ack_result(byte) != (s1_ack_t)result ||
 			    s1_ack_seq(byte) != seq) {
 				valid = 0;
 			}

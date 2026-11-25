@@ -105,28 +105,28 @@ static bool          g_b_rec_open; /* the newest record's read is open */
 static void rec_start(void)
 {
     SYSTIM                 now;
-    uint32_t               seq = g_s3_bc_rec_seq + 1U;
-    volatile s3_bc_rec_t * p   = &g_s3_bc_rec[seq % S3_BC_REC_N];
+    uint32_t               seq   = g_s3_bc_rec_seq + 1U;
+    volatile s3_bc_rec_t * p_val = &g_s3_bc_rec[seq % S3_BC_REC_N];
 
     tk_get_tim(&now);
-    p->seq          = seq;
-    p->t_ms         = now.lo;
-    p->pos          = s3_bc_pos();
-    p->len          = 0U;
+    p_val->seq      = seq;
+    p_val->t_ms     = now.lo;
+    p_val->pos      = s3_bc_pos();
+    p_val->len      = 0U;
     /* Casts: raw levels and margins fit 16 bits */
-    p->white        = (int16_t)g_s3_bc_white;
-    p->margin       = (int16_t)g_s3_bc_margin;
-    p->n            = 0U;
-    p->end          = S3_BC_END_OPEN;
-    p->path         = 0U;
-    p->letter       = 0;
-    p->lock_why     = 0U;
-    p->lock_len     = 0U;
-    p->v_start      = g_s3_bc_speed_now;
-    p->v_min        = g_s3_bc_speed_now;
-    p->v_end        = 0;
-    p->v_up         = 0;
-    p->up_len       = 0U;
+    p_val->white    = (int16_t)g_s3_bc_white;
+    p_val->margin   = (int16_t)g_s3_bc_margin;
+    p_val->n        = 0U;
+    p_val->end      = S3_BC_END_OPEN;
+    p_val->path     = 0U;
+    p_val->letter   = 0;
+    p_val->lock_why = 0U;
+    p_val->lock_len = 0U;
+    p_val->v_start  = g_s3_bc_speed_now;
+    p_val->v_min    = g_s3_bc_speed_now;
+    p_val->v_end    = 0;
+    p_val->v_up     = 0;
+    p_val->up_len   = 0U;
     g_s3_bc_rec_seq = seq;
     g_b_rec_open    = true;
     g_s3_bc_rec_gen++;
@@ -134,20 +134,20 @@ static void rec_start(void)
 
 static void rec_end(uint8_t why, uint8_t path, char letter)
 {
-    volatile s3_bc_rec_t * p = &g_s3_bc_rec[g_s3_bc_rec_seq % S3_BC_REC_N];
+    volatile s3_bc_rec_t * p_val = &g_s3_bc_rec[g_s3_bc_rec_seq % S3_BC_REC_N];
 
     if (!g_b_rec_open)
     {
         return;
     }
-    g_b_rec_open = false;
-    p->len       = s3_bc_pos() - p->pos;
+    g_b_rec_open  = false;
+    p_val->len    = s3_bc_pos() - p_val->pos;
     /* Cast: at most S3_BC_MAX_ELEMENTS */
-    p->n         = (uint8_t)g_n_widths;
-    p->end       = why;
-    p->path      = path;
-    p->letter    = letter;
-    p->v_end     = g_s3_bc_speed_now;
+    p_val->n      = (uint8_t)g_n_widths;
+    p_val->end    = why;
+    p_val->path   = path;
+    p_val->letter = letter;
+    p_val->v_end  = g_s3_bc_speed_now;
     g_s3_bc_rec_gen++;
 }
 
@@ -349,16 +349,16 @@ static void geom_yield(void)
 static bool shape_read(uint8_t * p_text, uint32_t text_size, bool * p_reversed)
 {
     c39g_info_t   info;
-    c39g_result_t r;
+    c39g_result_t r_val;
     uint32_t      count  = g_s3_ltrace_frz_n;
     uint32_t      back   = (g_frz_idx - g_read_start_idx) + S3_BC_GEOM_LEAD;
     uint32_t      off    = (back < count) ? (count - back) : 0U;
     bool          b_dist = false;
-    SYSTIM        t0;
-    SYSTIM        t1;
+    SYSTIM        t0_val;
+    SYSTIM        t1_val;
 
-    tk_get_tim(&t0);
-    g_geom_slice = t0;
+    tk_get_tim(&t0_val);
+    g_geom_slice = t0_val;
     /* run below imu_task (18) while this long job runs, so the IMU keeps
        its 20 ms rhythm without this task having to sleep often.
        19 is in S4's band (18-19, TEAM.md) but S4 only uses 18 */
@@ -369,11 +369,11 @@ static bool shape_read(uint8_t * p_text, uint32_t text_size, bool * p_reversed)
 #if S3_BC_USE_DIST
     {
         int32_t  dist = 0;
-        uint32_t k;
-        for (k = off; k < count; k++)
+        uint32_t kdx;
+        for (kdx = off; kdx < count; kdx++)
         {
-            dist += (int32_t)g_s3_ltrace_frz_fwd[k] -
-                    (int32_t)g_s3_ltrace_frz_yaw[k];
+            dist += (int32_t)g_s3_ltrace_frz_fwd[kdx] -
+                    (int32_t)g_s3_ltrace_frz_yaw[kdx];
         }
         /* Cast: S3_BC_DIST_MIN is a small count */
         b_dist = (dist >= (int32_t)S3_BC_DIST_MIN);
@@ -383,29 +383,29 @@ static bool shape_read(uint8_t * p_text, uint32_t text_size, bool * p_reversed)
        as plain (non-volatile) memory during the call is safe. */
     /* smallest hump from this read's noise margin (frozen while the read
        was open; 0 = none, then C39G_MIN_HUMP) */
-    r = c39g_decode_hump((const uint16_t *)&g_s3_ltrace_frz[off],
-                         (const uint8_t *)&g_s3_ltrace_frz_fwd[off],
-                         (const int8_t *)&g_s3_ltrace_frz_yaw[off], count - off,
-                         b_dist, c39g_min_hump(g_s3_bc_margin), geom_yield,
-                         &info);
+    r_val = c39g_decode_hump((const uint16_t *)&g_s3_ltrace_frz[off],
+                             (const uint8_t *)&g_s3_ltrace_frz_fwd[off],
+                             (const int8_t *)&g_s3_ltrace_frz_yaw[off],
+                             count - off, b_dist, c39g_min_hump(g_s3_bc_margin),
+                             geom_yield, &info);
     (void)tk_chg_pri(TSK_SELF, S3_PRI_BARCODE);
-    tk_get_tim(&t1);
+    tk_get_tim(&t1_val);
     /* Cast: well under a minute */
-    g_s3_bc_geom_ms          = (uint16_t)(t1.lo - t0.lo);
+    g_s3_bc_geom_ms          = (uint16_t)(t1_val.lo - t0_val.lo);
     /* Cast: c39g_result_t values fit 8 bits */
-    g_s3_bc_geom_res         = (uint8_t)r;
+    g_s3_bc_geom_res         = (uint8_t)r_val;
     g_s3_bc_geom_best        = info.best;
     g_s3_bc_geom_err_x100    = info.err_x100;
     g_s3_bc_geom_margin_x100 = info.margin_x100;
     g_s3_bc_geom_fit         = info.fit_x100;
     g_s3_bc_geom_try         = info.try_n;
     g_s3_bc_geom_first_best  = info.first_best;
-    if ((C39G_OK == r) && (2u == info.try_n) &&
+    if ((C39G_OK == r_val) && (2u == info.try_n) &&
         ((uint8_t)C39G_TIE == info.first_res))
     {
         g_s3_bc_geom_tie_ovr++; /* second try named a letter after a tie */
     }
-    if ((C39G_OK == r) && (text_size >= 2U))
+    if ((C39G_OK == r_val) && (text_size >= 2U))
     {
         /* Cast: 'A'..'Z' */
         p_text[0]   = (uint8_t)info.letter;
@@ -436,13 +436,13 @@ static void decode(uint8_t why)
     }
 
     {
-        uint32_t k;
-        for (k = 0U; (k < g_n_widths) && (k < S3_BC_MAX_ELEMENTS); k++)
+        uint32_t kdx;
+        for (kdx = 0U; (kdx < g_n_widths) && (kdx < S3_BC_MAX_ELEMENTS); kdx++)
         {
-            g_s3_bc_dbg_us[k]  = g_widths[k];
-            g_s3_bc_dbg_pos[k] = g_widths_pos[k];
+            g_s3_bc_dbg_us[kdx]  = g_widths[kdx];
+            g_s3_bc_dbg_pos[kdx] = g_widths_pos[kdx];
         }
-        g_s3_bc_dbg_n    = k;
+        g_s3_bc_dbg_n    = kdx;
         g_s3_bc_dbg_unit = unit;
 
         /* freeze the L trace now, while the bars are still in the ring */
@@ -451,13 +451,13 @@ static void decode(uint8_t why)
             uint32_t count = (idx < S3_LTRACE_N) ? idx : S3_LTRACE_N;
             g_frz_idx      = idx;
             uint32_t start = idx - count;
-            for (k = 0U; k < count; k++)
+            for (kdx = 0U; kdx < count; kdx++)
             {
-                g_s3_ltrace_frz[k] = g_s3_ltrace[(start + k) % S3_LTRACE_N];
-                g_s3_ltrace_frz_fwd[k] =
-                    g_s3_ltrace_fwd[(start + k) % S3_LTRACE_N];
-                g_s3_ltrace_frz_yaw[k] =
-                    g_s3_ltrace_yaw[(start + k) % S3_LTRACE_N];
+                g_s3_ltrace_frz[kdx] = g_s3_ltrace[(start + kdx) % S3_LTRACE_N];
+                g_s3_ltrace_frz_fwd[kdx] =
+                    g_s3_ltrace_fwd[(start + kdx) % S3_LTRACE_N];
+                g_s3_ltrace_frz_yaw[kdx] =
+                    g_s3_ltrace_yaw[(start + kdx) % S3_LTRACE_N];
             }
             g_s3_ltrace_frz_n = count;
         }
@@ -547,13 +547,14 @@ static void on_run(const s3_bc_run_t * p_run)
                boundary or the line is far wider than any printed bar and
                must not slow the robot or open a read (owner 2026-11-24). */
             {
-                uint8_t st = bc_start_step(&g_start, 0U != p_run->black,
-                                           p_run->width_us, p_run->width_pos);
-                if (BC_START_ARMED == st)
+                uint8_t state =
+                    bc_start_step(&g_start, 0U != p_run->black, p_run->width_us,
+                                  p_run->width_pos);
+                if (BC_START_ARMED == state)
                 {
                     g_pend_idx = g_s3_ltrace_idx;
                 }
-                else if (BC_START_READ == st)
+                else if (BC_START_READ == state)
                 {
                     set_state(BARCODE_STATE_DETECT);
                     g_b_s3_bc_scanning = true;

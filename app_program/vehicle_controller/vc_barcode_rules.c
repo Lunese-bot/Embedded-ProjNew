@@ -39,43 +39,41 @@ static const vc_barcode_rule_t g_rules[] = {
 #define VC_RULE_VALID(letter, nav) \
     &&((int)(nav) >= (int)NAV_NONE) && ((int)(nav) <= (int)NAV_U_TURN)
 #define VC_RULE_COUNT(letter, nav) +1
-typedef char vc_cfg_every_entry_is_a_valid_action
-    [(1 VC_BARCODE_LETTER_TABLE(VC_RULE_VALID)) ? 1 : -1];
-typedef char
-    vc_cfg_table_has_26_letters[((0 VC_BARCODE_LETTER_TABLE(VC_RULE_COUNT)) ==
-                                 (int)VC_BARCODE_LETTER_COUNT)
-                                    ? 1
-                                    : -1];
+_Static_assert(1 VC_BARCODE_LETTER_TABLE(VC_RULE_VALID),
+               "every barcode table entry must be a valid action");
+_Static_assert((0 VC_BARCODE_LETTER_TABLE(VC_RULE_COUNT)) ==
+                   (int)VC_BARCODE_LETTER_COUNT,
+               "the barcode table must have 26 letters");
 #undef VC_RULE_VALID
 #undef VC_RULE_COUNT
 
-navigation_command_t vc_barcode_lookup(const char * text)
+navigation_command_t vc_barcode_lookup(const char * p_text)
 {
-    uint32_t i;
+    uint32_t idx;
 
-    if ((0 == text) || ('\0' == text[0]))
+    if ((0 == p_text) || ('\0' == p_text[0]))
     {
         return NAV_NONE;
     }
-    if ('\0' == text[1])
+    if ('\0' == p_text[1])
     {
         /* exactly one character: the active map decides (A-Z only) */
-        return vc_bcmap_lookup_letter(text[0]);
+        return vc_bcmap_lookup_letter(p_text[0]);
     }
 
-    for (i = 0u; (i < (uint32_t)(sizeof(g_rules) / sizeof(g_rules[0]))) &&
-                 (0 != g_rules[i].text);
-         i++)
+    for (idx = 0u; (idx < (uint32_t)(sizeof(g_rules) / sizeof(g_rules[0]))) &&
+                   (0 != g_rules[idx].text);
+         idx++)
     {
-        uint32_t j = 0u;
-        while ((text[j] != '\0') && (g_rules[i].text[j] != '\0') &&
-               (text[j] == g_rules[i].text[j]))
+        uint32_t jdx = 0u;
+        while ((p_text[jdx] != '\0') && (g_rules[idx].text[jdx] != '\0') &&
+               (p_text[jdx] == g_rules[idx].text[jdx]))
         {
-            j++;
+            jdx++;
         }
-        if ((text[j] == '\0') && (g_rules[i].text[j] == '\0'))
+        if ((p_text[jdx] == '\0') && (g_rules[idx].text[jdx] == '\0'))
         {
-            return g_rules[i].nav;
+            return g_rules[idx].nav;
         }
     }
 

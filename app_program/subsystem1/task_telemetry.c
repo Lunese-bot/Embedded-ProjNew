@@ -30,7 +30,7 @@
 static char s_stats_line[S1_STATS_TEXT_MAX];
 
 /* S5's obstacle size report on its own topic (s1_obst_pub.h) */
-static S1_OBST_PUB      s_obst_pub;
+static s1_obst_pub_t    s_obst_pub;
 static s5_obst_report_t s_obst_rec;
 
 /* Post S5's obstacle record when it changed or MQTT came back.  Never
@@ -59,7 +59,7 @@ void telemetry_task(int32_t stacd, void * p_exinf)
     s3_line_status_t line_st;
     imu_status_t     imu_st;
     s5_status_t      obs_st;
-    S1_TLM           tlm;
+    s1_tlm_t         tlm;
     uint8_t          frame[S1_TLM_BYTES];
     uint8_t          buf[S1_CONSOLE_LINE_MAX]; /* tm_sprintf has no bound */
     uint32_t         tick = 0;

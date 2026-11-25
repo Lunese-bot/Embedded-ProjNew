@@ -54,21 +54,21 @@ static volatile uint32_t g_rec_frz; /* > 0: frozen, counts down */
 
 static int16_t clamp16(int32_t value)
 {
-    int32_t out = value;
+    int32_t output = value;
 
-    if (out > INT16_MAX)
+    if (output > INT16_MAX)
     {
-        out = INT16_MAX;
+        output = INT16_MAX;
     }
-    else if (out < INT16_MIN)
+    else if (output < INT16_MIN)
     {
-        out = INT16_MIN;
+        output = INT16_MIN;
     }
     else
     {
         /* fits */
     }
-    return (int16_t)out;
+    return (int16_t)output;
 }
 
 static void rec_step(const imu_sample_t * p_sample, int32_t speed_mm_s)
@@ -94,9 +94,9 @@ static void rec_step(const imu_sample_t * p_sample, int32_t speed_mm_s)
     }
 }
 
-void s4_rec_freeze(int32_t on)
+void s4_rec_freeze(int32_t b_on)
 {
-    g_rec_frz = (0 != on) ? S4_REC_HOLD : 0U;
+    g_rec_frz = (0 != b_on) ? S4_REC_HOLD : 0U;
 }
 
 uint32_t s4_rec_count(void)
@@ -106,12 +106,12 @@ uint32_t s4_rec_count(void)
     return (idx < S4_REC_N) ? idx : S4_REC_N;
 }
 
-void s4_rec_get(uint32_t k, s4_rec_t * p_out)
+void s4_rec_get(uint32_t kdx, s4_rec_t * p_out)
 {
     uint32_t idx   = g_rec_idx;
     uint32_t count = (idx < S4_REC_N) ? idx : S4_REC_N;
 
-    *p_out = g_rec[((idx - count) + k) % S4_REC_N];
+    *p_out = g_rec[((idx - count) + kdx) % S4_REC_N];
 }
 
 /*

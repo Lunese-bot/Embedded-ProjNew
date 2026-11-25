@@ -75,15 +75,15 @@ extern ER s1_get_status(comms_status_t * p_status);
 
 /* Coherent copy of the delivery counters (s1_stats.h).  E_OK, or E_TMOUT
    when the S1 lock was busy (*p_stats is then left unchanged). */
-extern ER s1_get_stats(S1_STATS * p_stats);
+extern ER s1_get_stats(s1_stats_t * p_stats);
 
 /* ---- private to subsystem 1 ---------------------------------------- */
 extern ID             g_tid_telemetry;
 extern ID             g_mbf_telemetry;
 extern comms_status_t g_s1_stat;  /* counters, single-word updates */
-extern S1_STATS       g_s1_stats; /* delivery counters, under s1_lock() */
+extern s1_stats_t     g_s1_stats; /* delivery counters, under s1_lock() */
 extern void           telemetry_task(int32_t stacd, void * p_exinf);
-extern S1_TXQ         g_s1_txq; /* delivery policy, under s1_lock() */
+extern s1_txq_t       g_s1_txq; /* delivery policy, under s1_lock() */
 
 #if APP_TEST
 extern ID      g_mbf_s1_test;

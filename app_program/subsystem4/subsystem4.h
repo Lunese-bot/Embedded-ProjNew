@@ -98,9 +98,9 @@ typedef struct
     uint8_t safety;     /* IMU_SAFETY_* */
 } s4_rec_t;
 
-extern void     s4_rec_freeze(int32_t on); /* 1 = hold (auto-release 5 s) */
+extern void     s4_rec_freeze(int32_t b_on); /* 1 = hold (auto-release 5 s) */
 extern uint32_t s4_rec_count(void);
-extern void     s4_rec_get(uint32_t k, s4_rec_t * p_out); /* 0 = oldest */
+extern void     s4_rec_get(uint32_t kdx, s4_rec_t * p_out); /* 0 = oldest */
 
 /* ---- private to subsystem 4 (shared between its own .c files) ------ */
 #define S4_REQ_CALIBRATE  0x0001

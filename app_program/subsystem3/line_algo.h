@@ -328,15 +328,15 @@ typedef struct
     uint16_t last; /* last L record             */
 } l_fast_rd_t;
 
-void     l_fast_reset(l_fast_t * p_f, l_fast_rd_t * p_rd);
+void l_fast_reset(l_fast_t * p_f, l_fast_rd_t * p_rd);
 /* interrupt side: one 2 ms sample */
-void     l_fast_put(l_fast_t * p_f, uint16_t l, uint16_t c, uint16_t r);
+void l_fast_put(l_fast_t * p_f, uint16_t l_val, uint16_t chr, uint16_t r_val);
 /* task side: a consistent copy; false if no stable copy in a few tries */
-bool     l_fast_get(const l_fast_t * p_f, uint32_t * p_sum, uint32_t * p_n,
-                    uint16_t * p_c, uint16_t * p_r);
+bool l_fast_get(const l_fast_t * p_f, uint32_t * p_sum, uint32_t * p_n,
+                uint16_t * p_c, uint16_t * p_r);
 /* task side: the 10 ms L record = mean of the samples since the last
    record.  *p_used = how many (0: none came, the last record is kept). */
-uint16_t l_fast_record(l_fast_rd_t * p_rd, uint32_t sum, uint32_t n,
+uint16_t l_fast_record(l_fast_rd_t * p_rd, uint32_t sum, uint32_t count,
                        uint32_t * p_used);
 
 void bc_lock_ctl_reset(bc_lock_ctl_t * p_c);

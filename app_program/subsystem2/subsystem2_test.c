@@ -28,7 +28,7 @@ static int32_t absdiff(int32_t lhs, int32_t rhs)
 static bool pid_stays_in_limits(void)
 {
     pid_ctrl_t pid;
-    float32_t  out;
+    float32_t  output;
     int32_t    idx;
     bool       b_ok = true;
 
@@ -36,8 +36,8 @@ static bool pid_stays_in_limits(void)
              (float32_t)S2_DUTY_MAX);
     for (idx = 0; idx < S2_TEST_HOLD_STEPS; idx++)
     {
-        out = pid_update(&pid, 400.0f, 0.0f, 0.01f);
-        if (out > (float32_t)S2_DUTY_MAX)
+        output = pid_update(&pid, 400.0f, 0.0f, 0.01f);
+        if (output > (float32_t)S2_DUTY_MAX)
         {
             b_ok = false;
         }
@@ -49,14 +49,14 @@ static bool pid_stays_in_limits(void)
 static bool pid_integral_rises(void)
 {
     pid_ctrl_t pid;
-    float32_t  out;
+    float32_t  output;
     float32_t  prev;
 
     pid_init(&pid, S2_PID_KFF, S2_PID_KP, S2_PID_KI, 0.0f, S2_PID_I_LIMIT,
              (float32_t)S2_DUTY_MAX);
-    prev = pid_update(&pid, 100.0f, 50.0f, 0.01f);
-    out  = pid_update(&pid, 100.0f, 50.0f, 0.01f);
-    return (out > prev);
+    prev   = pid_update(&pid, 100.0f, 50.0f, 0.01f);
+    output = pid_update(&pid, 100.0f, 50.0f, 0.01f);
+    return (output > prev);
 }
 
 /* S2-U06: the control loop is running at its period.  Count only a

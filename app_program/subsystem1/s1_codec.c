@@ -24,39 +24,38 @@
 typedef struct
 {
     uint8_t * data;
-    int       position;
-} S1_BITS;
+    int32_t   position;
+} s1_bits_t;
 
-static void put_bits(S1_BITS * bits, uint32_t value, int width)
+static void put_bits(s1_bits_t * p_bits, uint32_t value, int32_t width)
 {
-    int bit;
+    int32_t bit;
 
-    for (bit = width - 1; bit >= 0; bit--, bits->position++)
+    for (bit = width - 1; bit >= 0; bit--, p_bits->position++)
     {
         if ((value >> bit) & 1u)
         {
-            bits->data[bits->position >> 3] |=
-                (uint8_t)(0x80u >> (bits->position & 7));
+            p_bits->data[p_bits->position >> 3] |=
+                (uint8_t)(0x80u >> (p_bits->position & 7));
         }
     }
 }
 
-static uint32_t get_bits(S1_BITS * bits, int width)
+static uint32_t get_bits(s1_bits_t * p_bits, int32_t width)
 {
     uint32_t value = 0;
-    int      bit;
+    int32_t  bit;
 
-    for (bit = 0; bit < width; bit++, bits->position++)
+    for (bit = 0; bit < width; bit++, p_bits->position++)
     {
-        value =
-            (value << 1) |
-            ((bits->data[bits->position >> 3] >> (7 - (bits->position & 7))) &
-             1u);
+        value = (value << 1) | ((p_bits->data[p_bits->position >> 3] >>
+                                 (7 - (p_bits->position & 7))) &
+                                1u);
     }
     return value;
 }
 
-static uint32_t pack_signed(int32_t value, int step, int width)
+static uint32_t pack_signed(int32_t value, int32_t step, int32_t width)
 {
     int64_t scaled  = value;
     int64_t maximum = (1LL << (width - 1)) - 1;
@@ -81,7 +80,7 @@ static uint32_t pack_signed(int32_t value, int step, int width)
     return (uint32_t)scaled & ((1u << width) - 1u);
 }
 
-static int32_t unpack_signed(uint32_t value, int step, int width)
+static int32_t unpack_signed(uint32_t value, int32_t step, int32_t width)
 {
     int32_t signed_value = (int32_t)value;
 
@@ -92,7 +91,7 @@ static int32_t unpack_signed(uint32_t value, int step, int width)
     return signed_value * step;
 }
 
-static uint32_t pack_unsigned(int32_t value, int step, int width)
+static uint32_t pack_unsigned(int32_t value, int32_t step, int32_t width)
 {
     uint32_t scaled;
     uint32_t maximum = (1u << width) - 1u;
@@ -105,107 +104,107 @@ static uint32_t pack_unsigned(int32_t value, int step, int width)
     return scaled > maximum ? maximum : scaled;
 }
 
-void s1_tlm_encode(const S1_TLM * tlm, uint8_t out[S1_TLM_BYTES])
+void s1_tlm_encode(const s1_tlm_t * p_tlm, uint8_t p_output[S1_TLM_BYTES])
 {
-    S1_BITS bits = { out, 0 };
-    int     i;
+    s1_bits_t bits = { p_output, 0 };
+    int32_t   idx;
 
-    for (i = 0; i < S1_TLM_BYTES; i++)
+    for (idx = 0; idx < S1_TLM_BYTES; idx++)
     {
-        out[i] = 0;
+        p_output[idx] = 0;
     }
-    put_bits(&bits, tlm->version & 7u, W_VERSION);
-    put_bits(&bits, tlm->seq, W_SEQ);
-    put_bits(&bits, tlm->state & 15u, W_STATE);
-    put_bits(&bits, pack_signed(tlm->speed_l_mms, S1_SPEED_STEP_MMS, W_SPEED),
+    put_bits(&bits, p_tlm->version & 7u, W_VERSION);
+    put_bits(&bits, p_tlm->seq, W_SEQ);
+    put_bits(&bits, p_tlm->state & 15u, W_STATE);
+    put_bits(&bits, pack_signed(p_tlm->speed_l_mms, S1_SPEED_STEP_MMS, W_SPEED),
              W_SPEED);
-    put_bits(&bits, pack_signed(tlm->speed_r_mms, S1_SPEED_STEP_MMS, W_SPEED),
+    put_bits(&bits, pack_signed(p_tlm->speed_r_mms, S1_SPEED_STEP_MMS, W_SPEED),
              W_SPEED);
-    put_bits(
-        &bits,
-        tlm->distance_mm < 0
-            ? 0u
-            : (tlm->distance_mm > 65535 ? 65535u : (uint32_t)tlm->distance_mm),
-        W_DISTANCE);
-    put_bits(&bits, pack_signed(tlm->line_pos, S1_LINE_STEP, W_LINE), W_LINE);
     put_bits(&bits,
-             tlm->obs_dist_cm > S1_OBS_MAX_CM ? S1_OBS_MAX_CM
-                                              : tlm->obs_dist_cm,
+             p_tlm->distance_mm < 0
+                 ? 0u
+                 : (p_tlm->distance_mm > 65535 ? 65535u
+                                               : (uint32_t)p_tlm->distance_mm),
+             W_DISTANCE);
+    put_bits(&bits, pack_signed(p_tlm->line_pos, S1_LINE_STEP, W_LINE), W_LINE);
+    put_bits(&bits,
+             p_tlm->obs_dist_cm > S1_OBS_MAX_CM ? S1_OBS_MAX_CM
+                                                : p_tlm->obs_dist_cm,
              W_OBS_DISTANCE);
-    put_bits(&bits, tlm->obs_detected ? 1u : 0u, W_OBS_DETECTED);
-    put_bits(&bits, tlm->obs_state & 15u, W_OBS_STATE);
-    put_bits(&bits, tlm->nav & 7u, W_NAV);
-    put_bits(&bits, tlm->barcodes > 15u ? 15u : tlm->barcodes, W_BARCODES);
-    put_bits(&bits, pack_signed(tlm->pitch_cdeg, S1_PITCH_STEP_CDEG, W_PITCH),
+    put_bits(&bits, p_tlm->obs_detected ? 1u : 0u, W_OBS_DETECTED);
+    put_bits(&bits, p_tlm->obs_state & 15u, W_OBS_STATE);
+    put_bits(&bits, p_tlm->nav & 7u, W_NAV);
+    put_bits(&bits, p_tlm->barcodes > 15u ? 15u : p_tlm->barcodes, W_BARCODES);
+    put_bits(&bits, pack_signed(p_tlm->pitch_cdeg, S1_PITCH_STEP_CDEG, W_PITCH),
              W_PITCH);
-    put_bits(&bits, pack_unsigned(tlm->hump_now_um, S1_HUMP_STEP_UM, W_HUMP),
+    put_bits(&bits, pack_unsigned(p_tlm->hump_now_um, S1_HUMP_STEP_UM, W_HUMP),
              W_HUMP);
-    put_bits(&bits, pack_unsigned(tlm->hump_max_um, S1_HUMP_STEP_UM, W_HUMP),
+    put_bits(&bits, pack_unsigned(p_tlm->hump_max_um, S1_HUMP_STEP_UM, W_HUMP),
              W_HUMP);
-    put_bits(&bits, tlm->fault_code > 0xFFFFu ? 0xFFFFu : tlm->fault_code,
+    put_bits(&bits, p_tlm->fault_code > 0xFFFFu ? 0xFFFFu : p_tlm->fault_code,
              W_FAULT);
-    put_bits(&bits, tlm->wifi_up ? 1u : 0u, W_WIFI);
-    put_bits(&bits, tlm->paused ? 1u : 0u, W_PAUSED);
+    put_bits(&bits, p_tlm->wifi_up ? 1u : 0u, W_WIFI);
+    put_bits(&bits, p_tlm->paused ? 1u : 0u, W_PAUSED);
 }
 
-int s1_tlm_decode(const uint8_t * in, int len, S1_TLM * tlm)
+int32_t s1_tlm_decode(const uint8_t * p_input, int32_t len, s1_tlm_t * p_tlm)
 {
-    S1_BITS bits = { (uint8_t *)in, 0 };
+    s1_bits_t bits = { (uint8_t *)p_input, 0 };
 
-    if (in == 0 || tlm == 0 || len != S1_TLM_BYTES)
+    if (p_input == 0 || p_tlm == 0 || len != S1_TLM_BYTES)
     {
         return -1;
     }
-    tlm->version = (uint8_t)get_bits(&bits, W_VERSION);
-    if (tlm->version != S1_PROTO_VERSION)
+    p_tlm->version = (uint8_t)get_bits(&bits, W_VERSION);
+    if (p_tlm->version != S1_PROTO_VERSION)
     {
         return -1;
     }
-    tlm->seq   = (uint8_t)get_bits(&bits, W_SEQ);
-    tlm->state = (uint8_t)get_bits(&bits, W_STATE);
-    tlm->speed_l_mms =
+    p_tlm->seq   = (uint8_t)get_bits(&bits, W_SEQ);
+    p_tlm->state = (uint8_t)get_bits(&bits, W_STATE);
+    p_tlm->speed_l_mms =
         unpack_signed(get_bits(&bits, W_SPEED), S1_SPEED_STEP_MMS, W_SPEED);
-    tlm->speed_r_mms =
+    p_tlm->speed_r_mms =
         unpack_signed(get_bits(&bits, W_SPEED), S1_SPEED_STEP_MMS, W_SPEED);
-    tlm->distance_mm = (int32_t)get_bits(&bits, W_DISTANCE);
-    tlm->line_pos =
+    p_tlm->distance_mm = (int32_t)get_bits(&bits, W_DISTANCE);
+    p_tlm->line_pos =
         unpack_signed(get_bits(&bits, W_LINE), S1_LINE_STEP, W_LINE);
-    tlm->obs_dist_cm  = get_bits(&bits, W_OBS_DISTANCE);
-    tlm->obs_detected = (uint8_t)get_bits(&bits, W_OBS_DETECTED);
-    tlm->obs_state    = (uint8_t)get_bits(&bits, W_OBS_STATE);
-    tlm->nav          = (uint8_t)get_bits(&bits, W_NAV);
-    tlm->barcodes     = (uint8_t)get_bits(&bits, W_BARCODES);
-    tlm->pitch_cdeg =
+    p_tlm->obs_dist_cm  = get_bits(&bits, W_OBS_DISTANCE);
+    p_tlm->obs_detected = (uint8_t)get_bits(&bits, W_OBS_DETECTED);
+    p_tlm->obs_state    = (uint8_t)get_bits(&bits, W_OBS_STATE);
+    p_tlm->nav          = (uint8_t)get_bits(&bits, W_NAV);
+    p_tlm->barcodes     = (uint8_t)get_bits(&bits, W_BARCODES);
+    p_tlm->pitch_cdeg =
         unpack_signed(get_bits(&bits, W_PITCH), S1_PITCH_STEP_CDEG, W_PITCH);
-    tlm->hump_now_um = (int32_t)get_bits(&bits, W_HUMP) * S1_HUMP_STEP_UM;
-    tlm->hump_max_um = (int32_t)get_bits(&bits, W_HUMP) * S1_HUMP_STEP_UM;
-    tlm->fault_code  = get_bits(&bits, W_FAULT);
-    tlm->wifi_up     = (uint8_t)get_bits(&bits, W_WIFI);
-    tlm->paused      = (uint8_t)get_bits(&bits, W_PAUSED);
+    p_tlm->hump_now_um = (int32_t)get_bits(&bits, W_HUMP) * S1_HUMP_STEP_UM;
+    p_tlm->hump_max_um = (int32_t)get_bits(&bits, W_HUMP) * S1_HUMP_STEP_UM;
+    p_tlm->fault_code  = get_bits(&bits, W_FAULT);
+    p_tlm->wifi_up     = (uint8_t)get_bits(&bits, W_WIFI);
+    p_tlm->paused      = (uint8_t)get_bits(&bits, W_PAUSED);
     return 0;
 }
 
-int s1_barcode_encode(const uint8_t * text, int len,
-                      uint8_t out[S1_BARCODE_MAX_BYTES])
+int32_t s1_barcode_encode(const uint8_t * p_text, int32_t len,
+                          uint8_t p_output[S1_BARCODE_MAX_BYTES])
 {
     static const char alphabet[] =
         "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
-    S1_BITS bits = { out, 0 };
-    int     i;
+    s1_bits_t bits = { p_output, 0 };
+    int32_t   idx;
 
-    if (text == 0 || out == 0 || len < 1 || len > S1_BARCODE_MAX_CHARS)
+    if (p_text == 0 || p_output == 0 || len < 1 || len > S1_BARCODE_MAX_CHARS)
     {
         return -1;
     }
-    for (i = 0; i < S1_BARCODE_MAX_BYTES; i++)
+    for (idx = 0; idx < S1_BARCODE_MAX_BYTES; idx++)
     {
-        out[i] = 0;
+        p_output[idx] = 0;
     }
-    for (i = 0; i < len; i++)
+    for (idx = 0; idx < len; idx++)
     {
-        int code = 0;
+        int32_t code = 0;
 
-        while (alphabet[code] != '\0' && (uint8_t)alphabet[code] != text[i])
+        while (alphabet[code] != '\0' && (uint8_t)alphabet[code] != p_text[idx])
         {
             code++;
         }
@@ -218,14 +217,14 @@ int s1_barcode_encode(const uint8_t * text, int len,
     return (bits.position + 7) / 8;
 }
 
-uint8_t s1_cmd_encode(S1_CMD command, uint8_t seq)
+uint8_t s1_cmd_encode(s1_cmd_t command, uint8_t seq)
 {
-    return (uint8_t)(((unsigned)command & 3u) << 6 | (seq & 0x3Fu));
+    return (uint8_t)(((uint32_t)command & 3u) << 6 | (seq & 0x3Fu));
 }
 
-S1_CMD s1_cmd_code(uint8_t byte)
+s1_cmd_t s1_cmd_code(uint8_t byte)
 {
-    return (S1_CMD)(byte >> 6);
+    return (s1_cmd_t)(byte >> 6);
 }
 
 uint8_t s1_cmd_seq(uint8_t byte)
@@ -233,15 +232,15 @@ uint8_t s1_cmd_seq(uint8_t byte)
     return byte & 0x3Fu;
 }
 
-S1_REQUEST s1_cmd_decode(const uint8_t * payload, int len)
+s1_request_t s1_cmd_decode(const uint8_t * p_payload, int32_t len)
 {
-    S1_CMD code;
+    s1_cmd_t code;
 
-    if (payload == 0 || (len != 1 && len != 2))
+    if (p_payload == 0 || (len != 1 && len != 2))
     {
         return S1_REQ_INVALID;
     }
-    code = s1_cmd_code(payload[0]);
+    code = s1_cmd_code(p_payload[0]);
     if (len == 1)
     {
         switch (code)
@@ -260,7 +259,7 @@ S1_REQUEST s1_cmd_decode(const uint8_t * payload, int len)
     {
         return S1_REQ_INVALID;
     }
-    switch (payload[1])
+    switch (p_payload[1])
     {
         case S1_EXT_PAUSE:
             return S1_REQ_PAUSE;
@@ -271,14 +270,14 @@ S1_REQUEST s1_cmd_decode(const uint8_t * payload, int len)
     }
 }
 
-uint8_t s1_ack_encode(S1_ACK result, uint8_t seq)
+uint8_t s1_ack_encode(s1_ack_t result, uint8_t seq)
 {
-    return (uint8_t)(((unsigned)result & 3u) << 6 | (seq & 0x3Fu));
+    return (uint8_t)(((uint32_t)result & 3u) << 6 | (seq & 0x3Fu));
 }
 
-S1_ACK s1_ack_result(uint8_t byte)
+s1_ack_t s1_ack_result(uint8_t byte)
 {
-    return (S1_ACK)(byte >> 6);
+    return (s1_ack_t)(byte >> 6);
 }
 
 uint8_t s1_ack_seq(uint8_t byte)

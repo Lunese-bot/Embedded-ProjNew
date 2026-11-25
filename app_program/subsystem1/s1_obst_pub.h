@@ -35,16 +35,16 @@ typedef struct
     uint16_t profile_id; /* key of the last record sent                   */
     uint8_t  rev;
     uint32_t t0_ms;
-} S1_OBST_PUB;
+} s1_obst_pub_t;
 
-void s1_obst_pub_reset(S1_OBST_PUB * p_pub);
+void s1_obst_pub_reset(s1_obst_pub_t * p_pub);
 
 /* Call once per poll with S5's current record and the MQTT state. */
-bool s1_obst_pub_due(S1_OBST_PUB * p_pub, const s5_obst_report_t * p_rec,
+bool s1_obst_pub_due(s1_obst_pub_t * p_pub, const s5_obst_report_t * p_rec,
                      bool b_mqtt_up);
 
 /* The record was queued: remember its key. */
-void s1_obst_pub_sent(S1_OBST_PUB * p_pub, const s5_obst_report_t * p_rec);
+void s1_obst_pub_sent(s1_obst_pub_t * p_pub, const s5_obst_report_t * p_rec);
 
 #endif /* S1_OBST_PUB_H */
 

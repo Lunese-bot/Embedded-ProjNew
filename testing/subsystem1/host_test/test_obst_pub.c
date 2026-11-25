@@ -21,7 +21,7 @@ static int g_failed;
 
 /* One telemetry period: due? then "post" it (the queue accepts unless
    b_refuse).  Returns true when a frame went out. */
-static bool poll(S1_OBST_PUB * p, const s5_obst_report_t * r, bool up, bool b_refuse)
+static bool poll(s1_obst_pub_t * p, const s5_obst_report_t * r, bool up, bool b_refuse)
 {
     if (s1_obst_pub_due(p, r, up))
     {
@@ -36,7 +36,7 @@ static bool poll(S1_OBST_PUB * p, const s5_obst_report_t * r, bool up, bool b_re
 
 int main(void)
 {
-    S1_OBST_PUB      pub;
+    s1_obst_pub_t      pub;
     s5_obst_report_t rec;
     int              sent = 0;
     int              idx;

@@ -76,26 +76,28 @@ typedef struct
     uint16_t request_id;   /* 0 when the request was too short */
     uint16_t expected_gen; /* WRITE only */
     uint8_t  map[S1_CFG_MAP_BYTES];
-} S1_CFG_REQ;
+} s1_cfg_req_t;
 
 /* 0 = a well-formed READ or WRITE (map padding is checked by the VC);
    -1 = malformed, *p_req still holds whatever op / id could be read. */
-int s1_cfg_decode_request(const uint8_t * p_in, int len, S1_CFG_REQ * p_req);
+int32_t s1_cfg_decode_request(const uint8_t * p_in, int32_t len,
+                              s1_cfg_req_t * p_req);
 
-int s1_cfg_encode_read(uint16_t request_id, uint8_t out[S1_CFG_READ_LEN]);
-int s1_cfg_encode_write(uint16_t request_id, uint16_t expected_gen,
-                        const uint8_t map[S1_CFG_MAP_BYTES],
-                        uint8_t       out[S1_CFG_WRITE_LEN]);
+int32_t s1_cfg_encode_read(uint16_t request_id,
+                           uint8_t  p_output[S1_CFG_READ_LEN]);
+int32_t s1_cfg_encode_write(uint16_t request_id, uint16_t expected_gen,
+                            const uint8_t p_map[S1_CFG_MAP_BYTES],
+                            uint8_t       p_output[S1_CFG_WRITE_LEN]);
 
 /* Reply: returns S1_CFG_REPLY_LEN. */
-int s1_cfg_encode_reply(uint8_t op, uint16_t request_id, uint8_t result,
-                        uint16_t gen, uint8_t flags,
-                        const uint8_t map[S1_CFG_MAP_BYTES],
-                        uint8_t       out[S1_CFG_REPLY_LEN]);
+int32_t s1_cfg_encode_reply(uint8_t opcode, uint16_t request_id, uint8_t result,
+                            uint16_t gen, uint8_t flags,
+                            const uint8_t p_map[S1_CFG_MAP_BYTES],
+                            uint8_t       p_output[S1_CFG_REPLY_LEN]);
 
 /* Junction note (vc_junction_note_t kind): returns S1_JX_LEN. */
-int s1_cfg_encode_junction(uint8_t kind, uint8_t letter, uint8_t code,
-                           uint16_t gen, uint8_t out[S1_JX_LEN]);
+int32_t s1_cfg_encode_junction(uint8_t kind, uint8_t letter, uint8_t code,
+                               uint16_t gen, uint8_t p_output[S1_JX_LEN]);
 
 #endif /* S1_CFG_H */
 

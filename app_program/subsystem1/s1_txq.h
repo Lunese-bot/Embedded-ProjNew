@@ -53,72 +53,73 @@ typedef struct
 {
     uint8_t line[S1_BRIDGE_LINE_MAX]; /* "topic\0payload" as queued */
     int32_t len;
-} S1_TXQ_ITEM;
+} s1_txq_item_t;
 
 /* Takes the oldest event from the event buffer into p_line;
    returns its length, 0 when empty.  Called with the S1 lock held. */
-typedef int32_t (*s1_txq_pull_fn)(uint8_t * p_line);
+typedef int32_t (*s1_txq_pull_fn_t)(uint8_t * p_line);
 
 typedef struct
 {
-    S1_TXQ_ITEM tlm[S1_TLM_QUEUE_MAX];
-    int32_t     tlm_head;
-    int32_t     tlm_count;
-    S1_TXQ_ITEM staged_tlm;
-    S1_TXQ_ITEM staged_evt;
-    int32_t     has_tlm;
-    int32_t     has_evt;
-    int32_t     tlm_claimed;
-    int32_t     evt_claimed;
-    int32_t     evt_waiting; /* events in the buffer, not staged */
-    int32_t     connected;
-    uint32_t    gen; /* connection generation */
-} S1_TXQ;
+    s1_txq_item_t tlm[S1_TLM_QUEUE_MAX];
+    int32_t       tlm_head;
+    int32_t       tlm_count;
+    s1_txq_item_t staged_tlm;
+    s1_txq_item_t staged_evt;
+    int32_t       has_tlm;
+    int32_t       has_evt;
+    int32_t       tlm_claimed;
+    int32_t       evt_claimed;
+    int32_t       evt_waiting; /* events in the buffer, not staged */
+    int32_t       connected;
+    uint32_t      gen; /* connection generation */
+} s1_txq_t;
 
 /* A claimed item, copied out so mqtt_publish() runs without the lock. */
 typedef struct
 {
-    S1_TXQ_ITEM item;
-    int32_t     kind; /* S1_KIND_TLM or S1_EVT_x */
-    uint32_t    gen;
-} S1_TXQ_CLAIM;
+    s1_txq_item_t item;
+    int32_t       kind; /* S1_KIND_TLM or S1_EVT_x */
+    uint32_t      gen;
+} s1_txq_claim_t;
 
-void s1_txq_reset(S1_TXQ * p_q);
+void s1_txq_reset(s1_txq_t * p_q);
 
 /* Queue one telemetry line (topic "t"). */
-void s1_txq_post_tlm(S1_TXQ * p_q, S1_STATS * p_st, const uint8_t * p_line,
+void s1_txq_post_tlm(s1_txq_t * p_q, s1_stats_t * p_st, const uint8_t * p_line,
                      int32_t len);
 
 /* Claim the next item to publish: 1 and *p_claim filled, or 0 when nothing
    may be published now (empty, disconnected, telemetry at its cap, or an
    item already claimed). */
-int32_t s1_txq_claim(S1_TXQ * p_q, S1_STATS * p_st, s1_txq_pull_fn pull,
-                     S1_TXQ_CLAIM * p_claim);
+int32_t s1_txq_claim(s1_txq_t * p_q, s1_stats_t * p_st, s1_txq_pull_fn_t pull,
+                     s1_txq_claim_t * p_claim);
 
 /* mqtt_publish() returned err for the claimed item: on ERR_OK the item is
    committed exactly once (removed, counted, in flight); otherwise it stays
    staged and the refusal is counted. */
-void s1_txq_finish(S1_TXQ * p_q, S1_STATS * p_st, const S1_TXQ_CLAIM * p_claim,
-                   int32_t err);
+void s1_txq_finish(s1_txq_t * p_q, s1_stats_t * p_st,
+                   const s1_txq_claim_t * p_claim, int32_t err);
 
 /* The claimed item cannot be published at all (malformed): remove it and
    count it lost under its own topic. */
-void s1_txq_drop_claim(S1_TXQ * p_q, S1_STATS * p_st,
-                       const S1_TXQ_CLAIM * p_claim);
+void s1_txq_drop_claim(s1_txq_t * p_q, s1_stats_t * p_st,
+                       const s1_txq_claim_t * p_claim);
 
 /* Completion callback for an accepted publish of generation gen. */
-void s1_txq_done(S1_TXQ * p_q, S1_STATS * p_st, int32_t kind, uint32_t gen,
+void s1_txq_done(s1_txq_t * p_q, s1_stats_t * p_st, int32_t kind, uint32_t gen,
                  int32_t err);
 
 /* Connection change: new generation, in-flight -> unconfirmed. */
-void s1_txq_set_connected(S1_TXQ * p_q, S1_STATS * p_st, int32_t connected);
+void s1_txq_set_connected(s1_txq_t * p_q, s1_stats_t * p_st, int32_t connected);
 
 /* Next item in publish order, removed at once without publishing (the old
    s1_bridge_pop() behaviour).  Returns its length, 0 when empty. */
-int32_t s1_txq_take(S1_TXQ * p_q, s1_txq_pull_fn pull, S1_TXQ_ITEM * p_item);
+int32_t s1_txq_take(s1_txq_t * p_q, s1_txq_pull_fn_t pull,
+                    s1_txq_item_t * p_item);
 
 /* Unsent telemetry frames held (staged + waiting). */
-int32_t s1_txq_tlm_pending(const S1_TXQ * p_q);
+int32_t s1_txq_tlm_pending(const s1_txq_t * p_q);
 
 #endif /* S1_TXQ_H */
 

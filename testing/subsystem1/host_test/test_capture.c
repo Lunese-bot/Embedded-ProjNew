@@ -47,7 +47,7 @@ static int tm_printf(const uint8_t *format, ...);
 #include "../../../app_program/subsystem1/subsystem1_test.c"
 
 /* Target reads S2/S4 (s1_latch_port.c); the capture tests need no latch. */
-void s1_latch_read(S1_LATCH * p_out)
+void s1_latch_read(s1_latch_t * p_out)
 {
     s1_latch_resolve(p_out, 0U, 1, 0U, 0U);
 }
@@ -135,7 +135,7 @@ static ER tk_dly_tsk(int delay)
     if (telemetry_enabled &&
         ((previous / S1_PERIOD_MS) != (clock_ms / S1_PERIOD_MS)))
     {
-        S1_TLM frame = {0};
+        s1_tlm_t frame = {0};
         uint8_t encoded[S1_TLM_BYTES];
         frame.version = S1_PROTO_VERSION;
         s1_tlm_encode(&frame, encoded);
@@ -163,7 +163,7 @@ int main(void)
     const uint8_t binary[] = { 0x41, 0x00, 0xff };
     char topic[S1_BRIDGE_FULL_TOPIC_MAX];
     uint8_t payload[S1_BRIDGE_LINE_MAX];
-    S1_TLM frame = {0}, decoded;
+    s1_tlm_t frame = {0}, decoded;
     uint8_t encoded[S1_TLM_BYTES];
     int i;
     int retained;

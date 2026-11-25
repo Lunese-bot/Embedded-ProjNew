@@ -41,7 +41,7 @@
 /* Pack the three values.  Distance above 2047 mm saturates at 2047;
    a state above 15 is masked (cannot happen: s5_state_t has 10). */
 extern uint16_t s5_pack_status(uint16_t distance_mm, uint8_t state,
-                               bool detected);
+                               bool b_detected);
 
 /* Unpack.  Any output pointer may be NULL if that field is not needed. */
 extern void s5_unpack_status(uint16_t word, uint16_t * p_distance_mm,

@@ -24,7 +24,7 @@ int main(void)
 
 	while (fgets(line, sizeof(line), stdin)) {
 		uint8_t out[S1_TLM_BYTES];
-		S1_TLM t;
+		s1_tlm_t t;
 		long v[18];
 		int i, n;
 
@@ -65,11 +65,11 @@ int main(void)
 			for (i = 0; i < n; i++) printf("%02x", b[i]);
 			printf("\n");
 		} else if (line[0] == 'C' && sscanf(line + 1, "%ld %ld", &v[0], &v[1]) == 2) {
-			printf("%02x\n", s1_cmd_encode((S1_CMD)v[0], (uint8_t)v[1]));
+			printf("%02x\n", s1_cmd_encode((s1_cmd_t)v[0], (uint8_t)v[1]));
 		} else if (line[0] == 'A' && sscanf(line + 1, "%ld %ld", &v[0], &v[1]) == 2) {
-			printf("%02x\n", s1_ack_encode((S1_ACK)v[0], (uint8_t)v[1]));
+			printf("%02x\n", s1_ack_encode((s1_ack_t)v[0], (uint8_t)v[1]));
 		} else if (line[0] == 'L' && sscanf(line + 1, "%ld %ld %ld %ld", &v[0], &v[1], &v[2], &v[3]) == 4) {
-			S1_LATCH latch;
+			s1_latch_t latch;
 			char text[S1_LATCH_TEXT_MAX + 1];
 
 			s1_latch_resolve(&latch, (uint32_t)v[0], (int32_t)v[1], (uint32_t)v[2], (uint32_t)v[3]);

@@ -56,12 +56,14 @@ static int32_t setup(void)
 
 int32_t imu_selftest_math(void)
 {
-    static const struct
+    typedef struct
     {
         int32_t y;
         int32_t x;
         int32_t want;
-    } cases[] = {
+    } atan_case_t;
+
+    static const atan_case_t cases[] = {
         { 0, 1000, 0 },      { 1000, 1000, 4500 },
         { 1000, 0, 9000 },   { 1000, -1000, 13500 },
         { 0, -1000, 18000 }, { -1000, -1000, -13500 },

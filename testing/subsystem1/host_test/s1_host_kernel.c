@@ -38,7 +38,7 @@ uint32_t host_latch_stop_after;
 int32_t  host_latch_status_ok = 1;
 uint32_t host_latch_safety;
 
-void s1_latch_read(S1_LATCH * p_out)
+void s1_latch_read(s1_latch_t * p_out)
 {
     s1_latch_resolve(p_out, host_latch_stop_before, host_latch_status_ok,
                      host_latch_safety, host_latch_stop_after);

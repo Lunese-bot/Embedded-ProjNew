@@ -32,36 +32,37 @@ static ER              status_result;
 
 volatile uint32_t g_s2_odo_ticks; /* S2's odometer, read by the bridge */
 static UINT       flg_pending; /* S2 event flags the next tk_wai_flg returns */
-static ER tk_wai_flg(ID id, UINT bits, UINT mode, UINT * out, int timeout)
+static ER         tk_wai_flg(ID obj_id, UINT bits, UINT mode, UINT * p_output,
+                             int timeout)
 {
-    (void)id;
+    (void)obj_id;
     (void)mode;
     (void)timeout;
     if (0U == (flg_pending & bits))
     {
         return E_TMOUT;
     }
-    *out = flg_pending & bits;
+    *p_output = flg_pending & bits;
     flg_pending &= ~bits;
     return E_OK;
 }
-static ER tk_clr_flg(ID id, UINT bits)
+static ER tk_clr_flg(ID obj_id, UINT bits)
 {
-    (void)id;
+    (void)obj_id;
     (void)bits;
     return E_OK;
 }
-static void app_check(ER result, const char * what)
+static void app_check(ER result, const char * p_what)
 {
-    (void)what;
+    (void)p_what;
     if (result < E_OK)
     {
         status_errors++;
     }
 }
-ER s2_get_status(motion_status_t * out)
+ER s2_get_status(motion_status_t * p_output)
 {
-    *out = status;
+    *p_output = status;
     return status_result;
 }
 uint32_t s2_stop_epoch(void)

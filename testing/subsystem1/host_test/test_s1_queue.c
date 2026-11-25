@@ -45,9 +45,9 @@ static void reset_all(void)
     (void)subsystem1_init();
 }
 
-static S1_STATS stats(void)
+static s1_stats_t stats(void)
 {
-    S1_STATS snapshot;
+    s1_stats_t snapshot;
 
     (void)s1_get_stats(&snapshot);
     return snapshot;
@@ -55,7 +55,7 @@ static S1_STATS stats(void)
 
 static void tlm_frame(uint8_t seq, uint8_t frame[S1_TLM_BYTES])
 {
-    S1_TLM tlm = { 0 };
+    s1_tlm_t tlm = { 0 };
 
     tlm.version = S1_PROTO_VERSION;
     tlm.seq     = seq;
@@ -77,7 +77,7 @@ static void test_kinds(void)
 
 static void test_format(void)
 {
-    S1_STATS st;
+    s1_stats_t st;
     char     line[S1_STATS_TEXT_MAX + 8];
     int32_t  len;
 
@@ -98,7 +98,7 @@ static void test_format(void)
 static int32_t latch_text(uint32_t before, int32_t ok, uint32_t safety,
                           uint32_t after, char * p_line, int32_t size)
 {
-    S1_LATCH latch;
+    s1_latch_t latch;
 
     s1_latch_resolve(&latch, before, ok, safety, after);
     return s1_latch_format(&latch, p_line, size);
@@ -108,7 +108,7 @@ static void test_latch(void)
 {
     char     line[S1_STATS_TEXT_MAX + 8];
     char     big[S1_STATS_TEXT_MAX];
-    S1_LATCH latch;
+    s1_latch_t latch;
     int32_t  len;
 
     (void)latch_text(0U, 1, IMU_SAFETY_LIFT, 0U, line, (int32_t)sizeof(line));
@@ -249,7 +249,7 @@ static void post_ack(uint8_t seq)
 
 static int32_t pub_seq(int32_t idx)
 {
-    S1_TLM tlm;
+    s1_tlm_t tlm;
 
     if (s1_tlm_decode(g_pub[idx].payload, g_pub[idx].len, &tlm) != 0)
     {
@@ -280,7 +280,7 @@ static void complete(int32_t from, int32_t to, int32_t err)
 static void test_refused_event(void)
 {
     const uint8_t barcode[] = { 0x10, 0x82, 0x00, 0xFF };
-    S1_STATS      st;
+    s1_stats_t      st;
     int32_t       idx;
 
     reset_policy(1);
@@ -315,7 +315,7 @@ static void test_event_priority(void)
 {
     int32_t  idx;
     bool     b_ok = true;
-    S1_STATS st;
+    s1_stats_t st;
 
     reset_policy(1);
     for (idx = 0; idx < 20; idx++)
@@ -367,7 +367,7 @@ static void test_inflight_cap(void)
 {
     int32_t  idx;
     bool     b_cap = true;
-    S1_STATS st;
+    s1_stats_t st;
 
     reset_policy(1);
     for (idx = 0; idx < 50; idx++)
@@ -423,7 +423,7 @@ static void test_offline(void)
 {
     int32_t  idx;
     bool     b_order = true;
-    S1_STATS st;
+    s1_stats_t st;
 
     reset_policy(0);
     for (idx = 0; idx < 300; idx++) /* 60 s at 200 ms */
@@ -481,7 +481,7 @@ static void test_claimed_interleave(void)
 {
     int32_t  idx;
     bool     b_ok = true;
-    S1_STATS st;
+    s1_stats_t st;
     uint8_t  next_ack = 0;
 
     reset_policy(1);
@@ -533,7 +533,7 @@ static void refuse_next_lock(void)
 
 static void test_lock_busy(void)
 {
-    S1_STATS st;
+    s1_stats_t st;
 
     reset_policy(1);
     post_ack(9);
@@ -564,7 +564,7 @@ static void test_lock_busy(void)
 static void test_eviction_counts(void)
 {
     int32_t  idx;
-    S1_STATS st;
+    s1_stats_t st;
 
     reset_policy(0);
     post_ack(1);
@@ -709,7 +709,7 @@ static void test_post_spare(void)
     static const uint8_t frame[20] = { 1, 0, 1 };
     int32_t  idx;
     int32_t  posted = 0;
-    S1_STATS st;
+    s1_stats_t st;
 
     reset_policy(0);
     for (idx = 0; idx < S1_EVT_QUEUE_MAX + 4; idx++)

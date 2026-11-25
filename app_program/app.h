@@ -15,9 +15,7 @@
 #include <stdint.h>      /* fixed-width integer types (BARR-C 5.2) */
 #include <stdbool.h>     /* bool, true, false (BARR-C 5.6) */
 
-/* Floating-point type names (BARR-C 5.4).  C99 does not define them. */
-typedef float  float32_t;
-typedef double float64_t;
+#include "float_types.h" /* float32_t, float64_t (BARR-C 5.4) */
 
 /* ---------------------------------------------------------------------
  *  Pins: free for projects are GP0..GP22 and GP26..GP28.  GP0/GP1 are

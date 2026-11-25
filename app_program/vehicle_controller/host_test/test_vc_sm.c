@@ -75,19 +75,20 @@ static void feed(vc_source_t src, vc_event_type_t type, int32_t param1,
     tally_add();
 }
 
-static void feed_barcode(const char * text)
+static void feed_barcode(const char * p_text)
 {
     vc_event_t event = { 0 };
-    size_t     i;
+    size_t     idx2;
 
     event.src  = VC_SRC_LINE;
     event.type = VC_EV_BARCODE_DECODED;
-    for (i = 0u; (i < sizeof(event.barcode_text) - 1u) && (text[i] != '\0');
-         i++)
+    for (idx2 = 0u;
+         (idx2 < sizeof(event.barcode_text) - 1u) && (p_text[idx2] != '\0');
+         idx2++)
     {
-        event.barcode_text[i] = text[i];
+        event.barcode_text[idx2] = p_text[idx2];
     }
-    event.barcode_text[i] = '\0';
+    event.barcode_text[idx2] = '\0';
     vc_sm_handle(&g_sm, &event, g_now_ms, &g_actions);
     tally_add();
 }
@@ -333,9 +334,9 @@ static void test_barcode(void)
     start_mission();
     feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
     {
-        int32_t k;
+        int32_t kdx;
         bool    b_ok = (VC_ST_DECODE_BARCODE == g_sm.st.state);
-        for (k = 0; k < VC_BARCODE_MAX_RETRY; k++)
+        for (kdx = 0; kdx < VC_BARCODE_MAX_RETRY; kdx++)
         {
             feed(VC_SRC_LINE, VC_EV_BARCODE_FAILED, 0, 0);
             b_ok = b_ok && (VC_ST_DECODE_BARCODE == g_sm.st.state) &&
@@ -440,10 +441,10 @@ static void test_turn_on_line(void)
           "U-turn: fast pivot in place to VC_UTURN_FAST_DEG (no advance), line "
           "watch on");
     {
-        uint32_t u0 = g_sm.odo; /* odometer as the pivot starts */
+        uint32_t u0_val = g_sm.odo; /* odometer as the pivot starts */
 
-        line_at(u0 + VC_PIVOT_COUNTS(90));
-        line_at(u0 + VC_PIVOT_COUNTS(170));
+        line_at(u0_val + VC_PIVOT_COUNTS(90));
+        line_at(u0_val + VC_PIVOT_COUNTS(170));
     }
     CHECK("S6-H58",
           (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
@@ -865,17 +866,17 @@ static void test_letter_config(void)
     int32_t not_none  = 0;
     char    text[2]   = { 'A', '\0' };
 
-    for (uint32_t i = 0u; i < VC_BARCODE_LETTER_COUNT; i++)
+    for (uint32_t idx2 = 0u; idx2 < VC_BARCODE_LETTER_COUNT; idx2++)
     {
-        text[0] = (char)('A' + (int)i);
+        text[0] = (char)('A' + (int)idx2);
         /* the active map holds the four actions: a NONE row reads STRAIGHT */
         if ((vc_bcmap_wire_from_nav(vc_barcode_lookup(text)) !=
-             vc_bcmap_wire_from_nav(expect[i])) ||
+             vc_bcmap_wire_from_nav(expect[idx2])) ||
             (NAV_NONE == vc_barcode_lookup(text)))
         {
             all_match = 0;
         }
-        if (NAV_NONE != expect[i])
+        if (NAV_NONE != expect[idx2])
         {
             not_none++;
         }
@@ -919,7 +920,7 @@ static uint32_t g_ut_sample_ms; /* time stamp of the next S3 sample */
 
 static int32_t count_moves(vc_move_t move, int32_t value)
 {
-    int32_t n = 0;
+    int32_t count = 0;
 
     for (int32_t idx = 0; idx < g_actions.n; idx++)
     {
@@ -927,10 +928,10 @@ static int32_t count_moves(vc_move_t move, int32_t value)
             (g_actions.a[idx].p1 == (int32_t)move) &&
             (g_actions.a[idx].p2 == value))
         {
-            n++;
+            count++;
         }
     }
-    return n;
+    return count;
 }
 
 /* Traces since the last ut_log_clear(), so a step's lines can be checked
@@ -1062,7 +1063,7 @@ static void uturn_clean(void)
     ut_turn_seeing(24u, 8u, VC_LINE_C);          /* braking, still on C */
     ut_turn_seeing(16u, 8u, 0);                  /* C lets it go */
     ut_motion(VC_EV_MOTION_STOPPED);
-    for (int32_t n = 0; n < VC_UTURN_VERIFY_SAMPLES; n++)
+    for (int32_t count = 0; count < VC_UTURN_VERIFY_SAMPLES; count++)
     {
         ut_sample_now(0); /* both white, between C and R */
     }
@@ -1070,7 +1071,7 @@ static void uturn_clean(void)
 
 static void test_uturn(void)
 {
-    int32_t h;
+    int32_t h_val;
 
     /* settings */
     CHECK("UT-01",
@@ -1095,7 +1096,7 @@ static void test_uturn(void)
               logged(VC_UT_SWEEP, VC_UT_APPROACH, 1),
           "fast pivot done: slow pivot left at VC_UTURN_SLOW_MMS (approach)");
     tally_clear();
-    for (int32_t n = 0; n < 10; n++)
+    for (int32_t count = 0; count < 10; count++)
     {
         ut_tick();
     }
@@ -1112,14 +1113,14 @@ static void test_uturn(void)
           (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
               (0 == g_tally[VC_MOVE_STOP_CONFIRM]),
           "one black sample is not yet a sighting");
-    h = g_sm.ut.heading + 8;
+    h_val = g_sm.ut.heading + 8;
     ut_turn_seeing(8u, 8u, VC_LINE_C);
     CHECK(
         "UT-06",
         (VC_EXEC_UT_BRAKE == g_sm.exec_phase) &&
             (1 == g_tally[VC_MOVE_STOP_CONFIRM]) &&
             logged(VC_UT_SIGHT, VC_LINE_C, 1) && logged(VC_UT_BRAKE, 1, 1) &&
-            (VC_LINE_C == g_sm.ut.sight) && (h == g_sm.ut.sight_h),
+            (VC_LINE_C == g_sm.ut.sight) && (h_val == g_sm.ut.sight_h),
         "two black samples on C: sighting logged with its heading, stop asked");
     ut_turn_seeing(24u, 8u, VC_LINE_C);
     ut_turn_seeing(16u, 8u, 0);
@@ -1149,7 +1150,7 @@ static void test_uturn(void)
           "clean turn: C let the tape go, R never saw it = between C and R; "
           "no correction, no straight drive, slow line following");
     tally_clear();
-    for (int32_t n = 0; n < VC_REJOIN_STEER_SAMPLES; n++)
+    for (int32_t count = 0; count < VC_REJOIN_STEER_SAMPLES; count++)
     {
         feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_STEER, 0);
     }
@@ -1189,7 +1190,7 @@ static void test_uturn(void)
     ut_fast();
     ut_turn_seeing((uint32_t)UT_DEG(30), 8u, 0);
     ut_turn_seeing(16u, 8u, VC_LINE_C); /* sighting, stop asked */
-    h = g_sm.ut.sight_h;
+    h_val = g_sm.ut.sight_h;
     ut_turn_seeing(48u, 8u, 0);         /* between, still turning */
     ut_turn_seeing(48u, 8u, VC_LINE_R); /* under R */
     ut_turn_seeing(40u, 8u, 0);         /* out past R */
@@ -1204,7 +1205,7 @@ static void test_uturn(void)
               logged(VC_UT_VERDICT, VC_UT_V_PASSED, 1) &&
               logged(VC_UT_SWEEP, -(int32_t)VC_UT_CORRECT, 1) &&
               has_move(VC_MOVE_PIVOT, -VC_UTURN_SLOW_MMS, 1) &&
-              (g_sm.ut.bound == h - UT_DEG(VC_UTURN_CORRECT_DEG)) &&
+              (g_sm.ut.bound == h_val - UT_DEG(VC_UTURN_CORRECT_DEG)) &&
               (VC_ST_EXECUTE_ACTION == g_sm.st.state),
           "overshoot: R let the line go = turned past it; pivot back slowly "
           "(right), bounded at the sighting minus VC_UTURN_CORRECT_DEG");
@@ -1352,7 +1353,7 @@ static void test_uturn(void)
           "missing tape: bounded sweeps, then FAULT line recovery 0x0003, "
           "motors stopped");
     tally_clear();
-    for (int32_t n = 0; n < 20; n++)
+    for (int32_t count = 0; count < 20; count++)
     {
         ut_tick();
     }
@@ -1361,7 +1362,7 @@ static void test_uturn(void)
     /* 7. time bound: S2 never finishes the fast pivot */
     ut_begin();
     ut_log_clear();
-    for (uint32_t t = 0u; t <= VC_UTURN_MS; t += HOST_TICK_MS)
+    for (uint32_t t_val = 0u; t_val <= VC_UTURN_MS; t_val += HOST_TICK_MS)
     {
         ut_tick();
     }
@@ -1377,7 +1378,8 @@ static void test_uturn(void)
     ut_fast();
     ut_turn_seeing(16u, 8u, VC_LINE_C);
     ut_log_clear();
-    for (uint32_t t = 0u; t <= VC_UTURN_SETTLE_MS; t += HOST_TICK_MS)
+    for (uint32_t t_val = 0u; t_val <= VC_UTURN_SETTLE_MS;
+         t_val += HOST_TICK_MS)
     {
         ut_tick();
     }
@@ -1510,24 +1512,24 @@ static int32_t turns_issued(void)
 /* One decoded letter, then one junction.  The letter alone must start no
    motion; the junction issues `move` exactly once; S2's completion clears the
    instruction; a second junction without a new barcode does not repeat it. */
-static void check_letter_maneuver(const char * id, const char * letter,
+static void check_letter_maneuver(const char * p_obj_id, const char * p_letter,
                                   navigation_command_t nav, vc_move_t move,
-                                  const char * what)
+                                  const char * p_what)
 {
     char name[16];
     char desc[112];
 
-#define NAV_CHECK(sfx, cond, text)                          \
-    do                                                      \
-    {                                                       \
-        snprintf(name, sizeof(name), "%s%s", id, sfx);      \
-        snprintf(desc, sizeof(desc), "%s: %s", what, text); \
-        CHECK(name, cond, desc);                            \
+#define NAV_CHECK(sfx, cond, text)                            \
+    do                                                        \
+    {                                                         \
+        snprintf(name, sizeof(name), "%s%s", p_obj_id, sfx);  \
+        snprintf(desc, sizeof(desc), "%s: %s", p_what, text); \
+        CHECK(name, cond, desc);                              \
     } while (0)
 
     start_mission();
     tally_clear();
-    feed_barcode(letter);
+    feed_barcode(p_letter);
     NAV_CHECK("a",
               (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
                   (nav == g_sm.pending_nav) && (0 == turns_issued()) &&

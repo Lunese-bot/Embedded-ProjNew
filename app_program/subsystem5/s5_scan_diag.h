@@ -41,17 +41,17 @@ typedef struct
 /* Median of the n (1..5) readings, ignoring no-echo (0) ones; 0 when all
    are missing.  With an even number of echoes the upper middle one.
    This is the one implementation: us_read_median_mm uses it too. */
-extern uint16_t s5_median_nonzero(const uint16_t * p_raw, int32_t n);
+extern uint16_t s5_median_nonzero(const uint16_t * p_raw, int32_t count);
 
 /* The scan samples (deg, used) of trips. */
-extern void s5_trips_to_samples(const s5_trip_t * p_trips, int32_t n,
+extern void s5_trips_to_samples(const s5_trip_t * p_trips, int32_t count,
                                 s5_sample_t * p_out);
 
 /* Same order and rule as s5_merge_samples: sorted by angle, the fine trip
    replaces the coarse one at the same angle (its pings come with it). */
-extern int32_t s5_merge_trips(const s5_trip_t * a, int32_t na,
-                              const s5_trip_t * b, int32_t nb, s5_trip_t * out,
-                              int32_t max);
+extern int32_t s5_merge_trips(const s5_trip_t * p_a_val, int32_t na_val,
+                              const s5_trip_t * p_b_val, int32_t nb_val,
+                              s5_trip_t * p_output, int32_t max);
 
 /* Trips [first, first + n) as " C-60:0/0/0=0 F-45:0/212/0=212" (source
    C or F, the pings, = the median used).  Whole items only, always NUL
@@ -59,7 +59,7 @@ extern int32_t s5_merge_trips(const s5_trip_t * a, int32_t na,
    written. */
 extern int32_t s5_format_trips(char * p_buf, int32_t size,
                                const s5_trip_t * p_trips, int32_t first,
-                               int32_t n);
+                               int32_t count);
 
 /* ---- Supported-edge width estimate (report only) ------------------
    Runs beside the normal profile and never changes it: side choice,
@@ -127,8 +127,8 @@ typedef struct
 
 /* Build the raw profile from trips (s5_build_profile on their medians)
    and the supported-edge estimate beside it.  Returns the status. */
-extern s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t n,
-                                        s5_width_est_t * p_est);
+extern s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips,
+                                        int32_t count, s5_width_est_t * p_est);
 
 extern const char * s5_we_name(uint8_t status);
 

@@ -78,7 +78,7 @@ int32_t s1_stats_line_kind(const uint8_t * p_line, int32_t len)
     return S1_EVT_OTHER;
 }
 
-void s1_stats_lost(S1_STATS * p_stats, int32_t kind)
+void s1_stats_lost(s1_stats_t * p_stats, int32_t kind)
 {
     if (kind == S1_KIND_TLM)
     {
@@ -94,7 +94,7 @@ void s1_stats_lost(S1_STATS * p_stats, int32_t kind)
     }
 }
 
-void s1_stats_publish(S1_STATS * p_stats, int32_t kind, int32_t err)
+void s1_stats_publish(s1_stats_t * p_stats, int32_t kind, int32_t err)
 {
     if (err == S1_ERR_OK)
     {
@@ -121,11 +121,11 @@ void s1_stats_publish(S1_STATS * p_stats, int32_t kind, int32_t err)
     }
 }
 
-static void text_char(s1_text_t * p_text, char ch)
+static void text_char(s1_text_t * p_text, char chr)
 {
     if (p_text->len < (p_text->size - 1))
     {
-        p_text->p_buf[p_text->len] = ch;
+        p_text->p_buf[p_text->len] = chr;
         p_text->len++;
     }
 }
@@ -176,10 +176,10 @@ static void text_field(s1_text_t * p_text, const char * p_name,
     }
 }
 
-int32_t s1_stats_format(const S1_STATS * p_stats, char * p_buf, int32_t size)
+int32_t s1_stats_format(const s1_stats_t * p_stats, char * p_buf, int32_t size)
 {
     s1_text_t text;
-    uint32_t  v[3];
+    uint32_t  value2[3];
 
     if ((p_buf == NULL) || (size <= 0))
     {
@@ -195,21 +195,21 @@ int32_t s1_stats_format(const S1_STATS * p_stats, char * p_buf, int32_t size)
         text_field(&text, "tl", &p_stats->tlm_lost, 1);
         text_field(&text, "eq", &p_stats->evt_posted, 1);
         text_field(&text, "ed", p_stats->evt_drop, S1_EVT_KINDS);
-        v[0] = p_stats->pub_tlm;
-        v[1] = p_stats->pub_evt;
-        text_field(&text, "pa", v, 2);
-        v[0] = p_stats->ref_mem;
-        v[1] = p_stats->ref_conn;
-        v[2] = p_stats->ref_other;
-        text_field(&text, "rf", v, 3);
-        v[0] = p_stats->cb_ok;
-        v[1] = p_stats->cb_err;
-        v[2] = p_stats->cb_stale;
-        text_field(&text, "cb", v, 3);
+        value2[0] = p_stats->pub_tlm;
+        value2[1] = p_stats->pub_evt;
+        text_field(&text, "pa", value2, 2);
+        value2[0] = p_stats->ref_mem;
+        value2[1] = p_stats->ref_conn;
+        value2[2] = p_stats->ref_other;
+        text_field(&text, "rf", value2, 3);
+        value2[0] = p_stats->cb_ok;
+        value2[1] = p_stats->cb_err;
+        value2[2] = p_stats->cb_stale;
+        text_field(&text, "cb", value2, 3);
         text_field(&text, "uc", &p_stats->unconfirmed, 1);
-        v[0] = p_stats->inflight_tlm;
-        v[1] = p_stats->inflight_evt;
-        text_field(&text, "if", v, 2);
+        value2[0] = p_stats->inflight_tlm;
+        value2[1] = p_stats->inflight_evt;
+        text_field(&text, "if", value2, 2);
         text_field(&text, "hr", &p_stats->hb_refused, 1);
         text_field(&text, "lf", &p_stats->lock_fail, 1);
     }
@@ -217,8 +217,9 @@ int32_t s1_stats_format(const S1_STATS * p_stats, char * p_buf, int32_t size)
     return text.len;
 }
 
-void s1_latch_resolve(S1_LATCH * p_out, uint32_t stop_before, int32_t status_ok,
-                      uint32_t safety_stop, uint32_t stop_after)
+void s1_latch_resolve(s1_latch_t * p_out, uint32_t stop_before,
+                      int32_t status_ok, uint32_t safety_stop,
+                      uint32_t stop_after)
 {
     if (p_out == NULL)
     {
@@ -248,7 +249,7 @@ void s1_latch_resolve(S1_LATCH * p_out, uint32_t stop_before, int32_t status_ok,
     }
 }
 
-int32_t s1_latch_format(const S1_LATCH * p_latch, char * p_buf, int32_t size)
+int32_t s1_latch_format(const s1_latch_t * p_latch, char * p_buf, int32_t size)
 {
     const char * p_text;
     int32_t      len = 0;

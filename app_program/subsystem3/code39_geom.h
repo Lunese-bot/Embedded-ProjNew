@@ -30,6 +30,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "../float_types.h"
 
 /* Largest trace accepted (at least S3_LTRACE_N; 2026-11-18: 700 -> 1400) */
 #ifndef C39G_MAX_SAMPLES
@@ -121,8 +122,9 @@ typedef struct
    about 90 times during the work (the robot passes tk_dly_tsk(1) so lower
    priority tasks still run).  Returns C39G_OK and fills p_info. */
 c39g_result_t c39g_decode(const uint16_t * p_l, const uint8_t * p_fwd,
-                          const int8_t * p_yaw, uint32_t n, bool b_use_dist,
-                          void (*p_yield)(void), c39g_info_t * p_info);
+                          const int8_t * p_yaw, uint32_t count2,
+                          bool          b_use_dist, void (*p_yield)(void),
+                          c39g_info_t * p_info);
 
 /* Smallest hump for c39g_decode_hump(): C39G_HUMP_NOISE_K x the read's
    noise margin, or C39G_MIN_HUMP when there is none (margin <= 0). */

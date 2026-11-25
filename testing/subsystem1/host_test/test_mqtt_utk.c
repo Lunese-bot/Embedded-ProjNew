@@ -245,9 +245,9 @@ static void broker_down(void)
     connection_cb(client, NULL, MQTT_CONNECT_DISCONNECTED);
 }
 
-static S1_STATS stats(void)
+static s1_stats_t stats(void)
 {
-    S1_STATS snapshot;
+    s1_stats_t snapshot;
 
     (void)s1_get_stats(&snapshot);
     return snapshot;
@@ -353,7 +353,7 @@ static void test_counters(void)
 {
     const uint8_t ack       = 0x05;
     uint8_t       frame[14] = { 0x20 };
-    S1_STATS      st;
+    s1_stats_t      st;
 
     reset_all();
     broker_up();

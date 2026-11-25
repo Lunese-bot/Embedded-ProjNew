@@ -135,19 +135,19 @@ void line_normalise(line_cal_t const * p_cal, uint8_t analog_mask,
             {
                 /* not calibrated: use the sensor's measured white / black
                    readings from s3_config.h (either order) */
-                uint32_t w =
+                uint32_t width =
                     (S3_IR_R == idx)
                         ? (uint32_t)S3_R_ADC_WHITE
                         : ((S3_IR_C == idx) ? (uint32_t)S3_C_ADC_WHITE
                                             : (uint32_t)S3_L_ADC_WHITE);
-                uint32_t k =
+                uint32_t kdx =
                     (S3_IR_R == idx)
                         ? (uint32_t)S3_R_ADC_BLACK
                         : ((S3_IR_C == idx) ? (uint32_t)S3_C_ADC_BLACK
                                             : (uint32_t)S3_L_ADC_BLACK);
-                low  = (w < k) ? w : k;
-                high = (w < k) ? k : w;
-                b_hi = (k >= w);
+                low  = (width < kdx) ? width : kdx;
+                high = (width < kdx) ? kdx : width;
+                b_hi = (kdx >= width);
             }
 
             value = p_raw[idx];
@@ -717,10 +717,10 @@ int32_t bc_edge_margin(bc_edge_t const * p_e)
         return 0;
     }
     {
-        int32_t sd = (p_e->w_sd_x16 < (S3_BC_NOISE_SD_MIN * 16))
-                         ? (S3_BC_NOISE_SD_MIN * 16)
-                         : p_e->w_sd_x16;
-        return ((S3_BC_NOISE_K * sd) / 16) + S3_BC_NOISE_ADD;
+        int32_t sd_val = (p_e->w_sd_x16 < (S3_BC_NOISE_SD_MIN * 16))
+                             ? (S3_BC_NOISE_SD_MIN * 16)
+                             : p_e->w_sd_x16;
+        return ((S3_BC_NOISE_K * sd_val) / 16) + S3_BC_NOISE_ADD;
     }
 }
 
@@ -739,7 +739,7 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
                            uint32_t * p_edge_pos)
 {
     uint8_t changed;
-    int32_t m;
+    int32_t m_val;
     int32_t white;
 
     /* Cast: wrapping difference of the microsecond clock */
@@ -783,16 +783,16 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
         }
         else
         {
-            int32_t lo = (raw < p_e->w_min) ? raw : p_e->w_min;
-            int32_t hi = (raw > p_e->w_max) ? raw : p_e->w_max;
-            if ((hi - lo) > S3_BC_WHITE_INIT_SPREAD)
+            int32_t low2  = (raw < p_e->w_min) ? raw : p_e->w_min;
+            int32_t high2 = (raw > p_e->w_max) ? raw : p_e->w_max;
+            if ((high2 - low2) > S3_BC_WHITE_INIT_SPREAD)
             {
                 bc_white_window(p_e, raw); /* not steady: start again */
             }
             else
             {
-                p_e->w_min = lo;
-                p_e->w_max = hi;
+                p_e->w_min = low2;
+                p_e->w_max = high2;
                 p_e->w_sum += raw;
                 p_e->w_dsum += (raw > p_e->last_raw) ? (raw - p_e->last_raw)
                                                      : (p_e->last_raw - raw);
@@ -822,11 +822,12 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
         return 0U;
     }
 
-    m       = bc_edge_margin(p_e);
+    m_val   = bc_edge_margin(p_e);
     white   = p_e->w_x16 / 16;
-    changed = bc_edge_core(p_e, raw, t_us, pos, m, white + m, white + (m / 2),
-                           p_edge_us, p_edge_pos);
-    if ((0U == p_e->level) && (0U == p_e->b_prev) && (raw <= (white + (m / 2))))
+    changed = bc_edge_core(p_e, raw, t_us, pos, m_val, white + m_val,
+                           white + (m_val / 2), p_edge_us, p_edge_pos);
+    if ((0U == p_e->level) && (0U == p_e->b_prev) &&
+        (raw <= (white + (m_val / 2))))
     {
         /* no bar since white was learned: the gap's halfway point is its
            lowest sample + m / 2, which stays at the floor's level if L has
@@ -842,7 +843,7 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
         int32_t step = raw - p_e->h_prev;       /* from the sample before */
         int32_t d16  = (raw * 16) - p_e->w_x16; /* x 16 */
         int32_t ad16 = (d16 < 0) ? -d16 : d16;
-        if (ad16 <= (m * 16))
+        if (ad16 <= (m_val * 16))
         {
             /* white travel: follow the level slowly */
             p_e->w_x16 += d16 / (1 << S3_BC_WHITE_EMA_SHIFT);
@@ -853,9 +854,10 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
                    of faint marks cannot grow it, and an error in the
                    level (learned on ink) is not taken for noise.
                    sd of a normal noise = 0.886 x mean |step|. */
-                int32_t as = (step < 0) ? -step : step;
-                p_e->w_sd_x16 += (((as * 16 * 886) / 1000) - p_e->w_sd_x16) /
-                                 (1 << S3_BC_WHITE_EMA_SHIFT);
+                int32_t as_val = (step < 0) ? -step : step;
+                p_e->w_sd_x16 +=
+                    (((as_val * 16 * 886) / 1000) - p_e->w_sd_x16) /
+                    (1 << S3_BC_WHITE_EMA_SHIFT);
             }
         }
         else if (d16 < 0)
@@ -929,20 +931,20 @@ void bc_start_reset(bc_start_t * p_s)
 uint8_t bc_start_step(bc_start_t * p_s, bool b_black, uint32_t width_us,
                       uint32_t width_pos)
 {
-    uint8_t out = BC_START_NONE;
+    uint8_t output = BC_START_NONE;
 
     if (!b_black)
     {
         p_s->b_pend = p_s->b_after_wide ||
                       (width_us >= ((uint32_t)S3_BC_START_WHITE_MS * 1000U));
         p_s->b_after_wide = false;
-        out               = p_s->b_pend ? BC_START_ARMED : BC_START_NONE;
+        output            = p_s->b_pend ? BC_START_ARMED : BC_START_NONE;
     }
     else
     {
         if (p_s->b_pend && bc_first_bar_ok(width_pos, width_us))
         {
-            out = BC_START_READ;
+            output = BC_START_READ;
         }
         else if (p_s->b_pend && (width_pos >= BC_DIST_LIVE_MIN))
         {
@@ -954,7 +956,7 @@ uint8_t bc_start_step(bc_start_t * p_s, bool b_black, uint32_t width_us,
         }
         p_s->b_pend = false;
     }
-    return out;
+    return output;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1106,16 +1108,16 @@ bool bc_lock_apply(bc_lock_ctl_t * p_c, bc_lock_cfg_t const * p_cfg,
     }
     else
     {
-        int16_t st =
+        int16_t state2 =
             bc_lock_steer(&p_c->steer, p_trk->black_mask, pos, p_trk->steering,
                           p_cfg->side_counts, p_cfg->max_steer);
-        if (0 == st)
+        if (0 == state2)
         {
             /* not holding a curve (checked above), so this only drops a
                turn built up on a bar edge */
             line_tracker_go_straight(p_trk);
         }
-        p_trk->steering = st;
+        p_trk->steering = state2;
     }
     return b_lock;
 }
@@ -1139,14 +1141,14 @@ void l_fast_reset(l_fast_t * p_f, l_fast_rd_t * p_rd)
     p_rd->last = 0u;
 }
 
-void l_fast_put(l_fast_t * p_f, uint16_t l, uint16_t c, uint16_t r)
+void l_fast_put(l_fast_t * p_f, uint16_t l_val, uint16_t chr, uint16_t r_val)
 {
     p_f->seq = p_f->seq + 1u; /* odd: update in progress */
     L_FAST_BARRIER();
-    p_f->sum = p_f->sum + (uint32_t)l;
+    p_f->sum = p_f->sum + (uint32_t)l_val;
     p_f->n   = p_f->n + 1u;
-    p_f->c   = c;
-    p_f->r   = r;
+    p_f->c   = chr;
+    p_f->r   = r_val;
     L_FAST_BARRIER();
     p_f->seq = p_f->seq + 1u; /* even: done */
 }
@@ -1154,18 +1156,18 @@ void l_fast_put(l_fast_t * p_f, uint16_t l, uint16_t c, uint16_t r)
 bool l_fast_get(const l_fast_t * p_f, uint32_t * p_sum, uint32_t * p_n,
                 uint16_t * p_c, uint16_t * p_r)
 {
-    uint32_t k;
+    uint32_t kdx;
 
-    for (k = 0u; k < L_FAST_TRIES; k++)
+    for (kdx = 0u; kdx < L_FAST_TRIES; kdx++)
     {
-        uint32_t s1 = p_f->seq;
+        uint32_t s1_val = p_f->seq;
         L_FAST_BARRIER();
         *p_sum = p_f->sum;
         *p_n   = p_f->n;
         *p_c   = p_f->c;
         *p_r   = p_f->r;
         L_FAST_BARRIER();
-        if ((0u == (s1 & 1u)) && (s1 == p_f->seq))
+        if ((0u == (s1_val & 1u)) && (s1_val == p_f->seq))
         {
             return true;
         }
@@ -1173,20 +1175,20 @@ bool l_fast_get(const l_fast_t * p_f, uint32_t * p_sum, uint32_t * p_n,
     return false;
 }
 
-uint16_t l_fast_record(l_fast_rd_t * p_rd, uint32_t sum, uint32_t n,
+uint16_t l_fast_record(l_fast_rd_t * p_rd, uint32_t sum, uint32_t count,
                        uint32_t * p_used)
 {
-    uint32_t dn = n - p_rd->n;     /* wraps correctly */
-    uint32_t ds = sum - p_rd->sum; /* wraps correctly */
+    uint32_t dn_val = count - p_rd->n; /* wraps correctly */
+    uint32_t ds_val = sum - p_rd->sum; /* wraps correctly */
 
-    *p_used = dn;
-    if (0u != dn)
+    *p_used = dn_val;
+    if (0u != dn_val)
     {
         /* Cast: a mean of 12-bit samples fits 16 bits */
-        p_rd->last = (uint16_t)((ds + (dn / 2u)) / dn);
+        p_rd->last = (uint16_t)((ds_val + (dn_val / 2u)) / dn_val);
     }
     p_rd->sum = sum;
-    p_rd->n   = n;
+    p_rd->n   = count;
     return p_rd->last;
 }
 

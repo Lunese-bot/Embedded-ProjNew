@@ -123,23 +123,23 @@ ER s5_get_status(s5_status_t * p_out)
 
 ER s5_get_status_packed(uint16_t * p_word)
 {
-    s5_status_t st;
+    s5_status_t state2;
     ER          ercd;
-    bool        detected;
+    bool        b_detected;
 
     if (NULL == p_word)
     {
         return E_PAR;
     }
     *p_word = 0U;
-    ercd    = s5_get_status(&st);
+    ercd    = s5_get_status(&state2);
     if (ercd < E_OK)
     {
         return ercd;
     }
-    detected = (US_NO_ECHO != st.last_distance_mm) &&
-               (st.last_distance_mm < S5_DETECT_MM);
-    *p_word = s5_pack_status(st.last_distance_mm, st.state, detected);
+    b_detected = (US_NO_ECHO != state2.last_distance_mm) &&
+                 (state2.last_distance_mm < S5_DETECT_MM);
+    *p_word = s5_pack_status(state2.last_distance_mm, state2.state, b_detected);
     return E_OK;
 }
 
@@ -189,12 +189,14 @@ void s5_report_store(const s5_obst_report_t * p_rec)
 /* ---- side-look sample, shared by the scan task (writer) and the
    avoid task (reader).  One mutex-protected record, so a reader never
    sees a new range with an old status or sequence number. ---- */
-static struct
+typedef struct
 {
     bool              armed; /* servo is pointed and pings are flowing */
     int32_t           deg;   /* requested angle, + = left              */
     s5_side_reading_t reading;
-} g_side;
+} s5_side_record_t;
+
+static s5_side_record_t g_side;
 
 void s5_side_request(int32_t deg)
 {
@@ -241,7 +243,7 @@ void s5_side_arm(void)
     }
 }
 
-void s5_side_publish(uint8_t status, uint16_t mm)
+void s5_side_publish(uint8_t status, uint16_t dist_mm2)
 {
     if (s5_lock())
     {
@@ -249,7 +251,7 @@ void s5_side_publish(uint8_t status, uint16_t mm)
         {
             g_side.reading.seq++;
             g_side.reading.status = status;
-            g_side.reading.mm     = mm;
+            g_side.reading.mm     = dist_mm2;
         }
         s5_unlock();
     }

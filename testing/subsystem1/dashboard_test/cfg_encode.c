@@ -83,7 +83,7 @@ int main(void)
 			n = s1_cfg_encode_reply((uint8_t)v[0], (uint16_t)v[1], (uint8_t)v[2], (uint16_t)v[3], (uint8_t)v[4], m, out);
 			put_hex(out, n); printf("\n");
 		} else if (line[0] == 'D' && sscanf(line + 1, "%63s", hex) == 1) {
-			S1_CFG_REQ req;
+			s1_cfg_req_t req;
 
 			n = get_hex(hex, out, (int)sizeof(out));
 			if (n < 0 || s1_cfg_decode_request(out, n, &req) != 0) { printf("ERR\n"); continue; }

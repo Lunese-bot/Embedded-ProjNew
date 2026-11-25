@@ -28,10 +28,10 @@ uint16_t s5_or_next_id(uint16_t prev)
     return (prev >= 65535U) ? 1U : (uint16_t)(prev + 1U);
 }
 
-void s5_or_begin(s5_obst_report_t * p_rec, uint16_t id, uint32_t t0_ms)
+void s5_or_begin(s5_obst_report_t * p_rec, uint16_t obj_id, uint32_t t0_ms)
 {
     *p_rec            = (s5_obst_report_t){ 0 };
-    p_rec->profile_id = (0U == id) ? 1U : id;
+    p_rec->profile_id = (0U == obj_id) ? 1U : obj_id;
     p_rec->t0_ms      = t0_ms;
     p_rec->stage      = (uint8_t)S5_OR_STAGE_SCANNING;
 }
@@ -126,68 +126,69 @@ void s5_or_final(s5_obst_report_t * p_rec, s5_or_reason_t why_unresolved)
     touch(p_rec);
 }
 
-static void put16(uint8_t * p, uint16_t v)
+static void put16(uint8_t * p_val, uint16_t value2)
 {
-    p[0] = (uint8_t)(v >> 8);
-    p[1] = (uint8_t)(v & 0xFFU);
+    p_val[0] = (uint8_t)(value2 >> 8);
+    p_val[1] = (uint8_t)(value2 & 0xFFU);
 }
 
-static uint16_t get16(const uint8_t * p)
+static uint16_t get16(const uint8_t * p_val)
 {
-    return (uint16_t)(((uint16_t)p[0] << 8) | p[1]);
+    return (uint16_t)(((uint16_t)p_val[0] << 8) | p_val[1]);
 }
 
-void s5_or_encode(const s5_obst_report_t * p_rec, uint8_t out[S5_OR_BYTES])
+void s5_or_encode(const s5_obst_report_t * p_rec, uint8_t p_output[S5_OR_BYTES])
 {
-    out[0] = (uint8_t)S5_OR_VERSION;
-    put16(&out[1], p_rec->profile_id);
-    out[3] = p_rec->rev;
-    out[4] = p_rec->stage;
-    out[5] = p_rec->width_status;
-    out[6] = p_rec->length_status;
-    out[7] = p_rec->length_reason;
-    put16(&out[8], p_rec->front_mm);
-    put16(&out[10], p_rec->width_mm);
-    put16(&out[12], p_rec->length_mm);
-    out[14] = (uint8_t)(p_rec->t0_ms >> 24);
-    out[15] = (uint8_t)(p_rec->t0_ms >> 16);
-    out[16] = (uint8_t)(p_rec->t0_ms >> 8);
-    out[17] = (uint8_t)(p_rec->t0_ms & 0xFFU);
-    out[18] = p_rec->bypass_side;
-    out[19] = 0U;
+    p_output[0] = (uint8_t)S5_OR_VERSION;
+    put16(&p_output[1], p_rec->profile_id);
+    p_output[3] = p_rec->rev;
+    p_output[4] = p_rec->stage;
+    p_output[5] = p_rec->width_status;
+    p_output[6] = p_rec->length_status;
+    p_output[7] = p_rec->length_reason;
+    put16(&p_output[8], p_rec->front_mm);
+    put16(&p_output[10], p_rec->width_mm);
+    put16(&p_output[12], p_rec->length_mm);
+    p_output[14] = (uint8_t)(p_rec->t0_ms >> 24);
+    p_output[15] = (uint8_t)(p_rec->t0_ms >> 16);
+    p_output[16] = (uint8_t)(p_rec->t0_ms >> 8);
+    p_output[17] = (uint8_t)(p_rec->t0_ms & 0xFFU);
+    p_output[18] = p_rec->bypass_side;
+    p_output[19] = 0U;
 }
 
 bool s5_or_decode(const uint8_t * p_in, int32_t len, s5_obst_report_t * p_rec)
 {
-    s5_obst_report_t r = { 0 };
+    s5_obst_report_t r_val = { 0 };
 
     if ((NULL == p_in) || (NULL == p_rec) || (S5_OR_BYTES != len) ||
         (S5_OR_VERSION != p_in[0]))
     {
         return false;
     }
-    r.profile_id    = get16(&p_in[1]);
-    r.rev           = p_in[3];
-    r.stage         = p_in[4];
-    r.width_status  = p_in[5];
-    r.length_status = p_in[6];
-    r.length_reason = p_in[7];
-    r.front_mm      = get16(&p_in[8]);
-    r.width_mm      = get16(&p_in[10]);
-    r.length_mm     = get16(&p_in[12]);
-    r.t0_ms         = ((uint32_t)p_in[14] << 24) | ((uint32_t)p_in[15] << 16) |
-              ((uint32_t)p_in[16] << 8) | (uint32_t)p_in[17];
-    r.bypass_side = p_in[18];
-    if ((0U == r.profile_id) || (r.stage > S5_OR_STAGE_MAX) ||
-        (r.width_status > S5_OR_W_MAX) || (r.length_status > S5_OR_L_MAX) ||
-        (r.length_reason > S5_OR_R_MAX) || (r.bypass_side > 2U) ||
-        (r.front_mm > S5_OR_FRONT_MAX_MM) ||
-        (r.width_mm > S5_OR_WIDTH_MAX_MM) ||
-        (r.length_mm > S5_OR_LENGTH_MAX_MM) || (0U != p_in[19]))
+    r_val.profile_id    = get16(&p_in[1]);
+    r_val.rev           = p_in[3];
+    r_val.stage         = p_in[4];
+    r_val.width_status  = p_in[5];
+    r_val.length_status = p_in[6];
+    r_val.length_reason = p_in[7];
+    r_val.front_mm      = get16(&p_in[8]);
+    r_val.width_mm      = get16(&p_in[10]);
+    r_val.length_mm     = get16(&p_in[12]);
+    r_val.t0_ms = ((uint32_t)p_in[14] << 24) | ((uint32_t)p_in[15] << 16) |
+                  ((uint32_t)p_in[16] << 8) | (uint32_t)p_in[17];
+    r_val.bypass_side = p_in[18];
+    if ((0U == r_val.profile_id) || (r_val.stage > S5_OR_STAGE_MAX) ||
+        (r_val.width_status > S5_OR_W_MAX) ||
+        (r_val.length_status > S5_OR_L_MAX) ||
+        (r_val.length_reason > S5_OR_R_MAX) || (r_val.bypass_side > 2U) ||
+        (r_val.front_mm > S5_OR_FRONT_MAX_MM) ||
+        (r_val.width_mm > S5_OR_WIDTH_MAX_MM) ||
+        (r_val.length_mm > S5_OR_LENGTH_MAX_MM) || (0U != p_in[19]))
     {
         return false;
     }
-    *p_rec = r;
+    *p_rec = r_val;
     return true;
 }
 

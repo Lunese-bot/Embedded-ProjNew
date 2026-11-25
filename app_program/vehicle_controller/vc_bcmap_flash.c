@@ -49,20 +49,20 @@ extern char __bcmap_flash_start[];
 extern int  knl_smp_flash_lockout_begin(unsigned int timeout_us);
 extern void knl_smp_flash_lockout_end(void);
 
-typedef void (*rom_void_fn)(void);
-typedef void (*rom_erase_fn)(uint32_t addr, size_t count, uint32_t block_size,
-                             uint8_t block_cmd);
-typedef void (*rom_prog_fn)(uint32_t addr, const uint8_t * p_data,
-                            size_t count);
-typedef void * (*rom_lookup_fn)(const uint16_t * p_table, uint32_t code);
+typedef void (*rom_void_fn_t)(void);
+typedef void (*rom_erase_fn_t)(uint32_t addr, size_t count, uint32_t block_size,
+                               uint8_t block_cmd);
+typedef void (*rom_prog_fn_t)(uint32_t addr, const uint8_t * p_data,
+                              size_t count);
+typedef void * (*rom_lookup_fn_t)(const uint16_t * p_table, uint32_t code);
 
 typedef struct
 {
-    rom_void_fn  connect;  /* 'IF' connect_internal_flash */
-    rom_void_fn  exit_xip; /* 'EX' flash_exit_xip */
-    rom_erase_fn erase;    /* 'RE' flash_range_erase */
-    rom_prog_fn  program;  /* 'RP' flash_range_program */
-    rom_void_fn  flush;    /* 'FC' flash_flush_cache */
+    rom_void_fn_t  connect;  /* 'IF' connect_internal_flash */
+    rom_void_fn_t  exit_xip; /* 'EX' flash_exit_xip */
+    rom_erase_fn_t erase;    /* 'RE' flash_range_erase */
+    rom_prog_fn_t  program;  /* 'RP' flash_range_program */
+    rom_void_fn_t  flush;    /* 'FC' flash_flush_cache */
 } flash_rom_t;
 
 static flash_rom_t s_rom;
@@ -86,7 +86,7 @@ static void RAMFUNC flash_op(uint32_t offset, const uint8_t * p_page,
     p_rom->flush();
     /* boot2 is position independent and returns to lr (Pico SDK does the
        same in flash_enable_xip_via_boot2) */
-    ((rom_void_fn)((uintptr_t)p_boot2 + 1u))();
+    ((rom_void_fn_t)((uintptr_t)p_boot2 + 1u))();
 }
 
 static uint32_t irq_save(void)
@@ -109,13 +109,13 @@ static uint16_t rom_hword(uintptr_t address)
     return *(const volatile uint16_t *)address;
 }
 
-static void * rom_func(char c1, char c2)
+static void * rom_func(char c1_val, char c2_val)
 {
-    rom_lookup_fn    lookup  = (rom_lookup_fn)(uintptr_t)rom_hword(0x18u);
+    rom_lookup_fn_t  lookup  = (rom_lookup_fn_t)(uintptr_t)rom_hword(0x18u);
     const uint16_t * p_table = (const uint16_t *)(uintptr_t)rom_hword(0x14u);
 
     return lookup(p_table,
-                  (uint32_t)(uint8_t)c1 | ((uint32_t)(uint8_t)c2 << 8));
+                  (uint32_t)(uint8_t)c1_val | ((uint32_t)(uint8_t)c2_val << 8));
 }
 
 static uint32_t slot_offset(uint32_t slot)
@@ -127,7 +127,7 @@ static int32_t flash_read(void * p_ctx, uint32_t slot, uint8_t * p_buf,
                           uint32_t len)
 {
     const volatile uint8_t * p_src;
-    uint32_t                 i;
+    uint32_t                 idx;
 
     (void)p_ctx;
     if ((slot >= VC_BCMAP_SLOTS) || (len > FLASH_PAGE_BYTES))
@@ -136,9 +136,9 @@ static int32_t flash_read(void * p_ctx, uint32_t slot, uint8_t * p_buf,
     }
     p_src = (const volatile uint8_t *)(uintptr_t)(FLASH_XIP_NOCACHE +
                                                   slot_offset(slot));
-    for (i = 0u; i < len; i++)
+    for (idx = 0u; idx < len; idx++)
     {
-        p_buf[i] = p_src[i];
+        p_buf[idx] = p_src[idx];
     }
     return 0;
 }
@@ -147,8 +147,8 @@ static int32_t flash_write(void * p_ctx, uint32_t slot, const uint8_t * p_buf,
                            uint32_t len)
 {
     uint32_t primask;
-    uint32_t i;
-    int32_t  ok;
+    uint32_t idx;
+    int32_t  b_ok;
     uint8_t  back[VC_BCMAP_RECORD_BYTES];
 
     (void)p_ctx;
@@ -157,20 +157,20 @@ static int32_t flash_write(void * p_ctx, uint32_t slot, const uint8_t * p_buf,
     {
         return -1;
     }
-    for (i = 0u; i < FLASH_PAGE_BYTES; i++)
+    for (idx = 0u; idx < FLASH_PAGE_BYTES; idx++)
     {
-        s_page[i] = (i < len) ? p_buf[i] : 0xFFu;
+        s_page[idx] = (idx < len) ? p_buf[idx] : 0xFFu;
     }
 
     primask = irq_save();
-    ok      = knl_smp_flash_lockout_begin(VC_BCMAP_PARK_US);
-    if (ok)
+    b_ok    = knl_smp_flash_lockout_begin(VC_BCMAP_PARK_US);
+    if (b_ok)
     {
         flash_op(slot_offset(slot), s_page, &s_rom, s_boot2);
         knl_smp_flash_lockout_end();
     }
     irq_restore(primask);
-    if (!ok)
+    if (!b_ok)
     {
         return -1; /* other core did not park: nothing was touched */
     }
@@ -179,9 +179,9 @@ static int32_t flash_write(void * p_ctx, uint32_t slot, const uint8_t * p_buf,
     {
         return -1;
     }
-    for (i = 0u; i < len; i++)
+    for (idx = 0u; idx < len; idx++)
     {
-        if (back[i] != p_buf[i])
+        if (back[idx] != p_buf[idx])
         {
             return -1;
         }
@@ -193,7 +193,7 @@ static const vc_bcmap_store_t s_store = { flash_read, flash_write, 0 };
 
 const vc_bcmap_store_t * vc_bcmap_flash_store(void)
 {
-    uint32_t i;
+    uint32_t idx;
 
     if (!s_b_ready)
     {
@@ -203,20 +203,20 @@ const vc_bcmap_store_t * vc_bcmap_flash_store(void)
         {
             return 0;
         }
-        s_rom.connect  = (rom_void_fn)rom_func('I', 'F');
-        s_rom.exit_xip = (rom_void_fn)rom_func('E', 'X');
-        s_rom.erase    = (rom_erase_fn)rom_func('R', 'E');
-        s_rom.program  = (rom_prog_fn)rom_func('R', 'P');
-        s_rom.flush    = (rom_void_fn)rom_func('F', 'C');
+        s_rom.connect  = (rom_void_fn_t)rom_func('I', 'F');
+        s_rom.exit_xip = (rom_void_fn_t)rom_func('E', 'X');
+        s_rom.erase    = (rom_erase_fn_t)rom_func('R', 'E');
+        s_rom.program  = (rom_prog_fn_t)rom_func('R', 'P');
+        s_rom.flush    = (rom_void_fn_t)rom_func('F', 'C');
         if ((0 == s_rom.connect) || (0 == s_rom.exit_xip) ||
             (0 == s_rom.erase) || (0 == s_rom.program) || (0 == s_rom.flush))
         {
             return 0;
         }
-        for (i = 0u; i < BOOT2_WORDS; i++)
+        for (idx = 0u; idx < BOOT2_WORDS; idx++)
         {
-            s_boot2[i] =
-                ((const volatile uint32_t *)(uintptr_t)FLASH_XIP_BASE)[i];
+            s_boot2[idx] =
+                ((const volatile uint32_t *)(uintptr_t)FLASH_XIP_BASE)[idx];
         }
         s_b_ready = true;
     }

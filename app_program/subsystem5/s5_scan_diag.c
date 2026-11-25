@@ -5,7 +5,7 @@
 
 #include "s5_scan_diag.h"
 
-uint16_t s5_median_nonzero(const uint16_t * p_raw, int32_t n)
+uint16_t s5_median_nonzero(const uint16_t * p_raw, int32_t count)
 {
     uint16_t vals[5];
     int32_t  got = 0;
@@ -17,11 +17,11 @@ uint16_t s5_median_nonzero(const uint16_t * p_raw, int32_t n)
     {
         return 0U;
     }
-    if (n > 5)
+    if (count > 5)
     {
-        n = 5;
+        count = 5;
     }
-    for (idx = 0; idx < n; idx++)
+    for (idx = 0; idx < count; idx++)
     {
         if (0U != p_raw[idx])
         {
@@ -45,127 +45,129 @@ uint16_t s5_median_nonzero(const uint16_t * p_raw, int32_t n)
     return vals[got / 2];
 }
 
-void s5_trips_to_samples(const s5_trip_t * p_trips, int32_t n,
+void s5_trips_to_samples(const s5_trip_t * p_trips, int32_t count,
                          s5_sample_t * p_out)
 {
     int32_t idx;
 
-    for (idx = 0; idx < n; idx++)
+    for (idx = 0; idx < count; idx++)
     {
         p_out[idx].deg = p_trips[idx].deg;
         p_out[idx].mm  = p_trips[idx].used;
     }
 }
 
-int32_t s5_merge_trips(const s5_trip_t * a, int32_t na, const s5_trip_t * b,
-                       int32_t nb, s5_trip_t * out, int32_t max)
+int32_t s5_merge_trips(const s5_trip_t * p_a_val, int32_t na_val,
+                       const s5_trip_t * p_b_val, int32_t nb_val,
+                       s5_trip_t * p_output, int32_t max)
 {
-    int32_t i = 0;
-    int32_t j = 0;
-    int32_t n = 0;
+    int32_t idx2  = 0;
+    int32_t jdx2  = 0;
+    int32_t count = 0;
 
-    while ((n < max) && ((i < na) || (j < nb)))
+    while ((count < max) && ((idx2 < na_val) || (jdx2 < nb_val)))
     {
-        if ((j >= nb) || ((i < na) && (a[i].deg < b[j].deg)))
+        if ((jdx2 >= nb_val) ||
+            ((idx2 < na_val) && (p_a_val[idx2].deg < p_b_val[jdx2].deg)))
         {
-            out[n++] = a[i++];
+            p_output[count++] = p_a_val[idx2++];
         }
         else
         {
-            if ((i < na) && (a[i].deg == b[j].deg))
+            if ((idx2 < na_val) && (p_a_val[idx2].deg == p_b_val[jdx2].deg))
             {
-                i++;
+                idx2++;
             }
-            out[n++] = b[j++];
+            p_output[count++] = p_b_val[jdx2++];
         }
     }
-    return n;
+    return count;
 }
 
 /* Decimal digits of v (v >= 0) into p, returns how many. */
-static int32_t put_uint(char * p, int32_t v)
+static int32_t put_uint(char * p_val, int32_t value)
 {
     char    digits[8];
-    int32_t nd = 0;
-    int32_t k  = 0;
+    int32_t nd_val = 0;
+    int32_t kdx    = 0;
 
     do
     {
-        digits[nd++] = (char)('0' + (v % 10));
-        v /= 10;
-    } while ((v > 0) && (nd < 8));
-    while (nd > 0)
+        digits[nd_val++] = (char)('0' + (value % 10));
+        value /= 10;
+    } while ((value > 0) && (nd_val < 8));
+    while (nd_val > 0)
     {
-        p[k++] = digits[--nd];
+        p_val[kdx++] = digits[--nd_val];
     }
-    return k;
+    return kdx;
 }
 
 int32_t s5_format_trips(char * p_buf, int32_t size, const s5_trip_t * p_trips,
-                        int32_t first, int32_t n)
+                        int32_t first, int32_t count)
 {
     int32_t len = 0;
     int32_t idx;
-    int32_t r;
+    int32_t r_val;
 
     if ((NULL == p_buf) || (size <= 0))
     {
         return 0;
     }
     p_buf[0] = '\0';
-    for (idx = first; (idx < (first + n)) && (NULL != p_trips); idx++)
+    for (idx = first; (idx < (first + count)) && (NULL != p_trips); idx++)
     {
         char    item[40];
-        int32_t k = 0;
-        int32_t v = p_trips[idx].deg;
+        int32_t kdx   = 0;
+        int32_t value = p_trips[idx].deg;
 
-        item[k++] = ' ';
-        item[k++] = (S5_SRC_FINE == p_trips[idx].src) ? 'F' : 'C';
-        if (v < 0)
+        item[kdx++] = ' ';
+        item[kdx++] = (S5_SRC_FINE == p_trips[idx].src) ? 'F' : 'C';
+        if (value < 0)
         {
-            item[k++] = '-';
-            v         = -v;
+            item[kdx++] = '-';
+            value       = -value;
         }
-        k += put_uint(&item[k], v);
-        item[k++] = ':';
-        for (r = 0; r < S5_TRIP_READS; r++)
+        kdx += put_uint(&item[kdx], value);
+        item[kdx++] = ':';
+        for (r_val = 0; r_val < S5_TRIP_READS; r_val++)
         {
-            if (r > 0)
+            if (r_val > 0)
             {
-                item[k++] = '/';
+                item[kdx++] = '/';
             }
-            k += put_uint(&item[k], p_trips[idx].raw[r]);
+            kdx += put_uint(&item[kdx], p_trips[idx].raw[r_val]);
         }
-        item[k++] = '=';
-        k += put_uint(&item[k], p_trips[idx].used);
-        if ((len + k) >= size)
+        item[kdx++] = '=';
+        kdx += put_uint(&item[kdx], p_trips[idx].used);
+        if ((len + kdx) >= size)
         {
             break; /* whole items only */
         }
-        for (r = 0; r < k; r++)
+        for (r_val = 0; r_val < kdx; r_val++)
         {
-            p_buf[len++] = item[r];
+            p_buf[len++] = item[r_val];
         }
         p_buf[len] = '\0';
     }
     return len;
 }
 
-static int32_t iabs(int32_t v)
+static int32_t iabs(int32_t value)
 {
-    return (v < 0) ? -v : v;
+    return (value < 0) ? -value : value;
 }
 
 /* Pings of trip t that are plausible returns from a cluster reached at
    range ref_mm. */
 static int32_t support_of(const s5_trip_t * p_t, int32_t ref_mm)
 {
-    int32_t r;
+    int32_t r_val;
     int32_t got = 0;
 
-    for (r = 0; r < S5_TRIP_READS; r++)
+    for (r_val = 0; r_val < S5_TRIP_READS; r_val++)
     {
-        int32_t ping = (int32_t)p_t->raw[r];
+        int32_t ping = (int32_t)p_t->raw[r_val];
 
         if ((ping > 0) && (ping <= S5_HIT_RANGE_MM) &&
             (iabs(ping - ref_mm) <= S5_CLUSTER_GAP_MM))
@@ -177,11 +179,11 @@ static int32_t support_of(const s5_trip_t * p_t, int32_t ref_mm)
 }
 
 /* Index of the sample at angle deg, -1 if none. */
-static int32_t index_of(const s5_trip_t * p_trips, int32_t n, int32_t deg)
+static int32_t index_of(const s5_trip_t * p_trips, int32_t count, int32_t deg)
 {
     int32_t idx;
 
-    for (idx = 0; idx < n; idx++)
+    for (idx = 0; idx < count; idx++)
     {
         if ((int32_t)p_trips[idx].deg == deg)
         {
@@ -210,7 +212,7 @@ static int16_t offset_mm(const s5_trip_t * p_t)
     return (int16_t)(((int32_t)p_t->used * s5_sin1000(p_t->deg)) / 1000);
 }
 
-s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t n,
+s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t count,
                                  s5_width_est_t * p_est)
 {
     s5_sample_t  smp[64];
@@ -218,23 +220,23 @@ s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t n,
     int32_t      low;
     int32_t      high;
     int32_t      near = -1;
-    int32_t      rs;
-    int32_t      ls;
+    int32_t      rs_val;
+    int32_t      ls_val;
     int32_t      idx;
 
     *p_est        = (s5_width_est_t){ 0 };
     p_est->status = (uint8_t)S5_WE_NO_PROFILE;
-    if ((NULL == p_trips) || (n <= 0) || (n > 64))
+    if ((NULL == p_trips) || (count <= 0) || (count > 64))
     {
         return S5_WE_NO_PROFILE;
     }
-    s5_trips_to_samples(p_trips, n, smp);
-    if (!s5_build_profile(smp, n, &prof))
+    s5_trips_to_samples(p_trips, count, smp);
+    if (!s5_build_profile(smp, count, &prof))
     {
         return S5_WE_NO_PROFILE;
     }
-    low  = index_of(p_trips, n, prof.right_edge_deg);
-    high = index_of(p_trips, n, prof.left_edge_deg);
+    low  = index_of(p_trips, count, prof.right_edge_deg);
+    high = index_of(p_trips, count, prof.left_edge_deg);
     /* the nearest sample, as s5_build_profile picked it */
     for (idx = low; idx <= high; idx++)
     {
@@ -256,50 +258,50 @@ s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t n,
     p_est->raw_l_support =
         (uint8_t)support_of(&p_trips[high], ref_range(p_trips, high, near));
 
-    if ((0 == low) || ((n - 1) == high))
+    if ((0 == low) || ((count - 1) == high))
     {
         p_est->status = (uint8_t)S5_WE_CLIPPED;
         return S5_WE_CLIPPED;
     }
 
     /* outermost supported sample on each side, walking inward */
-    for (rs = low; rs <= high; rs++)
+    for (rs_val = low; rs_val <= high; rs_val++)
     {
-        if (support_of(&p_trips[rs], ref_range(p_trips, rs, near)) >=
+        if (support_of(&p_trips[rs_val], ref_range(p_trips, rs_val, near)) >=
             S5_WE_MIN_SUPPORT)
         {
             break;
         }
     }
-    for (ls = high; ls >= low; ls--)
+    for (ls_val = high; ls_val >= low; ls_val--)
     {
-        if (support_of(&p_trips[ls], ref_range(p_trips, ls, near)) >=
+        if (support_of(&p_trips[ls_val], ref_range(p_trips, ls_val, near)) >=
             S5_WE_MIN_SUPPORT)
         {
             break;
         }
     }
-    if ((rs > high) || (ls < low))
+    if ((rs_val > high) || (ls_val < low))
     {
         p_est->status = (uint8_t)S5_WE_NO_SUPPORT;
         return S5_WE_NO_SUPPORT;
     }
-    p_est->sup_r_deg   = p_trips[rs].deg;
-    p_est->sup_l_deg   = p_trips[ls].deg;
-    p_est->sup_r_range = p_trips[rs].used;
-    p_est->sup_l_range = p_trips[ls].used;
+    p_est->sup_r_deg   = p_trips[rs_val].deg;
+    p_est->sup_l_deg   = p_trips[ls_val].deg;
+    p_est->sup_r_range = p_trips[rs_val].used;
+    p_est->sup_l_range = p_trips[ls_val].used;
     p_est->sup_r_support =
-        (uint8_t)support_of(&p_trips[rs], ref_range(p_trips, rs, near));
+        (uint8_t)support_of(&p_trips[rs_val], ref_range(p_trips, rs_val, near));
     p_est->sup_l_support =
-        (uint8_t)support_of(&p_trips[ls], ref_range(p_trips, ls, near));
-    if (rs >= ls)
+        (uint8_t)support_of(&p_trips[ls_val], ref_range(p_trips, ls_val, near));
+    if (rs_val >= ls_val)
     {
         p_est->status = (uint8_t)S5_WE_COLLAPSED;
         return S5_WE_COLLAPSED;
     }
     {
-        int16_t r_mm = offset_mm(&p_trips[rs]);
-        int16_t l_mm = offset_mm(&p_trips[ls]);
+        int16_t r_mm = offset_mm(&p_trips[rs_val]);
+        int16_t l_mm = offset_mm(&p_trips[ls_val]);
 
         if (l_mm <= r_mm)
         {

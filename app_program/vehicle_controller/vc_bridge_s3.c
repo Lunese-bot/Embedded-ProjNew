@@ -102,12 +102,12 @@ static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
                        (idx < (sizeof(p_s3->text) - 1u));
              idx++)
         {
-            char ch = (char)p_s3->text[idx];
-            if ((ch < 'A') || (ch > 'Z'))
+            char chr = (char)p_s3->text[idx];
+            if ((chr < 'A') || (chr > 'Z'))
             {
                 break; /* A-Z only (also keeps the JSON safe) */
             }
-            g_lt_bc_text[idx] = ch;
+            g_lt_bc_text[idx] = chr;
         }
         g_lt_bc_text[idx] = '\0';
     }
@@ -125,21 +125,23 @@ static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
     {
         /* history, newest first: "<text> " + old, cut to fit */
         char     tmp[sizeof(g_lt_bc_hist)];
-        uint32_t n = 0u;
-        uint32_t k;
-        for (k = 0u; ('\0' != g_lt_bc_text[k]) && (n < (sizeof(tmp) - 2u)); k++)
+        uint32_t count = 0u;
+        uint32_t kdx;
+        for (kdx = 0u;
+             ('\0' != g_lt_bc_text[kdx]) && (count < (sizeof(tmp) - 2u)); kdx++)
         {
-            tmp[n++] = g_lt_bc_text[k];
+            tmp[count++] = g_lt_bc_text[kdx];
         }
-        tmp[n++] = ' ';
-        for (k = 0u; ('\0' != g_lt_bc_hist[k]) && (n < (sizeof(tmp) - 1u)); k++)
+        tmp[count++] = ' ';
+        for (kdx = 0u;
+             ('\0' != g_lt_bc_hist[kdx]) && (count < (sizeof(tmp) - 1u)); kdx++)
         {
-            tmp[n++] = g_lt_bc_hist[k];
+            tmp[count++] = g_lt_bc_hist[kdx];
         }
-        tmp[n] = '\0';
-        for (k = 0u; k <= n; k++)
+        tmp[count] = '\0';
+        for (kdx = 0u; kdx <= count; kdx++)
         {
-            g_lt_bc_hist[k] = tmp[k];
+            g_lt_bc_hist[kdx] = tmp[kdx];
         }
     }
 #endif

@@ -128,7 +128,8 @@ extern uint16_t s5_or_next_id(uint16_t prev);
 
 /* New encounter: every size field cleared, stage SCANNING, rev 0.  The
    previous encounter's numbers can never survive into the new one. */
-extern void s5_or_begin(s5_obst_report_t * p_rec, uint16_t id, uint32_t t0_ms);
+extern void s5_or_begin(s5_obst_report_t * p_rec, uint16_t obj_id,
+                        uint32_t t0_ms);
 
 /* Front profile ready.  valid = 0: no obstacle (width NONE).  The scan
    covered servo angles scan_min_deg..scan_max_deg (+ = left); an edge at
@@ -154,7 +155,7 @@ extern void s5_or_final(s5_obst_report_t * p_rec,
                         s5_or_reason_t     why_unresolved);
 
 extern void s5_or_encode(const s5_obst_report_t * p_rec,
-                         uint8_t                  out[S5_OR_BYTES]);
+                         uint8_t                  p_output[S5_OR_BYTES]);
 
 /* Returns true and fills *p_rec only for a well-formed frame. */
 extern bool s5_or_decode(const uint8_t * p_in, int32_t len,

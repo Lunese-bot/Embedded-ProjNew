@@ -27,54 +27,54 @@ volatile int32_t        g_lt_bc_en, g_lt_lost_en, g_lt_next_nav = NAV_LEFT;
 char                    g_lt_bc_text[16], g_lt_bc_hist[48];
 static s3_line_status_t line_status;
 static s3_event_t       queued_event;
-static bool             event_ready;
-static bool             bypass_active;
+static bool             g_b_event_ready;
+static bool             g_b_bypass_active;
 static uint32_t         clock_ms;
 static uint8_t          barcode_payload[8];
 static int              barcode_len, barcode_error, post_result;
 
-static int32_t tk_rcv_mbf(ID id, void * out, TMO timeout)
+static int32_t tk_rcv_mbf(ID obj_id, void * p_output, TMO timeout)
 {
-    assert(g_mbf_s3_events == id && TMO_POL == timeout);
-    if (!event_ready)
+    assert(g_mbf_s3_events == obj_id && TMO_POL == timeout);
+    if (!g_b_event_ready)
     {
         return E_TMOUT;
     }
-    *(s3_event_t *)out = queued_event;
-    event_ready        = false;
+    *(s3_event_t *)p_output = queued_event;
+    g_b_event_ready         = false;
     return sizeof(s3_event_t);
 }
 
-static void tm_printf(const uint8_t * fmt, ...)
+static void tm_printf(const uint8_t * p_fmt, ...)
 {
-    (void)fmt;
+    (void)p_fmt;
 }
-static void app_check(ER result, const char * what)
+static void app_check(ER result, const char * p_what)
 {
-    (void)what;
+    (void)p_what;
     if (result != E_OK)
     {
         barcode_error = result;
     }
 }
-ER s1_post(const char * topic, const void * payload, int32_t len)
+ER s1_post(const char * p_topic, const void * p_payload, int32_t len)
 {
-    assert(strcmp(topic, "barcode") == 0 && len > 0 && len <= 8);
-    memcpy(barcode_payload, payload, (size_t)len);
+    assert(strcmp(p_topic, "barcode") == 0 && len > 0 && len <= 8);
+    memcpy(barcode_payload, p_payload, (size_t)len);
     barcode_len = len;
     return post_result;
 }
-static void tk_get_tim(SYSTIM * time)
+static void tk_get_tim(SYSTIM * p_time)
 {
-    time->lo = clock_ms;
+    p_time->lo = clock_ms;
 }
-void s3_set_obstacle_mode(bool active)
+void s3_set_obstacle_mode(bool b_active)
 {
-    bypass_active = active;
+    g_b_bypass_active = b_active;
 }
-ER s3_get_line_status(s3_line_status_t * out)
+ER s3_get_line_status(s3_line_status_t * p_output)
 {
-    *out = line_status;
+    *p_output = line_status;
     return E_OK;
 }
 ER s3_request(uint32_t request)
@@ -93,7 +93,7 @@ vc_source_t vc_sm_motion_owner(vc_state_t state)
 static void queue_junction(uint32_t time_ms)
 {
     queued_event = (s3_event_t){ .type = S3_EVT_JUNCTION, .time_ms = time_ms };
-    event_ready  = true;
+    g_b_event_ready = true;
 }
 
 int main(void)
@@ -102,24 +102,24 @@ int main(void)
 
     clock_ms = 100;
     vc_bridge_s3_set_obstacle_mode(true);
-    assert(bypass_active);
+    assert(g_b_bypass_active);
     queue_junction(101);
     assert(!vc_bridge_s3_next(&event, VC_ST_AVOID_OBSTACLE));
 
     clock_ms = 300;
     queue_junction(299); /* Queued before the handoff, processed afterward. */
     vc_bridge_s3_set_obstacle_mode(false);
-    assert(!bypass_active);
+    assert(!g_b_bypass_active);
     line_status = (s3_line_status_t){ .seq        = 1,
                                       .time_ms    = 99,
                                       .line_state = LINE_STATE_FOLLOW,
                                       .steering   = 200 };
-    assert(!vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE) && !event_ready);
+    assert(!vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE) && !g_b_event_ready);
     line_status.seq++;
     line_status.time_ms = 301;
     assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
     assert(VC_EV_MOVE_REQUEST == event.type && VC_MOVE_STEER == event.p1);
-    assert(200 == event.p2 && !event_ready);
+    assert(200 == event.p2 && !g_b_event_ready);
     puts("[TEST] S6-OBS06 PASS  queued junctions and stale steering are "
          "discarded at handoff");
 
@@ -140,35 +140,35 @@ int main(void)
     line_status.time_ms = 602;
     assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
     assert(VC_EV_MOVE_REQUEST == event.type && VC_MOVE_STEER == event.p1);
-    assert(!vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE) && !event_ready);
+    assert(!vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE) && !g_b_event_ready);
     puts("[TEST] S6-OBS10 PASS  straight mode preserves steering through a "
          "junction");
 
-    g_lt_bc_en   = 1;
-    queued_event = (s3_event_t){ .type = S3_EVT_BARCODE_DECODED,
-                                 .nav  = NAV_LEFT,
-                                 .text = "AB" };
-    event_ready  = true;
+    g_lt_bc_en      = 1;
+    queued_event    = (s3_event_t){ .type = S3_EVT_BARCODE_DECODED,
+                                    .nav  = NAV_LEFT,
+                                    .text = "AB" };
+    g_b_event_ready = true;
     assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
     assert(event.type == VC_EV_BARCODE_DECODED &&
            strcmp(event.barcode_text, "AB") == 0);
     assert(barcode_len == 2 && barcode_payload[0] == 0x2c &&
            barcode_payload[1] == 0xc0 && barcode_error == 0);
 
-    post_result = E_TMOUT;
-    event_ready = true;
+    post_result     = E_TMOUT;
+    g_b_event_ready = true;
     assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
     assert(event.type == VC_EV_BARCODE_DECODED && barcode_error == E_TMOUT);
     puts("[TEST] S6-BC01 PASS  barcode publish and failure reporting preserve "
          "controller event");
     /* U-turn watch: every new sample (black or white) with the odometer,
        only after the request, only in EXECUTE_ACTION */
-    g_lt_bc_en  = 1;
-    event_ready = false;
-    line_status = (s3_line_status_t){ .seq        = 50,
-                                      .time_ms    = 700,
-                                      .line_state = LINE_STATE_FOLLOW,
-                                      .black_mask = S3_MASK_C };
+    g_lt_bc_en      = 1;
+    g_b_event_ready = false;
+    line_status     = (s3_line_status_t){ .seq        = 50,
+                                          .time_ms    = 700,
+                                          .line_state = LINE_STATE_FOLLOW,
+                                          .black_mask = S3_MASK_C };
     assert(E_OK == vc_bridge_s3_request(VC_REQ_LINE_WATCH, 1));
     assert(!vc_bridge_s3_next(&event, VC_ST_EXECUTE_ACTION)); /* seq 50 predates
                                                                  the request */

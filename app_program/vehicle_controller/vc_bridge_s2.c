@@ -74,19 +74,19 @@ static int32_t g_speed = 0; /* current forward speed, mm/s */
    without a rebuild. */
 static int32_t sent_speed(void)
 {
-    int32_t v = g_speed;
+    int32_t value2 = g_speed;
 #if S3_BC_LOCK
     /* barcode lock: one slow speed over the whole barcode, even if a
        failed piece of the read put the controller back to cruise */
-    if (g_b_s3_bc_lock && (v > VC_SPEED_SLOW_MMS))
+    if (g_b_s3_bc_lock && (value2 > VC_SPEED_SLOW_MMS))
     {
-        v = VC_SPEED_SLOW_MMS;
+        value2 = VC_SPEED_SLOW_MMS;
     }
 #endif
 #if S2_WEBDEBUG
-    return (v * g_lt_speed_pct) / 100;
+    return (value2 * g_lt_speed_pct) / 100;
 #else
-    return v;
+    return value2;
 #endif
 }
 /* Spin speed for the controller's turns (line search, barcode turns).  With
@@ -94,22 +94,22 @@ static int32_t sent_speed(void)
    slowing the mission also slows the spinning; never below what a wheel
    can turn smoothly. */
 #define VC_TURN_MIN_MMS 60
-static bool g_obstacle_mode;
-void        vc_bridge_s2_set_obstacle_mode(bool active)
+static bool g_b_obstacle_mode;
+void        vc_bridge_s2_set_obstacle_mode(bool b_active)
 {
-    g_obstacle_mode = active;
+    g_b_obstacle_mode = b_active;
 }
 
 static int32_t sent_turn_speed(void)
 {
     /* Only obstacle turns have a fixed slow cap. Normal turns are unchanged. */
-    if (g_obstacle_mode)
+    if (g_b_obstacle_mode)
     {
         return VC_TURN_MIN_MMS;
     }
 #if S2_WEBDEBUG
-    int32_t v = (VC_TURN_SPEED_MMS * g_lt_speed_pct) / 100;
-    return (v < VC_TURN_MIN_MMS) ? VC_TURN_MIN_MMS : v;
+    int32_t value2 = (VC_TURN_SPEED_MMS * g_lt_speed_pct) / 100;
+    return (value2 < VC_TURN_MIN_MMS) ? VC_TURN_MIN_MMS : value2;
 #else
     return VC_TURN_SPEED_MMS;
 #endif
@@ -371,9 +371,9 @@ ER vc_bridge_s2_request(vc_request_t req, int32_t arg)
 
 #else /* only the S2 example: log the command, S2 not bound yet */
 
-void vc_bridge_s2_set_obstacle_mode(bool active)
+void vc_bridge_s2_set_obstacle_mode(bool b_active)
 {
-    (void)active;
+    (void)b_active;
 }
 
 ER vc_bridge_s2_move(vc_move_t move, int32_t value)

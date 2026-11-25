@@ -8,7 +8,7 @@
 
 #include "s5_pack.h"
 
-uint16_t s5_pack_status(uint16_t distance_mm, uint8_t state, bool detected)
+uint16_t s5_pack_status(uint16_t distance_mm, uint8_t state, bool b_detected)
 {
     uint16_t word;
 
@@ -20,7 +20,7 @@ uint16_t s5_pack_status(uint16_t distance_mm, uint8_t state, bool detected)
     word = (uint16_t)(distance_mm & S5_PACK_DIST_MASK);
     word |= (uint16_t)((uint16_t)(state & S5_PACK_STATE_MASK)
                        << S5_PACK_STATE_SHIFT);
-    if (detected)
+    if (b_detected)
     {
         word |= (uint16_t)(1U << S5_PACK_DET_SHIFT);
     }

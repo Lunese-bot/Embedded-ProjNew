@@ -100,7 +100,7 @@ extern void    s5_side_request(int32_t deg);
 extern void    s5_side_end(void);
 extern int32_t s5_side_deg(void);
 extern void    s5_side_arm(void);
-extern void    s5_side_publish(uint8_t status, uint16_t mm);
+extern void    s5_side_publish(uint8_t status, uint16_t dist_mm2);
 extern bool s5_side_read(s5_side_reading_t * p_reading); /* TRUE once armed */
 
 /* Send an event to the Vehicle Controller without blocking */
