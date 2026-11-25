@@ -375,6 +375,77 @@ static uint32_t hump_descending(imu_terrain_t * p_terrain, bool b_rising,
     return events;
 }
 
+/* hump_step(), lever mode: more tilt than any hump gives means the robot
+   is being handled; block hump detection until level ground. */
+static uint32_t hump_lever_block(imu_terrain_t * p_terrain, bool b_flat,
+                                 bool b_level, bool * p_b_rising)
+{
+    uint32_t events = 0U;
+
+    /* Lever mode: more tilt than any hump gives = being handled. */
+    if (p_terrain->st.hump_height_um > (S4_HUMP_MAX_PEAK_MM * 1000))
+    {
+        if (IMU_ST_MONITORING != p_terrain->st.state)
+        {
+            enter(p_terrain, IMU_ST_MONITORING);
+            events |= IMU_EV_HUMP_ABORT;
+        }
+        hump_reset_height(p_terrain);
+        p_terrain->hump_block = 1U;
+    }
+    else if (b_flat && b_level)
+    {
+        p_terrain->hump_block = 0U;
+    }
+    else
+    {
+        /* keep the block until level ground */
+    }
+    if (0U != p_terrain->hump_block)
+    {
+        hump_reset_height(p_terrain);
+        *p_b_rising = false;
+    }
+    return events;
+}
+
+/* hump_step(), after the state update: publish the running maximum and
+   bound the time in any hump state (NFR5). */
+static uint32_t hump_track(imu_terrain_t * p_terrain)
+{
+    uint32_t events = 0U;
+
+    /* Publish the running maximum while crossing the hump. Completion
+       still controls last_peak_um, hump_count and HUMP_END. Only accept
+       a confirmed hump above the noise floor, not monitoring drift.
+       Lever mode publishes only when the hump completes, so a reading
+       that is later dropped (handling) never shows as the maximum. */
+    if ((0 == p_terrain->cfg.hump_lever_mm) &&
+        ((IMU_ST_CLIMBING == p_terrain->st.state) ||
+         (IMU_ST_AT_PEAK == p_terrain->st.state) ||
+         (IMU_ST_DESCENDING == p_terrain->st.state)) &&
+        (p_terrain->peak_um >= p_terrain->cfg.hump_min_peak_um) &&
+        (p_terrain->peak_um > p_terrain->st.max_peak_um))
+    {
+        p_terrain->st.max_peak_um = p_terrain->peak_um;
+    }
+
+    /* Bounded time in any hump state (NFR5) */
+    if ((IMU_ST_CLIMBING == p_terrain->st.state) ||
+        (IMU_ST_AT_PEAK == p_terrain->st.state) ||
+        (IMU_ST_DESCENDING == p_terrain->st.state))
+    {
+        p_terrain->in_state++;
+        if (p_terrain->in_state > p_terrain->cfg.hump_timeout)
+        {
+            enter(p_terrain, IMU_ST_MONITORING);
+            hump_reset_height(p_terrain);
+            events |= IMU_EV_HUMP_ABORT;
+        }
+    }
+    return events;
+}
+
 static uint32_t hump_step(imu_terrain_t * p_terrain, int32_t pitch_now,
                           int32_t speed_mm_s)
 {
@@ -405,30 +476,7 @@ static uint32_t hump_step(imu_terrain_t * p_terrain, int32_t pitch_now,
 
     if (p_cfg->hump_lever_mm > 0)
     {
-        /* Lever mode: more tilt than any hump gives = being handled. */
-        if (p_terrain->st.hump_height_um > (S4_HUMP_MAX_PEAK_MM * 1000))
-        {
-            if (IMU_ST_MONITORING != p_terrain->st.state)
-            {
-                enter(p_terrain, IMU_ST_MONITORING);
-                events |= IMU_EV_HUMP_ABORT;
-            }
-            hump_reset_height(p_terrain);
-            p_terrain->hump_block = 1U;
-        }
-        else if (b_flat && b_level)
-        {
-            p_terrain->hump_block = 0U;
-        }
-        else
-        {
-            /* keep the block until level ground */
-        }
-        if (0U != p_terrain->hump_block)
-        {
-            hump_reset_height(p_terrain);
-            b_rising = false;
-        }
+        events |= hump_lever_block(p_terrain, b_flat, b_level, &b_rising);
     }
 
     switch (p_terrain->st.state)
@@ -456,34 +504,7 @@ static uint32_t hump_step(imu_terrain_t * p_terrain, int32_t pitch_now,
             break;
     }
 
-    /* Publish the running maximum while crossing the hump. Completion
-       still controls last_peak_um, hump_count and HUMP_END. Only accept
-       a confirmed hump above the noise floor, not monitoring drift.
-       Lever mode publishes only when the hump completes, so a reading
-       that is later dropped (handling) never shows as the maximum. */
-    if ((0 == p_cfg->hump_lever_mm) &&
-        ((IMU_ST_CLIMBING == p_terrain->st.state) ||
-         (IMU_ST_AT_PEAK == p_terrain->st.state) ||
-         (IMU_ST_DESCENDING == p_terrain->st.state)) &&
-        (p_terrain->peak_um >= p_cfg->hump_min_peak_um) &&
-        (p_terrain->peak_um > p_terrain->st.max_peak_um))
-    {
-        p_terrain->st.max_peak_um = p_terrain->peak_um;
-    }
-
-    /* Bounded time in any hump state (NFR5) */
-    if ((IMU_ST_CLIMBING == p_terrain->st.state) ||
-        (IMU_ST_AT_PEAK == p_terrain->st.state) ||
-        (IMU_ST_DESCENDING == p_terrain->st.state))
-    {
-        p_terrain->in_state++;
-        if (p_terrain->in_state > p_cfg->hump_timeout)
-        {
-            enter(p_terrain, IMU_ST_MONITORING);
-            hump_reset_height(p_terrain);
-            events |= IMU_EV_HUMP_ABORT;
-        }
-    }
+    events |= hump_track(p_terrain);
     return events;
 }
 
@@ -660,29 +681,15 @@ static void update_height(imu_terrain_t * p_terrain, int32_t speed_mm_s)
    calibration. Do not subtract calibration bias: calibrating while inverted
    must never redefine an upside-down robot as safe. A slow, gentle level
    lift is not observable from an accelerometer alone. */
-static uint32_t check_safety(imu_terrain_t *      p_terrain,
-                             const imu_sample_t * p_sample)
+/* check_safety(): the upward speed, a sum of (|a| - its slow average)
+   with a leak; learns what 1 g reads during power-on warm-up.  Returns
+   true when the robot is being lifted. */
+static bool lift_speed_step(imu_terrain_t * p_terrain, int32_t norm)
 {
-    int32_t norm =
-        (int32_t)imu_norm3(p_sample->ax_mg, p_sample->ay_mg, p_sample->az_mg);
     int32_t base_scale = (int32_t)(1U << (uint32_t)S4_LIFT_BASE_SHIFT);
     int32_t leak_scale = (int32_t)(1U << (uint32_t)S4_LIFT_LEAK_SHIFT);
     int32_t up_mg;
     bool    b_lifted = false;
-    bool    b_low_g  = (norm < S4_LIFT_LOW_G_MG);
-    bool    b_overturned =
-        (norm >= S4_LIFT_LOW_G_MG) &&
-        ((int32_t)p_sample->az_mg * 1000 < norm * S4_SAFETY_UP_COS);
-    /* "1 g" as THIS sensor reads it (the GY-511 reads ~1.12 g at rest):
-       the learned average once warmed up, else the nominal 1000 mg.
-       2026-11-11: a fixed 1000 meant the stop could never clear. */
-    int32_t one_g  = (p_terrain->lift_warm >= S4_LIFT_WARMUP)
-                         ? (p_terrain->lift_base /
-                           (int32_t)(1U << (uint32_t)S4_LIFT_BASE_SHIFT))
-                         : 1000;
-    int32_t dev    = (norm > one_g) ? (norm - one_g) : (one_g - norm);
-    bool b_settled = (dev < S4_SETTLE_MG) && ((int32_t)p_sample->az_mg * 1000 >=
-                                              norm * S4_SETTLE_UP_COS);
 
     /* Upward speed: sum of (|a| - its slow average), with a leak. */
     if (p_terrain->lift_warm < S4_LIFT_WARMUP)
@@ -721,6 +728,31 @@ static uint32_t check_safety(imu_terrain_t *      p_terrain,
         p_terrain->lift_v += up_mg - (p_terrain->lift_v / leak_scale);
         b_lifted = (p_terrain->lift_v > S4_LIFT_VEL_MGS);
     }
+    return b_lifted;
+}
+
+static uint32_t check_safety(imu_terrain_t *      p_terrain,
+                             const imu_sample_t * p_sample)
+{
+    int32_t norm =
+        (int32_t)imu_norm3(p_sample->ax_mg, p_sample->ay_mg, p_sample->az_mg);
+    bool b_low_g = (norm < S4_LIFT_LOW_G_MG);
+    bool b_overturned =
+        (norm >= S4_LIFT_LOW_G_MG) &&
+        ((int32_t)p_sample->az_mg * 1000 < norm * S4_SAFETY_UP_COS);
+    /* "1 g" as THIS sensor reads it (the GY-511 reads ~1.12 g at rest):
+       the learned average once warmed up, else the nominal 1000 mg.
+       2026-11-11: a fixed 1000 meant the stop could never clear. */
+    int32_t one_g  = (p_terrain->lift_warm >= S4_LIFT_WARMUP)
+                         ? (p_terrain->lift_base /
+                           (int32_t)(1U << (uint32_t)S4_LIFT_BASE_SHIFT))
+                         : 1000;
+    int32_t dev    = (norm > one_g) ? (norm - one_g) : (one_g - norm);
+    bool b_settled = (dev < S4_SETTLE_MG) && ((int32_t)p_sample->az_mg * 1000 >=
+                                              norm * S4_SETTLE_UP_COS);
+
+    bool     b_lifted = lift_speed_step(p_terrain, norm);
+    uint32_t events   = 0U;
 
     if (p_terrain->st.safety_stop != IMU_SAFETY_NONE)
     {
@@ -736,32 +768,35 @@ static uint32_t check_safety(imu_terrain_t *      p_terrain,
             p_terrain->overturn_confirm = 0U;
             p_terrain->lift_v           = 0;
         }
-        return 0U;
-    }
-
-    /* Cast: counts are capped well below 255. */
-    p_terrain->lift_confirm =
-        b_low_g ? (uint8_t)(p_terrain->lift_confirm + 1U) : 0U;
-    p_terrain->overturn_confirm =
-        b_overturned ? (uint8_t)(p_terrain->overturn_confirm + 1U) : 0U;
-    if (p_terrain->overturn_confirm >= S4_OVERTURN_CONFIRM)
-    {
-        p_terrain->st.safety_stop = IMU_SAFETY_OVERTURN;
-    }
-    else if (b_lifted || (p_terrain->lift_confirm >= S4_LOW_G_CONFIRM))
-    {
-        p_terrain->st.safety_stop = IMU_SAFETY_LIFT;
     }
     else
     {
-        /* keep watching */
+        /* Cast: counts are capped well below 255. */
+        p_terrain->lift_confirm =
+            b_low_g ? (uint8_t)(p_terrain->lift_confirm + 1U) : 0U;
+        p_terrain->overturn_confirm =
+            b_overturned ? (uint8_t)(p_terrain->overturn_confirm + 1U) : 0U;
+        if (p_terrain->overturn_confirm >= S4_OVERTURN_CONFIRM)
+        {
+            p_terrain->st.safety_stop = IMU_SAFETY_OVERTURN;
+        }
+        else if (b_lifted || (p_terrain->lift_confirm >= S4_LOW_G_CONFIRM))
+        {
+            p_terrain->st.safety_stop = IMU_SAFETY_LIFT;
+        }
+        else
+        {
+            /* keep watching */
+        }
+        if (p_terrain->st.safety_stop != IMU_SAFETY_NONE)
+        {
+            p_terrain->settle_cnt = 0U;
+        }
+        events = (p_terrain->st.safety_stop != IMU_SAFETY_NONE)
+                     ? IMU_EV_SAFETY_STOP
+                     : 0U;
     }
-    if (p_terrain->st.safety_stop != IMU_SAFETY_NONE)
-    {
-        p_terrain->settle_cnt = 0U;
-    }
-    return (p_terrain->st.safety_stop != IMU_SAFETY_NONE) ? IMU_EV_SAFETY_STOP
-                                                          : 0U;
+    return events;
 }
 
 uint32_t imu_terrain_update(imu_terrain_t *      p_terrain,
