@@ -283,38 +283,14 @@ static ER monitoring_on(void)
     return tk_snd_mbf(g_mbf_s5_cmd, &cmd, sizeof(cmd), TMO_POL);
 }
 
-int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
-                         int32_t out_max)
+/* Mode, mission start and junction / barcode choices. */
+static bool motion_cmd_mission(char cmd, ER * p_res)
 {
-    motion_status_t state2;
-    ER              er_val;
-    int32_t         pos    = 0;
-    int32_t         area   = area_of(cmd);
-    bool            b_lock = false;
-
-    if (0U == client)
-    {
-        client = 1U; /* old page without an id: treated as one shared user */
-    }
-    if ((0 != g_wd_mode) && is_motion_cmd(cmd))
-    {
-        cmd = '!'; /* locked: only manual mode may drive */
-    }
-    else if ((area >= 0) && !lock_try(area, client))
-    {
-        cmd    = '!';
-        b_lock = true; /* someone else is using this area */
-    }
-    else
-    {
-        /* no other case needs any action */
-    }
+    ER   er_val    = E_PAR;
+    bool b_handled = true;
 
     switch (cmd)
     {
-        case '!':
-            er_val = E_OBJ;
-            break;
         /* mode switch */
         case 'M':
         case 'N':
@@ -386,6 +362,22 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
             g_lt_bc_edge = 0;
             er_val       = E_OK;
             break; /* barcode: fixed cut-off */
+        default:
+            b_handled = false;
+            break;
+    }
+    *p_res = er_val;
+    return b_handled;
+}
+
+/* Barcode thresholds, junction detection and line options. */
+static bool motion_cmd_line_opts(char cmd, ER * p_res)
+{
+    ER   er_val    = E_PAR;
+    bool b_handled = true;
+
+    switch (cmd)
+    {
         /* steps of 50 down to 50, then steps of 5 down to 10 (weak print) */
         case '@':
             g_lt_bc_swing = clamp_to(
@@ -456,6 +448,22 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
             g_lt_bc_en = 1;
             er_val     = s3_request(S3_REQ_BC_ENABLE);
             break;
+        default:
+            b_handled = false;
+            break;
+    }
+    *p_res = er_val;
+    return b_handled;
+}
+
+/* What the mission ignores, and the test drives. */
+static bool motion_cmd_ignores(char cmd, ER * p_res)
+{
+    ER   er_val    = E_PAR;
+    bool b_handled = true;
+
+    switch (cmd)
+    {
         case 'q':
             g_lt_imu_en = 0;
             er_val      = E_OK;
@@ -505,6 +513,22 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
         case 'r':
             er_val = s2_cmd_drive(0, -WD_SPIN_MM_S);
             break;
+        default:
+            b_handled = false;
+            break;
+    }
+    *p_res = er_val;
+    return b_handled;
+}
+
+/* One-wheel tests, stops and wheel trims. */
+static bool motion_cmd_wheels(char cmd, ER * p_res)
+{
+    ER   er_val    = E_PAR;
+    bool b_handled = true;
+
+    switch (cmd)
+    {
         /* one wheel only at the test speed (other wheel target 0):
            left = speed - steer, right = speed + steer */
         case '(':
@@ -553,6 +577,22 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
                 (2 == g_lt_trim_step) ? 10 : ((10 == g_lt_trim_step) ? 25 : 2);
             er_val = E_OK;
             break;
+        default:
+            b_handled = false;
+            break;
+    }
+    *p_res = er_val;
+    return b_handled;
+}
+
+/* Live tuning: speed, steering and junction settings. */
+static bool motion_cmd_tuning(char cmd, ER * p_res)
+{
+    ER   er_val    = E_PAR;
+    bool b_handled = true;
+
+    switch (cmd)
+    {
         case '~':
             g_lt_lost_en = 0;
             er_val       = E_OK;
@@ -609,6 +649,22 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
                              : (g_wd_speed + WD_SPEED_STEP);
             er_val     = E_OK;
             break;
+        default:
+            b_handled = false;
+            break;
+    }
+    *p_res = er_val;
+    return b_handled;
+}
+
+/* Live tuning of the controllers (see live_tune.h). */
+static bool motion_cmd_controllers(char cmd, ER * p_res)
+{
+    ER   er_val    = E_PAR;
+    bool b_handled = true;
+
+    switch (cmd)
+    {
         /* live tuning of the controllers (see live_tune.h) */
         case 'p':
             g_lt_pid_kp100 = clamp_to(g_lt_pid_kp100 - 10, 0, 1000);
@@ -674,11 +730,76 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
             g_lt_speed_pct = clamp_to(g_lt_speed_pct + 10, 20, 150);
             er_val         = E_OK;
             break;
+        default:
+            b_handled = false;
+            break;
+    }
+    *p_res = er_val;
+    return b_handled;
+}
+
+int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
+                         int32_t out_max)
+{
+    motion_status_t state2;
+    ER              er_val;
+    bool            b_handled;
+    int32_t         pos    = 0;
+    int32_t         area   = area_of(cmd);
+    bool            b_lock = false;
+
+    if (0U == client)
+    {
+        client = 1U; /* old page without an id: treated as one shared user */
+    }
+    if ((0 != g_wd_mode) && is_motion_cmd(cmd))
+    {
+        cmd = '!'; /* locked: only manual mode may drive */
+    }
+    else if ((area >= 0) && !lock_try(area, client))
+    {
+        cmd    = '!';
+        b_lock = true; /* someone else is using this area */
+    }
+    else
+    {
+        /* no other case needs any action */
+    }
+
+    switch (cmd)
+    {
+        case '!':
+            er_val = E_OBJ;
+            break;
         case '?':
             er_val = E_OK;
             break; /* status only */
         default:
-            er_val = E_PAR;
+            b_handled = motion_cmd_mission(cmd, &er_val);
+            if (!b_handled)
+            {
+                b_handled = motion_cmd_line_opts(cmd, &er_val);
+            }
+            if (!b_handled)
+            {
+                b_handled = motion_cmd_ignores(cmd, &er_val);
+            }
+            if (!b_handled)
+            {
+                b_handled = motion_cmd_wheels(cmd, &er_val);
+            }
+            if (!b_handled)
+            {
+                b_handled = motion_cmd_tuning(cmd, &er_val);
+            }
+            if (!b_handled)
+            {
+                b_handled = motion_cmd_controllers(cmd, &er_val);
+            }
+            if (!b_handled)
+            {
+                er_val = E_PAR;
+            }
             break;
     }
 
@@ -748,22 +869,15 @@ static bool has(const char * p_x, char chr)
     return false;
 }
 
-int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
-                           const char * p_x)
+/* Snapshot part: the live-tuning settings and area locks ("cfg"). */
+static int32_t snap_cfg(char * p_out, int32_t count2, int32_t out_max,
+                        uint32_t client)
 {
-    motion_status_t  m_val;
-    s3_line_status_t l_val;
-    imu_status_t     imu;
-    s5_status_t      o_val;
-    vc_status_t      vc_val;
-    int32_t          count2 = 0;
-
-    p_out[0] = '\0';
-    count2   = put_str(p_out, count2, out_max, "{\"cfg\":{");
-    count2   = kv(p_out, count2, out_max, "speed", g_wd_speed);
-    count2   = kv(p_out, count2, out_max, "trimL", g_s2_dbg_trim_l);
-    count2   = kv(p_out, count2, out_max, "trimR", g_s2_dbg_trim_r);
-    count2   = kv(p_out, count2, out_max, "straight", g_s2_dbg_straight);
+    count2 = put_str(p_out, count2, out_max, "{\"cfg\":{");
+    count2 = kv(p_out, count2, out_max, "speed", g_wd_speed);
+    count2 = kv(p_out, count2, out_max, "trimL", g_s2_dbg_trim_l);
+    count2 = kv(p_out, count2, out_max, "trimR", g_s2_dbg_trim_r);
+    count2 = kv(p_out, count2, out_max, "straight", g_s2_dbg_straight);
     if (0U == client)
     {
         client = 1U;
@@ -802,6 +916,14 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
     count2 = kv(p_out, count2, out_max, "lall", g_lt_line_all);
     count2 = kv(p_out, count2, out_max, "pct", g_lt_speed_pct);
     count2 = put_str(p_out, count2, out_max, "\"_\":0},\"s2\":");
+    return count2;
+}
+
+/* Snapshot part: the motion (S2) status, or null when not asked for. */
+static int32_t snap_s2(char * p_out, int32_t count2, int32_t out_max,
+                       const char * p_x)
+{
+    motion_status_t m_val;
 
     if (!has(p_x, 'm'))
     {
@@ -829,6 +951,15 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
     {
         count2 = put_str(p_out, count2, out_max, "null");
     }
+    return count2;
+}
+
+/* Snapshot part: the line and barcode (S3) status, or null when not asked for.
+ */
+static int32_t snap_s3(char * p_out, int32_t count2, int32_t out_max,
+                       const char * p_x)
+{
+    s3_line_status_t l_val;
 
     count2 = put_str(p_out, count2, out_max, ",\"s3\":");
     if (!has(p_x, 'l'))
@@ -877,6 +1008,14 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
     {
         count2 = put_str(p_out, count2, out_max, "null");
     }
+    return count2;
+}
+
+/* Snapshot part: the IMU (S4) status, or null when not asked for. */
+static int32_t snap_s4(char * p_out, int32_t count2, int32_t out_max,
+                       const char * p_x)
+{
+    imu_status_t imu;
 
     count2 = put_str(p_out, count2, out_max, ",\"s4\":");
     if (!has(p_x, 'i'))
@@ -907,6 +1046,14 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
     {
         count2 = put_str(p_out, count2, out_max, "null");
     }
+    return count2;
+}
+
+/* Snapshot part: the obstacle (S5) status, or null when not asked for. */
+static int32_t snap_s5(char * p_out, int32_t count2, int32_t out_max,
+                       const char * p_x)
+{
+    s5_status_t o_val;
 
     count2 = put_str(p_out, count2, out_max, ",\"s5\":");
     if (!has(p_x, 'o'))
@@ -940,6 +1087,14 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
     {
         count2 = put_str(p_out, count2, out_max, "null");
     }
+    return count2;
+}
+
+/* Snapshot part: the vehicle controller status, or null when not asked for. */
+static int32_t snap_vc(char * p_out, int32_t count2, int32_t out_max,
+                       const char * p_x)
+{
+    vc_status_t vc_val;
 
     count2 = put_str(p_out, count2, out_max, ",\"vc\":");
     if (!has(p_x, 'v'))
@@ -972,10 +1127,79 @@ int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
     {
         count2 = put_str(p_out, count2, out_max, "null");
     }
+    return count2;
+}
 
+int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
+                           const char * p_x)
+{
+    int32_t count2 = 0;
+
+    p_out[0] = '\0';
+    count2   = snap_cfg(p_out, count2, out_max, client);
+    count2   = snap_s2(p_out, count2, out_max, p_x);
+    count2   = snap_s3(p_out, count2, out_max, p_x);
+    count2   = snap_s4(p_out, count2, out_max, p_x);
+    count2   = snap_s5(p_out, count2, out_max, p_x);
+    count2   = snap_vc(p_out, count2, out_max, p_x);
     (void)put_str(p_out, count2, out_max, "}");
     return 0;
 }
+
+/* Barcode debug part: the per-read records ("rec"). */
+static int32_t bc_put_records(char * p_out, int32_t count2, int32_t out_max)
+{
+    uint32_t kdx;
+
+    /* rec: the last S3_BC_REC_N per-read records (subsystem3.h
+       s3_bc_rec_t): seq, t_ms, pos, len, white, margin, n, end, path,
+       letter (char code, 0 none), lock_why, lock_len, v_start, v_min,
+       v_end, v_up, up_len.  Casts: shown, not computed. */
+    count2 = put_str(p_out, count2, out_max, "],\"rec\":[");
+    for (kdx = 0U; kdx < S3_BC_REC_N; kdx++)
+    {
+        volatile s3_bc_rec_t const * p     = &g_s3_bc_rec[kdx];
+        int32_t const                f[17] = {
+            (int32_t)p->seq,     (int32_t)p->t_ms,     (int32_t)p->pos,
+            (int32_t)p->len,     (int32_t)p->white,    (int32_t)p->margin,
+            (int32_t)p->n,       (int32_t)p->end,      (int32_t)p->path,
+            (int32_t)p->letter,  (int32_t)p->lock_why, (int32_t)p->lock_len,
+            (int32_t)p->v_start, (int32_t)p->v_min,    (int32_t)p->v_end,
+            (int32_t)p->v_up,    (int32_t)p->up_len
+        };
+        uint32_t jdx;
+        count2 = put_str(p_out, count2, out_max, (0U == kdx) ? "[" : ",[");
+        for (jdx = 0U; jdx < 17U; jdx++)
+        {
+            count2 = put_int(p_out, count2, out_max, f[jdx]);
+            count2 = put_str(p_out, count2, out_max, (jdx < 16U) ? "," : "]");
+        }
+    }
+    return count2;
+}
+
+#if S3_L_FAST
+/* Barcode debug part: the 500 Hz L front-end counters ("lf"). */
+static int32_t bc_put_fast(char * p_out, int32_t count2, int32_t out_max)
+{
+    /* 500 Hz L front end: samples, late, longest us, ADC errors, empty
+       records, samples in the last record.  Casts: shown, not computed */
+    count2 = put_str(p_out, count2, out_max, "\"lf\":[");
+    count2 = put_int(p_out, count2, out_max, (int32_t)g_s3_lf_isr);
+    count2 = put_str(p_out, count2, out_max, ",");
+    count2 = put_int(p_out, count2, out_max, (int32_t)g_s3_lf_late);
+    count2 = put_str(p_out, count2, out_max, ",");
+    count2 = put_int(p_out, count2, out_max, (int32_t)g_s3_lf_max_us);
+    count2 = put_str(p_out, count2, out_max, ",");
+    count2 = put_int(p_out, count2, out_max, (int32_t)g_s3_lf_adc_err);
+    count2 = put_str(p_out, count2, out_max, ",");
+    count2 = put_int(p_out, count2, out_max, (int32_t)g_s3_lf_stall);
+    count2 = put_str(p_out, count2, out_max, ",");
+    count2 = put_int(p_out, count2, out_max, (int32_t)g_s3_lf_used);
+    count2 = put_str(p_out, count2, out_max, "],");
+    return count2;
+}
+#endif
 
 int32_t web_debug_barcode(char * p_out, int32_t out_max)
 {
@@ -1052,21 +1276,7 @@ int32_t web_debug_barcode(char * p_out, int32_t out_max)
     count2 = kv(p_out, count2, out_max, "gf", g_fit);
     count2 = kv(p_out, count2, out_max, "gt", g_ms);
 #if S3_L_FAST
-    /* 500 Hz L front end: samples, late, longest us, ADC errors, empty
-       records, samples in the last record.  Casts: shown, not computed */
-    count2 = put_str(p_out, count2, out_max, "\"lf\":[");
-    count2 = put_int(p_out, count2, out_max, (int32_t)g_s3_lf_isr);
-    count2 = put_str(p_out, count2, out_max, ",");
-    count2 = put_int(p_out, count2, out_max, (int32_t)g_s3_lf_late);
-    count2 = put_str(p_out, count2, out_max, ",");
-    count2 = put_int(p_out, count2, out_max, (int32_t)g_s3_lf_max_us);
-    count2 = put_str(p_out, count2, out_max, ",");
-    count2 = put_int(p_out, count2, out_max, (int32_t)g_s3_lf_adc_err);
-    count2 = put_str(p_out, count2, out_max, ",");
-    count2 = put_int(p_out, count2, out_max, (int32_t)g_s3_lf_stall);
-    count2 = put_str(p_out, count2, out_max, ",");
-    count2 = put_int(p_out, count2, out_max, (int32_t)g_s3_lf_used);
-    count2 = put_str(p_out, count2, out_max, "],");
+    count2 = bc_put_fast(p_out, count2, out_max);
 #endif
     count2 = put_str(p_out, count2, out_max, "\"d\":[");
     for (kdx = 0U; kdx < cnt; kdx++)
@@ -1078,30 +1288,7 @@ int32_t web_debug_barcode(char * p_out, int32_t out_max)
             count2 = put_str(p_out, count2, out_max, ",");
         }
     }
-    /* rec: the last S3_BC_REC_N per-read records (subsystem3.h
-       s3_bc_rec_t): seq, t_ms, pos, len, white, margin, n, end, path,
-       letter (char code, 0 none), lock_why, lock_len, v_start, v_min,
-       v_end, v_up, up_len.  Casts: shown, not computed. */
-    count2 = put_str(p_out, count2, out_max, "],\"rec\":[");
-    for (kdx = 0U; kdx < S3_BC_REC_N; kdx++)
-    {
-        volatile s3_bc_rec_t const * p     = &g_s3_bc_rec[kdx];
-        int32_t const                f[17] = {
-            (int32_t)p->seq,     (int32_t)p->t_ms,     (int32_t)p->pos,
-            (int32_t)p->len,     (int32_t)p->white,    (int32_t)p->margin,
-            (int32_t)p->n,       (int32_t)p->end,      (int32_t)p->path,
-            (int32_t)p->letter,  (int32_t)p->lock_why, (int32_t)p->lock_len,
-            (int32_t)p->v_start, (int32_t)p->v_min,    (int32_t)p->v_end,
-            (int32_t)p->v_up,    (int32_t)p->up_len
-        };
-        uint32_t jdx;
-        count2 = put_str(p_out, count2, out_max, (0U == kdx) ? "[" : ",[");
-        for (jdx = 0U; jdx < 17U; jdx++)
-        {
-            count2 = put_int(p_out, count2, out_max, f[jdx]);
-            count2 = put_str(p_out, count2, out_max, (jdx < 16U) ? "," : "]");
-        }
-    }
+    count2 = bc_put_records(p_out, count2, out_max);
     count2 = put_str(p_out, count2, out_max, "]}");
     return count2;
 }
