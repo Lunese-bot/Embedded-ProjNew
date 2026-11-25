@@ -145,6 +145,25 @@ static void run_actions(const vc_actions_t * p_acts)
                 }
                 break;
             }
+            case VC_ACT_LIFT:
+            {
+                /* "vc: lift settling down": phase now, then why */
+                static const char * const k_phase[] = {
+                    "none", "lifted", "settling", "waiting-for-line", "resuming"
+                };
+                static const char * const k_why[] = {
+                    "?", "lift", "lifted-again", "down", "wheels-turned",
+                    "settled", "line-confirmed", "s2-ready", "line-lost",
+                    "s2-not-ready", "go-slow", "cruise", "operator-hold"
+                };
+                const uint32_t ph  = (uint32_t)p_action->p1;
+                const uint32_t why = (uint32_t)p_action->p2;
+
+                tm_printf((uint8_t *)"vc: lift %s %s\n",
+                          k_phase[(ph <= 4u) ? ph : 0u],
+                          k_why[(why <= 12u) ? why : 0u]);
+                break;
+            }
             default:
                 break;
         }
@@ -187,7 +206,6 @@ static void handle(const vc_event_t * p_event, uint32_t now, bool b_from_s5)
 {
     vc_state_t before   = g_vc_sm.st.state;
     uint32_t   rejected = g_vc_sm.st.moves_rejected;
-    bool       was_paused = g_vc_sm.st.paused;
     bool       b_avoiding;
 
     vc_sm_handle(&g_vc_sm, p_event, now, &g_vc_actions);
@@ -203,10 +221,9 @@ static void handle(const vc_event_t * p_event, uint32_t now, bool b_from_s5)
         ((VC_EV_CMD_PAUSE == p_event->type) ||
          (VC_EV_CMD_RESUME == p_event->type)))
     {
-        bool accepted = (VC_EV_CMD_PAUSE == p_event->type) ?
-                        (!was_paused && g_vc_sm.st.paused) :
-                        (was_paused && !g_vc_sm.st.paused);
-        s1_bridge_command_result((uint8_t)p_event->p1, accepted);
+        /* the controller's own verdict (also during a lift pause, where
+           Pause / Resume only set or clear the operator's hold) */
+        s1_bridge_command_result((uint8_t)p_event->p1, g_vc_sm.cmd_ok);
     }
     if (b_from_s5)
     {
@@ -254,6 +271,10 @@ void vehicle_ctrl_task(int32_t stacd, void * p_exinf)
     publish_status(true);
     tm_printf((uint8_t *)"vc: task %d ready, state %s (send VC_EV_CMD_START)\n",
               tk_get_tid(), vc_state_name(g_vc_sm.st.state));
+    tm_printf((uint8_t *)"vc: lift mode %s\n",
+              (VC_LIFT_MODE_PAUSE == g_vc_sm.lift_mode_cfg)
+                  ? "pause-resume (a lift while following pauses the run)"
+                  : "end-run (a lift ends the run: MISSION_COMPLETE)");
 
     for (;;)
     {
@@ -303,6 +324,9 @@ void vehicle_ctrl_task(int32_t stacd, void * p_exinf)
             tick.time_ms = now;
             /* Cast: odometer counts, read back as uint32 (junction turns) */
             tick.p2      = (int32_t)g_s2_odo_ticks;
+            /* S2's IMU interlock now (VC_CAUSE_*): a lift pause waits for
+               S4 to clear it.  Cast: a small S2_IMU_CAUSE_* value. */
+            tick.p1      = (int32_t)g_s2_imu_stop;
             handle(&tick, now, false);
         }
 

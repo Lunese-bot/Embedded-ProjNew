@@ -94,6 +94,100 @@ _Static_assert((VC_UTURN_SECTOR_DEG < VC_UTURN_APPROACH_DEG) &&
 _Static_assert((VC_UTURN_REFRESH_MS * 2) < 500,
                "PIVOT must be refreshed well within S2_CMD_TIMEOUT_MS");
 
+/* ---------------------------------------------------------------------
+ *  Lift mode (owner, 2026-11-25).  Chosen before a run; the run keeps the
+ *  mode it started with (vc_status_t.lift_mode, taken at Start).
+ *    VC_LIFT_MODE_END    (0, DEFAULT, the assessed demo): a lift ends the
+ *                        run, MISSION_COMPLETE, fault code 0x4005.
+ *    VC_LIFT_MODE_PAUSE  (1): a lift while the mission is running pauses
+ *                        the SAME mission; it resumes by itself only after
+ *                        the checks below.  The lift wins over any
+ *                        manoeuvre (owner, 2026-11-25: a lifted robot's S3
+ *                        sees black and may report a junction or barcode
+ *                        first): from JUNCTION_STOP, EXECUTE_ACTION,
+ *                        DECODE_BARCODE, AVOID_OBSTACLE, LOST_LINE or
+ *                        TERRAIN_CHECK the controller drops that manoeuvre
+ *                        and pauses in FOLLOW_LINE.  A turn already started
+ *                        is never resumed (its barcode action is dropped);
+ *                        an action not yet started stays pending; S5's
+ *                        bypass is aborted.  A lift in MISSION_START is
+ *                        still a FAULT.
+ *  Selected at build time: make ... LIFT_RESUME=1 (pico_rp2040.mk) sets
+ *  -DVC_LIFT_MODE=1 and names the .uf2 *_liftresume.  vc_sm_set_lift_mode()
+ *  changes it only while no mission is running.
+ *
+ *  Pause on lift, step by step (all motion stays with the controller; S4
+ *  latches S2's motors off by itself, before any of this runs):
+ *    LIFTED     S2's IMU interlock is set (TICK p1 != 0).  Motors off.
+ *    SETTLING   S4 cleared the interlock: its own "set down, level and
+ *               still for S4_SETTLE_SAMPLES" rule (imu_terrain.c).  The
+ *               interlock must stay clear and the wheels must not turn
+ *               (odometer within VC_LIFT_ODO_TOL) for VC_LIFT_SETTLE_MS.
+ *    WAIT_LINE  only line samples taken after this point count, each one
+ *               once (its own time must be later than the last one used).
+ *               Line confirmed = the same black pattern (C only, R only,
+ *               or C and R both: on the tape, owner 2026-11-25) in
+ *               VC_LIFT_LINE_SAMPLES fresh samples in a row spanning at
+ *               least VC_LIFT_LINE_MS.  "No floor" is already ruled out by
+ *               S4's set-down rule and the settle time.  Both white
+ *               (centred on the tape OR plain floor: the straddle layout
+ *               cannot tell them apart) and anything changing keep the
+ *               robot stopped, for ever.
+ *    RESUMING   S2 RESET + readiness check (VC_EV_READY from S2 within
+ *               VC_LIFT_READY_MS), then VC_LIFT_VERIFY_SAMPLES fresh samples
+ *               taken after READY must still show the same sensor black,
+ *               interlock clear, wheels still.  Then slow line following
+ *               (VC_REJOIN_STEER_SAMPLES) and cruise.
+ *  Any interlock -> LIFTED again (a new lift episode).  Wheels turning ->
+ *  SETTLING again.  Line not confirmed during RESUMING -> WAIT_LINE.
+ *  Overturn, Stop, a critical fault -> FAULT; Reset -> IDLE.  No timeout
+ *  ever starts motion.  Operator Pause is kept: no resume until Resume.
+ * --------------------------------------------------------------------- */
+#define VC_LIFT_MODE_END   0
+#define VC_LIFT_MODE_PAUSE 1
+#ifndef VC_LIFT_MODE
+#define VC_LIFT_MODE VC_LIFT_MODE_END
+#endif
+_Static_assert((VC_LIFT_MODE == VC_LIFT_MODE_END) ||
+                   (VC_LIFT_MODE == VC_LIFT_MODE_PAUSE),
+               "VC_LIFT_MODE must be VC_LIFT_MODE_END or VC_LIFT_MODE_PAUSE");
+
+/* vc_status_t.lift_phase */
+#define VC_LP_NONE      0u
+#define VC_LP_LIFTED    1u
+#define VC_LP_SETTLING  2u
+#define VC_LP_WAIT_LINE 3u
+#define VC_LP_RESUMING  4u
+
+#define VC_LIFT_SETTLE_MS      500 /* after S4's own 1 s set-down rule */
+#define VC_LIFT_ODO_TOL        2   /* L + R counts: more = wheels turned */
+#define VC_LIFT_LINE_SAMPLES   30  /* 10 ms S3 samples in a row ... */
+#define VC_LIFT_LINE_MS        250 /* ... spanning at least this long */
+#define VC_LIFT_READY_MS       1000 /* S2 must report READY after RESET */
+#define VC_LIFT_VERIFY_SAMPLES 3   /* fresh samples after READY */
+#define VC_LIFT_VERIFY_MS      500 /* ... within this */
+_Static_assert(VC_LIFT_LINE_MS <= ((VC_LIFT_LINE_SAMPLES - 1) * 10),
+               "the confirmation interval must fit in the sample count");
+_Static_assert(VC_LIFT_LINE_SAMPLES >= 2,
+               "one sample can never confirm the line");
+
+/* Lift pause working data (FOLLOW_LINE with lp.phase != VC_LP_NONE) */
+typedef struct
+{
+    uint8_t  phase;     /* VC_LP_* (also shown in vc_status_t.lift_phase) */
+    uint8_t  step;      /* RESUMING: 0 = waiting for READY, 1 = verifying */
+    uint8_t  pattern;   /* VC_LINE_C or VC_LINE_R being confirmed, 0 = none */
+    bool     op_hold;   /* operator Pause: no resume until Resume */
+    bool     have_sample; /* last_ms holds a used sample's time */
+    uint16_t count;     /* fresh samples in a row showing `pattern` */
+    uint16_t episode;   /* lifts in this pause (debug) */
+    uint32_t phase_ms;  /* phase / step start: older samples are stale */
+    uint32_t first_ms;  /* time of the first sample of the run of `pattern` */
+    uint32_t last_ms;   /* time of the last sample used */
+    uint32_t odo0;      /* odometer when the wheels were last known still */
+    int32_t  imu;       /* latest TICK p1: S2 IMU interlock (0 = clear) */
+} vc_lift_t;
+
 #define VC_SEARCH_TURN_DEG  30  /* LOST_LINE attempt 1 (attempt 2: x2) */
 #define VC_SEARCH_BACK_MM   50  /* LOST_LINE attempt 3: reverse */
 
@@ -156,9 +250,28 @@ typedef enum
     VC_ACT_JUNCTION, /* p1 = vc_junction_note_t, p2 = (letter << 8) | wire
                         action code (vc_barcode_map.h); letter 'A'..'Z', or
                         0 when there was no single-letter barcode -> S1 */
-    VC_ACT_TRACE     /* U-turn log line: p1 = vc_ut_trace_t, p2 = heading
+    VC_ACT_TRACE,    /* U-turn log line: p1 = vc_ut_trace_t, p2 = heading
                         (counts turned, + = left), rsv = detail -> console */
+    VC_ACT_LIFT      /* pause-on-lift log line: p1 = VC_LP_* phase now,
+                        p2 = detail (vc_lift_note_t) -> console */
 } vc_action_kind_t;
+
+/* VC_ACT_LIFT p2: why the phase changed ("vc: lift <phase> <why>") */
+typedef enum
+{
+    VC_LN_LIFT = 1,      /* a lift interrupted the run */
+    VC_LN_RELIFT,        /* lifted again: a new lift episode */
+    VC_LN_DOWN,          /* S4: set down, level and still */
+    VC_LN_WHEELS,        /* the wheels turned (pushed): settle again */
+    VC_LN_SETTLED,       /* settle time over: watching the line */
+    VC_LN_CONFIRMED,     /* line confirmed: S2 reset + readiness check */
+    VC_LN_READY,         /* S2 ready: verifying fresh samples */
+    VC_LN_LOST,          /* line not confirmed during the handshake */
+    VC_LN_NO_READY,      /* S2 did not report ready in time */
+    VC_LN_GO,            /* slow line following started */
+    VC_LN_CRUISE,        /* back to cruise: the lift pause is over */
+    VC_LN_HOLD           /* operator Pause holds the robot */
+} vc_lift_note_t;
 
 /* VC_ACT_TRACE: one console line per U-turn step ("vc: ut ...") */
 typedef enum
@@ -267,6 +380,9 @@ typedef struct
     uint32_t             turn_gate;        /* counts before the line may end the turn, 0 = not watching */
     int8_t               lost_side;        /* -1 left, +1 right, 0 unknown */
     vc_uturn_t           ut;               /* U-turn steps */
+    vc_lift_t            lp;               /* pause on lift */
+    uint8_t              lift_mode_cfg;    /* VC_LIFT_MODE_* for the next Start */
+    bool                 cmd_ok;           /* last Pause / Resume accepted */
     navigation_command_t pending_nav;      /* decoded action for next junction */
     char                 pending_barcode[16]; /* full decoded barcode text */
 } vc_sm_t;
@@ -274,6 +390,9 @@ typedef struct
 extern void vc_sm_init(vc_sm_t * p_sm, uint32_t now_ms);
 extern void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event,
                          uint32_t now_ms, vc_actions_t * p_out);
+/* Lift mode for the next Start.  Refused (false, nothing changes) while a
+   mission is running: a run keeps the mode it started with. */
+extern bool vc_sm_set_lift_mode(vc_sm_t * p_sm, uint8_t mode);
 
 /* Which subsystem may move the robot in a state (VC_SRC_NONE = only the
    controller's own scripted moves) */

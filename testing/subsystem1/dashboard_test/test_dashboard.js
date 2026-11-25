@@ -783,6 +783,19 @@ function ratio(a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.
     "the Run obstacle tile shows front distance, width and length as labelled values (text only) and says Profile not reported until a frame arrives; MQTT and USB both feed it; every update goes to the saved run log");
 }
 
+/* ---------- D67: pause-on-lift reason (vc_sm.h VC_LIFT_MODE_PAUSE) ---------- */
+{
+  const vt = src("app_program/vehicle_controller/vc_types.h");
+  const code = name => { const m = new RegExp("#define\\s+" + name + "\\s+0x([0-9A-Fa-f]+)").exec(vt); return m ? parseInt(m[1], 16) : -1; };
+  const want = [["VC_FC_LIFT_LIFTED", "Lifted"], ["VC_FC_LIFT_SETTLING", "Settling"],
+    ["VC_FC_LIFT_WAIT_LINE", "Waiting for line"], ["VC_FC_LIFT_RESUMING", "Resuming line following"]];
+  const ok = want.every(([n, w]) => { const r = C.liftReason(code(n)); return r && r.word === w && r.sub && C.FAULTS[code(n)].def === n && C.FAULTS[code(n)].owner === 6; });
+  const ui = HTML.slice(HTML.indexOf("/* CORE-END */"));
+  check("S1-D67", ok && C.liftReason(0x4005) === null && C.liftReason(0) === null && C.liftReason(0x0009) === null &&
+    /S\.tlm\.paused && C\.liftReason\(S\.tlm\.fault\)/.test(ui) && /S\.tlm\.fault === 0x0013/.test(ui),
+    "a lift-paused robot shows its reason (Lifted / Settling / Waiting for line / Resuming line following) from the firmware's VC_FC_LIFT_* codes; other codes keep the plain Paused banner");
+}
+
 /* ---------- D34: page rules ---------- */
 {
   const ui = HTML.slice(HTML.indexOf("/* CORE-END */"));
