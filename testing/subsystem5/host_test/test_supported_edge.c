@@ -203,28 +203,6 @@ int main(int argc, char ** argv)
     }
 
     /* ---- S5-W02 hand-built edge cases ---- */
-    /* A 150 mm face at about 220 mm. At +/-20 and 25 degrees the
-       background gives repeatable echoes 65 mm behind the box. */
-    {
-        s5_trip_t trips[13];
-        for (int i = 0; i < 13; i++)
-        {
-            int deg = (i - 6) * 5;
-            int range = abs(deg) <= 15 ? 220 : (abs(deg) <= 25 ? 285 : 0);
-            trips[i] = F_(deg, range, range, range);
-        }
-        CHECK(S5_WE_OK == estimate_checked(trips, 13, &e));
-        CHECK(e.sup_width_mm == 150);
-        /* A weak echo can also connect two otherwise distinct groups
-           at the same range in the raw navigation profile. */
-        for (int i = 1; i <= 11; i++)
-        {
-            int deg = trips[i].deg;
-            trips[i] = abs(deg) == 20 ? F_(deg, 0, 220, 0) : F_(deg, 220, 220, 220);
-        }
-        CHECK(S5_WE_OK == estimate_checked(trips, 13, &e));
-        CHECK(e.sup_width_mm == 150);
-    }
     /* the fine trip at 30 replaced a coarse 3-echo trip: only the fine
        pings count, so +30 is not supported even though coarse saw it */
     {

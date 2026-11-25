@@ -67,9 +67,9 @@ extern int32_t s5_format_trips(char * p_buf, int32_t size,
    the raw edges of s5_build_profile.
 
    Raw edges: the outermost samples of the profile's cluster (one echo of
-   three is enough to be a hit there). Starting at the nearest hit,
-   grow the measured face to each side while neighbouring ranges stay
-   continuous and each angle has S5_WE_MIN_SUPPORT plausible pings. A ping
+   three is enough to be a hit there).  Supported edges: starting from
+   each raw edge and moving inward, the first sample of the same cluster
+   whose own trip has at least S5_WE_MIN_SUPPORT plausible pings.  A ping
    is plausible when it is a hit (1..S5_HIT_RANGE_MM) within
    S5_CLUSTER_GAP_MM of the range that joined this sample to the cluster
    (the median of its inward neighbour; the nearest sample's own median),
@@ -91,9 +91,9 @@ typedef enum
 {
     S5_WE_OK = 0,      /* both supported edges found, left of right      */
     S5_WE_NO_PROFILE,  /* the trips give no obstacle                     */
-    S5_WE_CLIPPED,     /* a supported edge is the first or last sample: the
+    S5_WE_CLIPPED,     /* a raw edge is the first or last sample: the
                           side beyond it was never observed              */
-    S5_WE_NO_SUPPORT,  /* nearest hit lacks enough supporting pings      */
+    S5_WE_NO_SUPPORT,  /* no sample of the cluster has enough support    */
     S5_WE_COLLAPSED    /* the supported edges meet or cross: too narrow
                           for two supported endpoints                    */
 } s5_we_status_t;

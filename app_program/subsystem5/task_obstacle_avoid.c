@@ -824,7 +824,6 @@ static void report_front(const s5_profile_t * p_prof)
     uint16_t width_mm = p_prof->width_mm;
 
 #if S5_REPORT_SUPPORTED_WIDTH
-    s5_or_width_t measured_status = S5_OR_W_NONE;
     {
         /* report only: the bypass below still uses p_prof unchanged */
         s5_width_est_t est;
@@ -838,7 +837,6 @@ static void report_front(const s5_profile_t * p_prof)
             (est.raw_l_deg == p_prof->left_edge_deg))
         {
             width_mm    = est.sup_width_mm;
-            measured_status = (est.status == S5_WE_CLIPPED) ? S5_OR_W_LOWER_BOUND : S5_OR_W_MEASURED;
             g_width_src = "sup";
         }
     }
@@ -848,9 +846,9 @@ static void report_front(const s5_profile_t * p_prof)
                 p_prof->bypass_side, (n > 0) ? ang[0] : 0, (n > 0) ? ang[n - 1] : 0,
                 b_follow, why);
 #if S5_REPORT_SUPPORTED_WIDTH
-    if (p_prof->valid && (S5_OR_W_ONE_BEAM != g_report.width_status))
+    if ((0U == width_mm) && (S5_OR_W_ONE_BEAM != g_report.width_status))
     {
-        g_report.width_status = measured_status;
+        g_report.width_status = S5_OR_W_NONE;
     }
 #endif
     if (!b_follow)
