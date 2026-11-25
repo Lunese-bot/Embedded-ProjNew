@@ -1126,8 +1126,12 @@ bool bc_lock_apply(bc_lock_ctl_t * p_c, bc_lock_cfg_t const * p_cfg,
 
 /* Full barrier: orders the counter and the data across the two cores
    (GCC emits DMB on the Cortex-M0+). */
-#define L_FAST_BARRIER() __sync_synchronize()
-#define L_FAST_TRIES     8u
+static inline void l_fast_barrier(void)
+{
+    __sync_synchronize();
+}
+
+#define L_FAST_TRIES 8u
 
 void l_fast_reset(l_fast_t * p_f, l_fast_rd_t * p_rd)
 {
@@ -1144,12 +1148,12 @@ void l_fast_reset(l_fast_t * p_f, l_fast_rd_t * p_rd)
 void l_fast_put(l_fast_t * p_f, uint16_t l_val, uint16_t chr, uint16_t r_val)
 {
     p_f->seq = p_f->seq + 1u; /* odd: update in progress */
-    L_FAST_BARRIER();
+    l_fast_barrier();
     p_f->sum = p_f->sum + (uint32_t)l_val;
     p_f->n   = p_f->n + 1u;
     p_f->c   = chr;
     p_f->r   = r_val;
-    L_FAST_BARRIER();
+    l_fast_barrier();
     p_f->seq = p_f->seq + 1u; /* even: done */
 }
 
@@ -1161,12 +1165,12 @@ bool l_fast_get(const l_fast_t * p_f, uint32_t * p_sum, uint32_t * p_n,
     for (kdx = 0u; kdx < L_FAST_TRIES; kdx++)
     {
         uint32_t s1_val = p_f->seq;
-        L_FAST_BARRIER();
+        l_fast_barrier();
         *p_sum = p_f->sum;
         *p_n   = p_f->n;
         *p_c   = p_f->c;
         *p_r   = p_f->r;
-        L_FAST_BARRIER();
+        l_fast_barrier();
         if ((0u == (s1_val & 1u)) && (s1_val == p_f->seq))
         {
             return true;

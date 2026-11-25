@@ -14,6 +14,7 @@
 #define VC_SM_H
 
 #include "vc_types.h"
+#include "../float_types.h"
 /* track and tick size for VC_PIVOT_COUNTS */
 #include "../subsystem2/s2_config.h"
 
@@ -55,8 +56,8 @@
 #endif
 /* L + R odometer counts for a pivot of `deg` degrees: the two wheels roll
    pi x S2_TRACK_MM x deg / 180 mm between them.  90 deg = ~692 counts. */
-#define VC_PIVOT_COUNTS(deg)                           \
-    ((uint32_t)((S2_PI * S2_TRACK_MM * (float)(deg)) / \
+#define VC_PIVOT_COUNTS(deg)                               \
+    ((uint32_t)((S2_PI * S2_TRACK_MM * (float32_t)(deg)) / \
                 (180.0f * S2_MM_PER_TICK)))
 
 /* U-turn (2026-11-25): stop at the junction, then

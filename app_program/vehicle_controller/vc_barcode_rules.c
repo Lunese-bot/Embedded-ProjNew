@@ -42,7 +42,7 @@ static const vc_barcode_rule_t g_rules[] = {
 _Static_assert(1 VC_BARCODE_LETTER_TABLE(VC_RULE_VALID),
                "every barcode table entry must be a valid action");
 _Static_assert((0 VC_BARCODE_LETTER_TABLE(VC_RULE_COUNT)) ==
-                   (int)VC_BARCODE_LETTER_COUNT,
+                   (int32_t)VC_BARCODE_LETTER_COUNT,
                "the barcode table must have 26 letters");
 #undef VC_RULE_VALID
 #undef VC_RULE_COUNT

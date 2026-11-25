@@ -9,11 +9,14 @@
 
 /* Compiler + hardware barrier: the map is read from another task (and on
    the RP2040 possibly the other core) while the VC task replaces it. */
+static inline void bcmap_barrier(void)
+{
 #if defined(__arm__)
-#define BCMAP_BARRIER() __asm__ volatile("dmb" ::: "memory")
+    __asm__ volatile("dmb" ::: "memory");
 #else
-#define BCMAP_BARRIER() __atomic_thread_fence(__ATOMIC_SEQ_CST)
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
 #endif
+}
 
 _Static_assert(((VC_BCMAP_LETTERS * 2u) + 7u) / 8u == VC_BCMAP_PACKED_BYTES,
                "26 letters of 2 bits must fit the packed bytes");
@@ -287,14 +290,14 @@ static void set_active(uint32_t      gen,
 
     (void)vc_bcmap_unpack(p_packed, s_nav); /* validated by the caller */
     s_seq = s_seq + 1u;
-    BCMAP_BARRIER();
+    bcmap_barrier();
     s_active.gen = gen;
     for (idx = 0u; idx < VC_BCMAP_PACKED_BYTES; idx++)
     {
         s_active.packed[idx] = p_packed[idx];
     }
     s_active.flags = base_flags(p_packed, b_saved);
-    BCMAP_BARRIER();
+    bcmap_barrier();
     s_seq = s_seq + 1u;
 }
 
@@ -342,7 +345,7 @@ void vc_bcmap_init(const vc_bcmap_store_t * p_store)
         best_gen = 0u;
     }
     set_active(best_gen, best, best_slot >= 0);
-    BCMAP_BARRIER();
+    bcmap_barrier();
     s_b_init = true;
 }
 
@@ -372,7 +375,7 @@ bool vc_bcmap_get(vc_bcmap_snapshot_t * p_snap)
     for (tries = 0u; tries < 64u; tries++)
     {
         before = s_seq;
-        BCMAP_BARRIER();
+        bcmap_barrier();
         if (0u != (before & 1u))
         {
             continue;
@@ -383,7 +386,7 @@ bool vc_bcmap_get(vc_bcmap_snapshot_t * p_snap)
             p_snap->packed[idx] = s_active.packed[idx];
         }
         p_snap->flags = s_active.flags;
-        BCMAP_BARRIER();
+        bcmap_barrier();
         if (s_seq == before)
         {
             if (s_b_mission_active)
@@ -477,14 +480,14 @@ bool vc_bcmap_post_write(uint16_t request_id, uint16_t expected_gen,
     {
         s_pending.packed[idx] = p_packed[idx];
     }
-    BCMAP_BARRIER();
+    bcmap_barrier();
     s_pending.full = 1u;
     return true;
 }
 
 void vc_bcmap_cancel_write(void)
 {
-    BCMAP_BARRIER();
+    bcmap_barrier();
     s_pending.full = 0u;
 }
 
@@ -495,11 +498,11 @@ bool vc_bcmap_service(bool b_allowed, uint16_t * p_request_id,
     {
         return false;
     }
-    BCMAP_BARRIER();
+    bcmap_barrier();
     *p_request_id = s_pending.request_id;
     *p_result =
         vc_bcmap_replace(s_pending.packed, s_pending.expected_gen, !b_allowed);
-    BCMAP_BARRIER();
+    bcmap_barrier();
     s_pending.full = 0u;
     return true;
 }

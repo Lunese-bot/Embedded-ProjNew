@@ -114,8 +114,11 @@ extern uint32_t g_s5_evt_dropped; /* events lost: buffer was full */
    until MOTION_RESET) so the robot cannot drive into the obstacle.
    This is the ONLY place S5 touches motion, and it can only STOP.
    Returns the send result (E_OK, or the error after the stop). */
-extern ER s5_send_critical_to(ID mbf, s5_evt_t * p_evt);
-#define s5_send_critical(p_evt) s5_send_critical_to(g_mbf_s5_evt, (p_evt))
+extern ER        s5_send_critical_to(ID mbf, s5_evt_t * p_evt);
+static inline ER s5_send_critical(s5_evt_t * p_evt)
+{
+    return s5_send_critical_to(g_mbf_s5_evt, p_evt);
+}
 
 /* The stop function used by s5_send_critical_to().  Defaults to
    s2_emergency_stop; the on-target test swaps in a counter so it can
