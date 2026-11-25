@@ -90,7 +90,6 @@ void s5_set_state(s5_state_t s) { (void)s; }
 void s5_set_fault(s5_fault_code_t f) { (void)f; }
 void s5_count_avoid_ok(void) {}
 void s5_load_profile(s5_profile_t *p) { *p = (s5_profile_t){ 0 }; }
-void s5_load_width_est(s5_width_est_t *est) { *est = (s5_width_est_t){ .status = S5_WE_NO_PROFILE }; }
 ER s5_get_status(s5_status_t *s) { *s = (s5_status_t){ 0 }; return E_OK; }
 void s5_port_set_line_search(bool b) { (void)b; }
 bool s5_port_line_detected(void) { return false; }

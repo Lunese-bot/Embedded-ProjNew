@@ -9,9 +9,10 @@
  *      What the numbers mean
  *        front_mm   nearest point of the obstacle in the front scan (the
  *                   profile's distance_mm).  NOT a size.
- *        width_mm   lateral span between echo-supported edges, including
- *                   the servo arm offset. Fine-scan transitions are
- *                   interpolated. A clipped scan gives an observed bound.
+ *        width_mm   the profile's width_mm: lateral offset of the leftmost
+ *                   hit minus that of the rightmost hit, each = range x
+ *                   sin(servo angle) (obstacle_logic.c s5_build_profile).
+ *                   It is never max range - min range.
  *        length_mm  extent along the robot's ORIGINAL direction of travel,
  *                   observed with the side-looking ultrasonic during the
  *                   straight pass leg only (s5_pass_t.depth_mm): forward

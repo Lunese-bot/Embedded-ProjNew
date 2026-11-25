@@ -30,9 +30,9 @@ function loadCore(html) {
 }
 const C = loadCore(HTML);
 const src = rel => fs.readFileSync(path.join(ROOT, rel), "utf8");
-const enc = input => execFileSync(ENCODER, { input }).toString().trim().split(/\r?\n/);
+const enc = input => execFileSync(ENCODER, { input }).toString().trim().split("\n");
 const hexBytes = h => Uint8Array.from(Buffer.from(h, "hex"));
-const cfgEnc = input => execFileSync(CFG_ENCODER, { input }).toString().trim().split(/\r?\n/);
+const cfgEnc = input => execFileSync(CFG_ENCODER, { input }).toString().trim().split("\n");
 const toHex = b => Buffer.from(b).toString("hex");
 
 /* ---------- D01-D04: wire parity with the C codec ---------- */
@@ -681,7 +681,7 @@ function ratio(a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.
 
 /* ---------- D60-D66: obstacle size report (robot/g10/obstacle/profile) ---------- */
 {
-  const out = execFileSync(OBST_ENCODER).toString().trim().split(/\r?\n/);
+  const out = execFileSync(OBST_ENCODER).toString().trim().split("\n");
   const frames = out.filter(l => l[0] === "F"), names = out.filter(l => l[0] === "N");
   const keys = ["profileId", "rev", "stage", "widthStatus", "lengthStatus", "lengthReason", "frontMm", "widthMm", "lengthMm", "t0Ms", "bypassSide"];
   const bad = [];
@@ -774,7 +774,7 @@ function ratio(a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.
   const rend = (/function renderObstacleProfile\(\) \{[\s\S]*?\n  \}/.exec(ui) || [""])[0];
   const v0n = C.obstacleView(null), vfs = C.obstacleView(front);
   check("S1-D66", ["ob_front", "ob_width", "ob_length", "ob_id", "ob_detail", "ob_history"].every(id => HTML.includes('id="' + id + '"')) &&
-    /<dt>Width<\/dt><dd id="ob_width">[\s\S]*<dt>Front<\/dt><dd id="ob_front">[\s\S]*<dt>Length<\/dt><dd id="ob_length">/.test(HTML) &&
+    /<dt>Front<\/dt><dd id="ob_front">[\s\S]*<dt>Width<\/dt><dd id="ob_width">[\s\S]*<dt>Length<\/dt><dd id="ob_length">/.test(HTML) &&
     /topic === C\.OBST_PROFILE_TOPIC\) \{\s*onObstacle\(C\.decodeObstacleProfile\(bytes\), "mqtt"\)/.test(ui) &&
     /onObstacle\(C\.parseObstacleUsbLine\(line\), "usb"\)/.test(ui) && /"obstacle", C\.obstacleLogText\(u\.rec\)/.test(ui) &&
     rend && !/innerHTML/.test(rend) && /txt\("ob_width", v\.width\)/.test(rend) && /txt\("ob_length", v\.length\)/.test(rend) &&

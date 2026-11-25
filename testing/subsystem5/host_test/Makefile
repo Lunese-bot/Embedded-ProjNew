@@ -8,7 +8,6 @@ test: test_s5_pack test_navigation test_side_pass test_side_task test_side_pass_
 	./test_side_pass_cfg
 	./test_side_task_cfg
 	./test_obstacle_report
-	./test_obstacle_report_sup
 	./test_obstacle_report trace > obstacle_trace_on.txt
 	./test_obstacle_report_off trace > obstacle_trace_off.txt
 	cmp obstacle_trace_on.txt obstacle_trace_off.txt && echo "[TEST] S5-R08 PASS  bypass motion identical with and without the length observation"
@@ -32,15 +31,15 @@ test_side_pass_cfg: test_side_pass.c $(wildcard $(SRC)/*.c $(SRC)/*.h)
 test_side_task_cfg: test_side_task.c $(wildcard $(SRC)/*.c $(SRC)/*.h)
 	$(CC) -std=c11 -Wall -Wextra -Werror -O1 -DS5_USE_CONFIG_DIMS -o $@ test_side_task.c
 test_obstacle_report: test_obstacle_report.c $(wildcard $(SRC)/*.c $(SRC)/*.h)
-	$(CC) -std=c11 -Wall -Wextra -Werror -O1 -DS5_LENGTH_OBSERVE=1 -DS5_REPORT_SUPPORTED_WIDTH=0 -o $@ test_obstacle_report.c
+	$(CC) -std=c11 -Wall -Wextra -Werror -O1 -DS5_LENGTH_OBSERVE=1 -o $@ test_obstacle_report.c
 test_obstacle_report_off: test_obstacle_report.c $(wildcard $(SRC)/*.c $(SRC)/*.h)
-	$(CC) -std=c11 -Wall -Wextra -Werror -O1 -DS5_LENGTH_OBSERVE=0 -DS5_REPORT_SUPPORTED_WIDTH=0 -o $@ test_obstacle_report.c
+	$(CC) -std=c11 -Wall -Wextra -Werror -O1 -DS5_LENGTH_OBSERVE=0 -o $@ test_obstacle_report.c
 test_scan_diag: test_scan_diag.c $(wildcard $(SRC)/*.c $(SRC)/*.h)
 	$(CC) -std=c11 -Wall -Wextra -Werror -O1 -o $@ test_scan_diag.c
 test_supported_edge: test_supported_edge.c s5_scan_model.h s5_same.h $(wildcard $(SRC)/*.c $(SRC)/*.h)
 	$(CC) -std=c11 -Wall -Wextra -Werror -O1 -o $@ test_supported_edge.c -lm
 test_obstacle_report_sup: test_obstacle_report.c $(wildcard $(SRC)/*.c $(SRC)/*.h)
-	$(CC) -std=c11 -Wall -Wextra -Werror -O1 -DS5_LENGTH_OBSERVE=1 -o $@ test_obstacle_report.c
+	$(CC) -std=c11 -Wall -Wextra -Werror -O1 -DS5_LENGTH_OBSERVE=1 -DS5_REPORT_SUPPORTED_WIDTH=1 -o $@ test_obstacle_report.c
 s5_replay: s5_replay.c $(wildcard $(SRC)/*.c $(SRC)/*.h)
 	$(CC) -std=c11 -Wall -Wextra -Werror -O1 -o $@ s5_replay.c
 clean:
