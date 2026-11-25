@@ -176,6 +176,28 @@ static int32_t support_of(const s5_trip_t * p_t, int32_t ref_mm)
     return got;
 }
 
+/* Walk out from the detected face. Across a small angle, a large depth
+   step indicates a different surface even if it fits the planner's
+   generous cluster gap. Allow twice the beam spacing plus 10 mm noise. */
+static int32_t face_edge(const s5_trip_t *trips, int32_t near, int32_t limit, int32_t step)
+{
+    int32_t edge = near;
+    while (edge != limit)
+    {
+        const s5_trip_t *inner = &trips[edge];
+        const s5_trip_t *next = &trips[edge + step];
+        int32_t angle = iabs(next->deg - inner->deg);
+        int32_t gap = 10 + 2 * (S5_SERVO_ARM_MM + inner->used) * s5_sin1000(angle) / 1000;
+        if ((iabs((int32_t)next->used - inner->used) > gap) ||
+            (support_of(next, inner->used) < S5_WE_MIN_SUPPORT))
+        {
+            break;
+        }
+        edge += step;
+    }
+    return edge;
+}
+
 /* Index of the sample at angle deg, -1 if none. */
 static int32_t index_of(const s5_trip_t * p_trips, int32_t n, int32_t deg)
 {
@@ -262,26 +284,13 @@ s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t n,
     p_est->raw_r_support = (uint8_t)support_of(&p_trips[low], ref_range(p_trips, low, near));
     p_est->raw_l_support = (uint8_t)support_of(&p_trips[high], ref_range(p_trips, high, near));
 
-    /* outermost supported sample on each side, walking inward */
-    for (rs = low; rs <= high; rs++)
-    {
-        if (support_of(&p_trips[rs], ref_range(p_trips, rs, near)) >= S5_WE_MIN_SUPPORT)
-        {
-            break;
-        }
-    }
-    for (ls = high; ls >= low; ls--)
-    {
-        if (support_of(&p_trips[ls], ref_range(p_trips, ls, near)) >= S5_WE_MIN_SUPPORT)
-        {
-            break;
-        }
-    }
-    if ((rs > high) || (ls < low))
+    if (support_of(&p_trips[near], prof.distance_mm) < S5_WE_MIN_SUPPORT)
     {
         p_est->status = (uint8_t)S5_WE_NO_SUPPORT;
         return S5_WE_NO_SUPPORT;
     }
+    rs = face_edge(p_trips, near, low, -1);
+    ls = face_edge(p_trips, near, high, 1);
     p_est->sup_r_deg     = p_trips[rs].deg;
     p_est->sup_l_deg     = p_trips[ls].deg;
     p_est->sup_r_range   = p_trips[rs].used;
@@ -294,7 +303,7 @@ s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t n,
         return S5_WE_COLLAPSED;
     }
     {
-        bool clipped = (0 == low) || ((n - 1) == high);
+        bool clipped = (0 == rs) || ((n - 1) == ls);
         int16_t r_mm = offset_mm(p_trips, rs, rs, n);
         int16_t l_mm = offset_mm(p_trips, ls, ls, n);
 
@@ -313,7 +322,7 @@ s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t n,
         p_est->sup_left_mm  = l_mm;
         p_est->sup_width_mm = (uint16_t)(l_mm - r_mm);
     }
-    p_est->status = ((0 == low) || ((n - 1) == high)) ? S5_WE_CLIPPED : S5_WE_OK;
+    p_est->status = ((0 == rs) || ((n - 1) == ls)) ? S5_WE_CLIPPED : S5_WE_OK;
     return (s5_we_status_t)p_est->status;
 }
 
