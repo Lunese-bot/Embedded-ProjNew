@@ -9,8 +9,7 @@
  *      What the numbers mean
  *        front_mm   nearest point of the obstacle in the front scan (the
  *                   profile's distance_mm).  NOT a size.
- *        width_mm   half the scanned lateral span, rounded down to mm.
- *                   The default scan uses echo-supported edges, including
+ *        width_mm   lateral span between echo-supported edges, including
  *                   the servo arm offset. Fine-scan transitions are
  *                   interpolated. A clipped scan gives an observed bound.
  *        length_mm  extent along the robot's ORIGINAL direction of travel,

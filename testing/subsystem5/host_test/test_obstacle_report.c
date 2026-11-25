@@ -372,7 +372,7 @@ int main(int argc, char **argv)
                 if ((S5_OR_STAGE_FRONT == w.hist[i].stage) && (S5_OR_W_MEASURED == w.hist[i].width_status))
                 {
                     front++;
-                    if (w.hist[i].width_mm != (uint16_t)((w.prof.width_mm - 20) / 2)) { fprintf(stderr, "FAIL S5-W05 width %d\n", w.hist[i].width_mm); return 1; }
+                    if (w.hist[i].width_mm != (uint16_t)(w.prof.width_mm - 20)) { fprintf(stderr, "FAIL S5-W05 width %d\n", w.hist[i].width_mm); return 1; }
                 }
             }
             for (int i = 0; i < w.nusb; i++) { if (0 == strncmp(w.usb[i], "s5: width source #", 18) && NULL != strstr(w.usb[i], " sup")) { sup_lines++; } }
@@ -399,7 +399,7 @@ int main(int argc, char **argv)
         encounter(lens[i], 180, FAR_MM);
         run_encounter();
         const s5_obst_report_t *f = stage_rec(S5_OR_STAGE_FRONT), *l = stage_rec(S5_OR_STAGE_LENGTH), *z = last_rec();
-        CHECK("S5-R02", f && S5_OR_W_MEASURED == f->width_status && (S5_REPORT_SUPPORTED_WIDTH ? 80U : 90U) == f->width_mm && FAR_MM == f->front_mm &&
+        CHECK("S5-R02", f && S5_OR_W_MEASURED == f->width_status && (S5_REPORT_SUPPORTED_WIDTH ? 160U : 180U) == f->width_mm && FAR_MM == f->front_mm &&
               S5_OR_L_MEASURING == f->length_status && 0U == f->length_mm,
               "front stage carries the selected width, front distance and pending length");
         CHECK("S5-R02", w.nhist >= 1 && S5_OR_STAGE_SCANNING == w.hist[0].stage && 0U == w.hist[0].width_mm,
@@ -462,7 +462,7 @@ int main(int argc, char **argv)
           "obstacle #2 opens a new id and the previous length is cleared at once");
     {
         const s5_obst_report_t *f = stage_rec(S5_OR_STAGE_FRONT), *l = stage_rec(S5_OR_STAGE_LENGTH);
-        CHECK("S5-R07", f && (S5_REPORT_SUPPORTED_WIDTH ? 50U : 60U) == f->width_mm && S5_OR_L_MEASURING == f->length_status && 0U == f->length_mm &&
+        CHECK("S5-R07", f && (S5_REPORT_SUPPORTED_WIDTH ? 100U : 120U) == f->width_mm && S5_OR_L_MEASURING == f->length_status && 0U == f->length_mm &&
               l && iabs((int32_t)l->length_mm - 300) <= 60 && first.length_mm != l->length_mm,
               "obstacle #2 reports its own width and length, never #1's");
         CHECK("S5-R07", f && f->t0_ms != first.t0_ms, "each encounter carries its own start time (restart and merge guard)");

@@ -843,8 +843,6 @@ static void report_front(const s5_profile_t * p_prof)
         }
     }
 #endif
-    /* Report half the scanned width, rounded down to whole millimetres. */
-    width_mm /= 2U;
     s5_or_front(&g_report, p_prof->valid, p_prof->distance_mm,
                 p_prof->right_edge_deg, p_prof->left_edge_deg, width_mm,
                 p_prof->bypass_side, (n > 0) ? ang[0] : 0, (n > 0) ? ang[n - 1] : 0,
