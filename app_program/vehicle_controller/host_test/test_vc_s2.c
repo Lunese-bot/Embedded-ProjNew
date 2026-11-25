@@ -28,14 +28,14 @@ volatile int32_t       g_lt_steer_inv;
 volatile int32_t       g_lt_curve;
 static motion_status_t status;
 static uint32_t        stop_epoch;
-static int             reset_count;
-static int             status_errors;
+static int32_t         reset_count;
+static int32_t         status_errors;
 static ER              status_result;
 
 volatile uint32_t g_s2_odo_ticks; /* S2's odometer, read by the bridge */
 static UINT       flg_pending; /* S2 event flags the next tk_wai_flg returns */
 static ER         tk_wai_flg(ID obj_id, UINT bits, UINT mode, UINT * p_output,
-                             int timeout)
+                             int32_t timeout)
 {
     (void)obj_id;
     (void)mode;
@@ -123,7 +123,8 @@ uint32_t        s2_imu_stop_cause(uint32_t epoch)
 
 #include "../vc_bridge_s2.c"
 
-int main(void)
+/* main(), part 1 of 2. */
+static void test_part1(void)
 {
     vc_event_t event;
 
@@ -202,6 +203,12 @@ int main(void)
     puts("[TEST] S6-U02 PASS  U_TURN carries its angle (0 = VC_UTURN_CMD_DEG); "
          "PIVOT = drive(0, +-v), clamped to the turn speed, not resumed by "
          "SET_SPEED");
+}
+
+/* main(), part 2 of 2. */
+static void test_part2(void)
+{
+    vc_event_t event;
 
     /* the controller logs how far the wheels ran on after a stop request */
     status.state      = MSTATE_IDLE;
@@ -249,6 +256,13 @@ int main(void)
     assert(E_OK == vc_bridge_s2_move(VC_MOVE_RESET, 0));
     puts("[TEST] S6-SAFE04 PASS  S2 safe-stop report carries the IMU "
          "lift/overturn cause of that stop only");
+}
+
+int main(void)
+{
+    test_part1();
+    test_part2();
+
     return 0;
 }
 

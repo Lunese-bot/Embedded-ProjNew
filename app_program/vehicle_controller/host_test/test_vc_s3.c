@@ -34,9 +34,9 @@ static bool             g_b_event_ready;
 static bool             g_b_bypass_active;
 static uint32_t         clock_ms;
 static uint8_t          barcode_payload[8];
-static int              barcode_len;
-static int              barcode_error;
-static int              post_result;
+static int32_t          barcode_len;
+static int32_t          barcode_error;
+static int32_t          post_result;
 
 static int32_t tk_rcv_mbf(ID obj_id, void * p_output, TMO timeout)
 {
@@ -101,7 +101,8 @@ static void queue_junction(uint32_t time_ms)
     g_b_event_ready = true;
 }
 
-int main(void)
+/* main(), part 1 of 2. */
+static void test_part1(void)
 {
     vc_event_t event;
 
@@ -195,6 +196,13 @@ int main(void)
     line_status.black_mask = (uint8_t)(S3_MASK_C | S3_MASK_R);
     assert(vc_bridge_s3_next(&event, VC_ST_EXECUTE_ACTION));
     assert((VC_LINE_C | VC_LINE_R) == event.p1);
+}
+
+/* main(), part 2 of 2. */
+static void test_part2(void)
+{
+    vc_event_t event;
+
     /* leaving EXECUTE_ACTION ends the watch: back there, only LINE_FOUND */
     line_status.seq = 54;
     (void)vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE);
@@ -209,6 +217,12 @@ int main(void)
     puts("[TEST] S6-U04 PASS  LINE_WATCH: each new sample after the request, "
          "white too, C/R bits + odometer + sample time; off with 0 or outside "
          "EXECUTE_ACTION");
+}
+
+int main(void)
+{
+    test_part1();
+    test_part2();
 
     return 0;
 }

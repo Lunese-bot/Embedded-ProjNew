@@ -54,7 +54,7 @@ typedef struct
     uint32_t writes;
     uint32_t writes_to[VC_BCMAP_SLOTS];
     fail_t   fail_next;
-    int      read_error;
+    int32_t  read_error;
 } fake_flash_t;
 
 static fake_flash_t g_flash;
@@ -144,13 +144,13 @@ static vc_bcmap_snapshot_t snap(void)
     return s_val;
 }
 
-static int all_letters_match(const uint8_t p_packed[7])
+static int32_t all_letters_match(const uint8_t p_packed[7])
 {
     char text[2] = { 'A', '\0' };
 
     for (uint32_t idx2 = 0u; idx2 < VC_BCMAP_LETTERS; idx2++)
     {
-        text[0] = (char)('A' + (int)idx2);
+        text[0] = (char)('A' + (int32_t)idx2);
         if (vc_bcmap_nav_from_wire(vc_bcmap_packed_code(p_packed, idx2)) !=
             vc_barcode_lookup(text))
         {
@@ -177,14 +177,14 @@ static void tally_clear(void)
     g_jx_n = 0;
 }
 
-static int jx_is(int32_t idx2, int32_t kind, int32_t letter, int32_t code)
+static int32_t jx_is(int32_t idx2, int32_t kind, int32_t letter, int32_t code)
 {
     return (idx2 < g_jx_n) && (g_jx[idx2][0] == kind) &&
            (g_jx[idx2][1] == letter) && (g_jx[idx2][2] == code);
 }
 
 /* the reply the task would publish for the last config action */
-static int      g_reply_valid;
+static int32_t  g_reply_valid;
 static uint16_t g_reply_id;
 static uint8_t  g_reply[S1_CFG_REPLY_LEN];
 
@@ -334,14 +334,14 @@ static int32_t turns(void)
 }
 
 /* the dashboard: one MQTT message through S1's decoder into the robot */
-static int dashboard_write(uint16_t obj_id, uint16_t gen,
-                           const uint8_t p_map[7])
+static int32_t dashboard_write(uint16_t obj_id, uint16_t gen,
+                               const uint8_t p_map[7])
 {
     uint8_t      msg[S1_CFG_WRITE_LEN];
     s1_cfg_req_t req;
 
     (void)s1_cfg_encode_write(obj_id, gen, p_map, msg);
-    if (0 != s1_cfg_decode_request(msg, (int)sizeof(msg), &req))
+    if (0 != s1_cfg_decode_request(msg, (int32_t)sizeof(msg), &req))
     {
         return 0;
     }
@@ -356,7 +356,7 @@ static int dashboard_write(uint16_t obj_id, uint16_t gen,
 }
 
 /* dashboard verification: matching id, OK/UNCHANGED, all 26 entries equal */
-static int reply_verifies(uint16_t obj_id, const uint8_t p_map[7])
+static int32_t reply_verifies(uint16_t obj_id, const uint8_t p_map[7])
 {
     return g_reply_valid && (g_reply_id == obj_id) &&
            (S1_CFG_MARKER == g_reply[0]) &&
@@ -373,7 +373,7 @@ static void test_codec(void)
 {
     uint8_t              p_val[7];
     navigation_command_t nav[VC_BCMAP_LETTERS];
-    int                  b_ok = 1;
+    int32_t              b_ok = 1;
 
     CHECK(
         "BCM-01",
@@ -439,7 +439,7 @@ static void test_codec(void)
         {
             uint8_t back[7];
             memset(p_val, 0, 7);
-            map_set(p_val, (char)('A' + (int)letter), code);
+            map_set(p_val, (char)('A' + (int32_t)letter), code);
             if ((0 != vc_bcmap_unpack(p_val, nav)) ||
                 (0 != vc_bcmap_pack(nav, back)) ||
                 (0 != memcmp(p_val, back, 7)) ||
@@ -473,7 +473,7 @@ static void test_record(void)
     uint8_t              rec[VC_BCMAP_RECORD_BYTES];
     uint8_t              back[7];
     uint32_t             gen                           = 0u;
-    int                  every_byte                    = 1;
+    int32_t              every_byte                    = 1;
     static const uint8_t golden[VC_BCMAP_RECORD_BYTES] = {
         'B',  'C',  'M',  '1',  1,    26,   7,    0, 0x05, 0, 0, 0,
         0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x20, 0, 0,    0, 0, 0
@@ -522,11 +522,9 @@ static void test_record(void)
     }
 }
 
-static void test_storage(void)
+/* test_storage(), part 1 of 2. */
+static void test_storage_part1(uint8_t p_m1[7], uint8_t p_m2[7])
 {
-    uint8_t             m1_val[7];
-    uint8_t             m2_val[7];
-    uint8_t             m3_val[7];
     vc_bcmap_snapshot_t s_val;
     uint32_t            writes;
 
@@ -547,65 +545,71 @@ static void test_storage(void)
           "A straight, Z right, H left, rest straight");
 
     /* save B = left, Z = U-turn */
-    memcpy(m1_val, FACTORY_GOLDEN, 7);
-    map_set(m1_val, 'B', 1);
-    map_set(m1_val, 'Z', 3);
+    memcpy(p_m1, FACTORY_GOLDEN, 7);
+    map_set(p_m1, 'B', 1);
+    map_set(p_m1, 'Z', 3);
     CHECK("BCM-11",
-          (VC_BCMAP_OK == vc_bcmap_replace(m1_val, 0u, false)) &&
+          (VC_BCMAP_OK == vc_bcmap_replace(p_m1, 0u, false)) &&
               (1u == snap().gen) && (1u == g_flash.writes_to[0]) &&
-              (0u == g_flash.writes_to[1]) && all_letters_match(m1_val) &&
+              (0u == g_flash.writes_to[1]) && all_letters_match(p_m1) &&
               (0u != (snap().flags & VC_BCMAP_FLAG_SAVED)),
           "save: written to slot 0, read back, active, gen 1");
 
     reboot();
     CHECK("BCM-12",
-          (1u == snap().gen) && all_letters_match(m1_val) &&
+          (1u == snap().gen) && all_letters_match(p_m1) &&
               (NAV_LEFT == vc_barcode_lookup("B")) &&
               (NAV_U_TURN == vc_barcode_lookup("Z")),
           "power cycle: the saved map is loaded again (B left, Z U-turn)");
 
     writes = g_flash.writes;
     CHECK("BCM-13",
-          (VC_BCMAP_UNCHANGED == vc_bcmap_replace(m1_val, 1u, false)) &&
-              (VC_BCMAP_UNCHANGED == vc_bcmap_replace(m1_val, 0u, false)) &&
+          (VC_BCMAP_UNCHANGED == vc_bcmap_replace(p_m1, 1u, false)) &&
+              (VC_BCMAP_UNCHANGED == vc_bcmap_replace(p_m1, 0u, false)) &&
               (writes == g_flash.writes) && (1u == snap().gen),
           "duplicate save (also with an old gen, e.g. a replayed message): "
           "UNCHANGED, flash not rewritten");
 
-    memcpy(m2_val, m1_val, 7);
-    map_set(m2_val, 'C', 2);
+    memcpy(p_m2, p_m1, 7);
+    map_set(p_m2, 'C', 2);
     CHECK("BCM-14",
-          (VC_BCMAP_REJ_STALE == vc_bcmap_replace(m2_val, 0u, false)) &&
-              (1u == snap().gen) && all_letters_match(m1_val) &&
+          (VC_BCMAP_REJ_STALE == vc_bcmap_replace(p_m2, 0u, false)) &&
+              (1u == snap().gen) && all_letters_match(p_m1) &&
               (writes == g_flash.writes),
           "write based on an older map (gen 0 while robot is at 1): STALE, "
           "nothing changes");
 
     CHECK("BCM-15",
-          (VC_BCMAP_REJ_ACTIVE == vc_bcmap_replace(m2_val, 1u, true)) &&
-              all_letters_match(m1_val) && (writes == g_flash.writes),
+          (VC_BCMAP_REJ_ACTIVE == vc_bcmap_replace(p_m2, 1u, true)) &&
+              all_letters_match(p_m1) && (writes == g_flash.writes),
           "mission active: refused, map and flash untouched");
 
     {
         uint8_t bad[7];
-        memcpy(bad, m2_val, 7);
+        memcpy(bad, p_m2, 7);
         bad[6] |= 0x02u;
         CHECK("BCM-16",
               (VC_BCMAP_REJ_MALFORMED == vc_bcmap_replace(bad, 1u, false)) &&
-                  all_letters_match(m1_val) && (writes == g_flash.writes),
+                  all_letters_match(p_m1) && (writes == g_flash.writes),
               "malformed map (padding bits): refused, previous map active");
     }
 
     /* second save alternates to slot 1; slot 0 keeps gen 1 */
     CHECK("BCM-17",
-          (VC_BCMAP_OK == vc_bcmap_replace(m2_val, 1u, false)) &&
+          (VC_BCMAP_OK == vc_bcmap_replace(p_m2, 1u, false)) &&
               (1u == g_flash.writes_to[1]) && (1u == g_flash.writes_to[0]) &&
               (2u == snap().gen),
           "next save goes to the OTHER slot (A/B): the active record is never "
           "erased");
+}
+
+/* test_storage(), part 2 of 2. */
+static void test_storage_part2(const uint8_t p_m1[7], const uint8_t p_m2[7])
+{
+    uint8_t m3_val[7];
 
     /* interrupted writes on the third save (would go to slot 0) */
-    memcpy(m3_val, m2_val, 7);
+    memcpy(m3_val, p_m2, 7);
     map_set(m3_val, 'D', 3);
     {
         static const fail_t fails[]     = { FAIL_BEFORE_ERASE, FAIL_AFTER_ERASE,
@@ -624,15 +628,15 @@ static void test_storage(void)
         {
             char              desc[160];
             vc_bcmap_result_t r_val;
-            int               live_ok;
-            int               boot_ok;
+            int32_t           live_ok;
+            int32_t           boot_ok;
 
             g_flash.fail_next = fails[kdx];
             r_val             = vc_bcmap_replace(m3_val, 2u, false);
             live_ok = (VC_BCMAP_REJ_STORAGE == r_val) && (2u == snap().gen) &&
-                      all_letters_match(m2_val);
+                      all_letters_match(p_m2);
             reboot();
-            boot_ok = (2u == snap().gen) && all_letters_match(m2_val);
+            boot_ok = (2u == snap().gen) && all_letters_match(p_m2);
             snprintf(desc, sizeof(desc),
                      "%s: STORAGE error, previous map stays "
                      "active, and is the one loaded after reboot",
@@ -649,7 +653,7 @@ static void test_storage(void)
     g_flash.slot[0][14] ^= 0x10u; /* slot 0 holds gen 3 now */
     reboot();
     CHECK(
-        "BCM-20", (2u == snap().gen) && all_letters_match(m2_val),
+        "BCM-20", (2u == snap().gen) && all_letters_match(p_m2),
         "boot with the newest slot corrupted: the older valid slot is loaded");
     g_flash.slot[1][3] = 'X';
     reboot();
@@ -666,7 +670,7 @@ static void test_storage(void)
     /* Restore defaults on the dashboard = save the factory map */
     flash_blank();
     reboot();
-    (void)vc_bcmap_replace(m1_val, 0u, false);
+    (void)vc_bcmap_replace(p_m1, 0u, false);
     CHECK("BCM-23",
           (VC_BCMAP_OK == vc_bcmap_replace(FACTORY_GOLDEN, 1u, false)) &&
               all_letters_match(FACTORY_GOLDEN) &&
@@ -679,16 +683,25 @@ static void test_storage(void)
     CHECK(
         "BCM-24",
         (0u != (snap().flags & VC_BCMAP_FLAG_NO_STORAGE)) &&
-            (VC_BCMAP_OK == vc_bcmap_replace(m1_val, 0u, false)) &&
-            all_letters_match(m1_val),
+            (VC_BCMAP_OK == vc_bcmap_replace(p_m1, 0u, false)) &&
+            all_letters_match(p_m1),
         "no persistent storage: map works in RAM and replies flag NO_STORAGE");
+}
+
+static void test_storage(void)
+{
+    uint8_t m1_val[7];
+    uint8_t m2_val[7];
+
+    test_storage_part1(m1_val, m2_val);
+    test_storage_part2(m1_val, m2_val);
 }
 
 static void test_protocol(void)
 {
     uint8_t      msg[16];
     s1_cfg_req_t req;
-    int          bad = 0;
+    int32_t      bad = 0;
 
     (void)s1_cfg_encode_read(0x1234u, msg);
     CHECK("CFG-01",
@@ -748,7 +761,7 @@ static void test_controller(void)
     static const vc_state_t idle_like[] = { VC_ST_IDLE, VC_ST_FAULT,
                                             VC_ST_MISSION_COMPLETE };
     uint8_t                 m_val[7];
-    int                     b_ok = 1;
+    int32_t                 b_ok = 1;
 
     CHECK("SMC-01", 0 == strcmp("CMD_CONFIG", vc_event_name(VC_EV_CMD_CONFIG)),
           "event name table includes CMD_CONFIG");
@@ -756,7 +769,7 @@ static void test_controller(void)
     for (uint32_t state2 = 0u; state2 < (uint32_t)VC_ST_COUNT; state2++)
     {
         vc_event_t event2 = { 0 };
-        int        allow  = 0;
+        int32_t    allow  = 0;
 
         boot_controller();
         g_sm.st.state = (vc_state_t)state2;
@@ -826,7 +839,8 @@ static void test_controller(void)
     vc_bcmap_cancel_write();
 }
 
-static void test_end_to_end(void)
+/* test_end_to_end(), part 1 of 2. */
+static void test_end_to_end_part1(void)
 {
     uint8_t  m_val[7];
     uint16_t gen;
@@ -903,6 +917,13 @@ static void test_end_to_end(void)
           (0 == strcmp("T", g_sm.st.last_barcode)) &&
               (NAV_STRAIGHT == g_sm.pending_nav),
           "misread T is reported as T (assigned action straight), not as A");
+}
+
+/* test_end_to_end(), part 2 of 2. */
+static void test_end_to_end_part2(void)
+{
+    uint8_t  m_val[7];
+    uint16_t gen;
 
     /* the owner's physical test map: A = left, Z = straight */
     feed(VC_SRC_COMMS, VC_EV_CMD_STOP, 0, 0);
@@ -922,7 +943,7 @@ static void test_end_to_end(void)
     junction_to_execute();
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
     {
-        int a_left = (1 == g_tally[VC_MOVE_TURN_LEFT]) && (1 == turns());
+        int32_t a_left = (1 == g_tally[VC_MOVE_TURN_LEFT]) && (1 == turns());
 
         tally_clear();
         feed_s3_decode("Z");
@@ -959,6 +980,12 @@ static void test_end_to_end(void)
           (0 == turns()) && (NAV_NONE == g_sm.pending_nav) &&
               ('\0' == g_sm.st.last_barcode[0]),
           "failed read then junction: straight, no letter recorded");
+}
+
+static void test_end_to_end(void)
+{
+    test_end_to_end_part1();
+    test_end_to_end_part2();
 }
 
 /* Junction evidence for the dashboard (VC_ACT_JUNCTION -> robot/g10/jx) */

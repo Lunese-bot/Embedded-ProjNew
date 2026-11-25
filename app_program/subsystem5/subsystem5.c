@@ -19,6 +19,7 @@
  *        g_mtx_s5       mutex           guards s5_status (private)
  */
 
+#include "subsystem5.h"
 #include "s5_local.h"
 #include "drv_ultrasonic.h"           /* US_NO_ECHO */
 #include "../subsystem2/subsystem2.h" /* s2_emergency_stop (stop path only) */

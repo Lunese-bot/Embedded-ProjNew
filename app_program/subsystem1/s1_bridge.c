@@ -4,6 +4,7 @@
  *      s1_bridge.h).  Everything here is non-blocking (TMO_POL).
  */
 
+#include "s1_bridge.h"
 #include "subsystem1.h"
 #include "s1_codec.h"
 #include "s1_txq.h"

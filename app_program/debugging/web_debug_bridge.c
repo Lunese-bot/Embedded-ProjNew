@@ -55,11 +55,6 @@ static void mission_stop(void)
     (void)vc_post_event(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0, TMO_POL);
 }
 
-/* Live-tuning values, defined in subsystem2/task_motion.c */
-extern volatile int32_t g_s2_dbg_trim_l;
-extern volatile int32_t g_s2_dbg_trim_r;
-extern volatile int32_t g_s2_dbg_straight;
-
 static int32_t clamp_to(int32_t value2, int32_t low, int32_t high)
 {
     return (value2 < low) ? low : ((value2 > high) ? high : value2);

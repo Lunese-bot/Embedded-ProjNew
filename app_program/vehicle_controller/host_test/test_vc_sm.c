@@ -235,7 +235,8 @@ static void junction_advance(void)
 #endif
 }
 
-static void test_barcode(void)
+/* test_barcode(), part 1 of 2. */
+static void test_barcode_part1(void)
 {
     start_mission();
     feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
@@ -322,7 +323,11 @@ static void test_barcode(void)
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
     CHECK("S6-H14b", (VC_ST_FOLLOW_LINE == g_sm.st.state),
           "resume line following after junction clear completes");
+}
 
+/* test_barcode(), part 2 of 2. */
+static void test_barcode_part2(void)
+{
     /* A stop that never completes must fail safe rather than turning. */
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     advance(VC_JUNCTION_STOP_MS + 20);
@@ -368,6 +373,12 @@ static void test_barcode(void)
     advance(VC_EXECUTE_MS + 20);
     CHECK("S6-H18a", VC_ST_LOST_LINE == g_sm.st.state,
           "junction clearing timeout -> LOST_LINE recovery");
+}
+
+static void test_barcode(void)
+{
+    test_barcode_part1();
+    test_barcode_part2();
 }
 
 /* review 2026-11-10: junction reached while still in DECODE_BARCODE */
@@ -706,7 +717,8 @@ static int32_t lift_ends_run_in(vc_state_t target)
            (NAV_NONE == g_sm.pending_nav);
 }
 
-static void test_lift(void)
+/* test_lift(), part 1 of 2. */
+static void test_lift_part1(void)
 {
     start_mission();
     CHECK("VC-L01", VC_ST_FOLLOW_LINE == g_sm.st.state, "mission running");
@@ -784,6 +796,11 @@ static void test_lift(void)
     feed_lift();
     CHECK("VC-S04", VC_ST_FAULT == g_sm.st.state,
           "lift again during the new self check -> FAULT 0x4005");
+}
+
+/* test_lift(), part 2 of 2. */
+static void test_lift_part2(void)
+{
     /* Start in IDLE clears S2's latch first (lift while idle, 2026-11-24) */
     g_now_ms = 0u;
     vc_sm_init(&g_sm, g_now_ms);
@@ -854,6 +871,12 @@ static void test_lift(void)
           "lift while already in FAULT: stays FAULT, no action");
 }
 
+static void test_lift(void)
+{
+    test_lift_part1();
+    test_lift_part2();
+}
+
 /* letter configuration (vc_barcode_config.h) */
 static void test_letter_config(void)
 {
@@ -868,7 +891,7 @@ static void test_letter_config(void)
 
     for (uint32_t idx2 = 0u; idx2 < VC_BARCODE_LETTER_COUNT; idx2++)
     {
-        text[0] = (char)('A' + (int)idx2);
+        text[0] = (char)('A' + (int32_t)idx2);
         /* the active map holds the four actions: a NONE row reads STRAIGHT */
         if ((vc_bcmap_wire_from_nav(vc_barcode_lookup(text)) !=
              vc_bcmap_wire_from_nav(expect[idx2])) ||
@@ -1069,10 +1092,9 @@ static void uturn_clean(void)
     }
 }
 
-static void test_uturn(void)
+/* test_uturn(), part 1 of 7. */
+static void test_uturn_part1(void)
 {
-    int32_t h_val;
-
     /* settings */
     CHECK("UT-01",
           (VC_UTURN_FAST_DEG >= 90) && (VC_UTURN_FAST_DEG < VC_UTURN_CMD_DEG) &&
@@ -1081,6 +1103,12 @@ static void test_uturn(void)
           "U-turn settings: fast part past 90 deg, short of the expected "
           "heading, slow pivot slower than the turn speed; LEFT/RIGHT "
           "tuning unchanged");
+}
+
+/* test_uturn(), part 2 of 7. */
+static void test_uturn_part2(void)
+{
+    int32_t h_val;
 
     /* 1. clean turn: no correction */
     ut_begin();
@@ -1165,6 +1193,12 @@ static void test_uturn(void)
           (0 == g_tally[VC_MOVE_U_TURN]) &&
               has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1),
           "the U-turn is used once: the next junction goes straight");
+}
+
+/* test_uturn(), part 3 of 7. */
+static void test_uturn_part3(void)
+{
+    int32_t h_val;
 
     /* 2. early sightings (the junction, its 90 deg side arm) are ignored */
     ut_begin();
@@ -1253,7 +1287,11 @@ static void test_uturn(void)
           (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
               (0 == count_moves(VC_MOVE_PIVOT, -VC_UTURN_SLOW_MMS)),
           "undershoot: line found ahead under C, aligned, never pivoted back");
+}
 
+/* test_uturn(), part 4 of 7. */
+static void test_uturn_part4(void)
+{
     /* 5. stale samples and brief noise do not confirm alignment */
     ut_begin();
     ut_fast();
@@ -1297,7 +1335,11 @@ static void test_uturn(void)
     ut_sample_now(VC_LINE_C);
     CHECK("UT-22", VC_ST_FOLLOW_LINE == g_sm.st.state,
           "three agreeing fresh samples do");
+}
 
+/* test_uturn(), part 5 of 7. */
+static void test_uturn_part5(void)
+{
     /* 6. missing tape: approach to the sector edge, search back, then a
           bounded stop with line recovery failure */
     ut_begin();
@@ -1386,7 +1428,11 @@ static void test_uturn(void)
     CHECK("UT-28", (VC_ST_FAULT == g_sm.st.state) && logged(VC_UT_FAIL, 2, 1),
           "no stop confirmation within VC_UTURN_SETTLE_MS: FAULT, not a "
           "drive-off");
+}
 
+/* test_uturn(), part 6 of 7. */
+static void test_uturn_part6(void)
+{
     /* 9. Stop, lift and obstacle interrupt the recovery */
     ut_begin();
     ut_fast();
@@ -1459,7 +1505,11 @@ static void test_uturn(void)
               "steering or pivot requests from S3 / S5 are refused during the "
               "U-turn");
     }
+}
 
+/* test_uturn(), part 7 of 7. */
+static void test_uturn_part7(void)
+{
     /* 11. LEFT / RIGHT are unchanged: no line watch, no slow pivot */
     start_mission();
     tally_clear();
@@ -1489,6 +1539,17 @@ static void test_uturn(void)
     }
     CHECK("UT-39", 0 == g_overflows,
           "no action list overflowed in any test (VC_MAX_ACTIONS)");
+}
+
+static void test_uturn(void)
+{
+    test_uturn_part1();
+    test_uturn_part2();
+    test_uturn_part3();
+    test_uturn_part4();
+    test_uturn_part5();
+    test_uturn_part6();
+    test_uturn_part7();
 }
 
 /* A junction: S3 reports it, S2 confirms the stop, the axle advance (if any)
@@ -1588,7 +1649,8 @@ static void check_letter_maneuver(const char * p_obj_id, const char * p_letter,
 #undef NAV_CHECK
 }
 
-static void test_letter_navigation(void)
+/* test_letter_navigation(), part 1 of 3. */
+static void test_letter_navigation_part1(void)
 {
     /* Z is the production default (right). Left, U-turn and straight use the
        test-only mappings so the team's production table stays as set. */
@@ -1675,7 +1737,11 @@ static void test_letter_navigation(void)
     CHECK("NAV-08b",
           (VC_ST_FOLLOW_LINE == g_sm.st.state) && (0 == turns_issued()),
           "after Reset and Start the first junction goes straight");
+}
 
+/* test_letter_navigation(), part 2 of 3. */
+static void test_letter_navigation_part2(void)
+{
     /* Z, then overturn (critical fault), Reset: same */
     start_mission();
     feed_barcode("Z");
@@ -1732,7 +1798,11 @@ static void test_letter_navigation(void)
           (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
               (NAV_RIGHT == g_sm.pending_nav),
           "Reset during a running mission changes nothing (existing rule)");
+}
 
+/* test_letter_navigation(), part 3 of 3. */
+static void test_letter_navigation_part3(void)
+{
     /* The letter decides, not S3's legacy nav byte (S3_BC_CHAR_* are all
        off, but a stale p1 must not override the table either) */
     {
@@ -1780,6 +1850,13 @@ static void test_letter_navigation(void)
               "next junction after a line-ended Z goes straight");
     }
 #endif
+}
+
+static void test_letter_navigation(void)
+{
+    test_letter_navigation_part1();
+    test_letter_navigation_part2();
+    test_letter_navigation_part3();
 }
 
 /* line search pattern and ownership */
@@ -1941,7 +2018,8 @@ static int32_t ended_as_overturn(void)
            cause_is(VC_SRC_IMU, VC_FAULT_CRITICAL, LIFT_CODE);
 }
 
-static void test_stop_cause(void)
+/* test_stop_cause(), part 1 of 3. */
+static void test_stop_cause_part1(void)
 {
     /* 1. S2 0x2011 (raised by the lift interlock) first, then S4 LIFTED */
     start_mission();
@@ -2017,7 +2095,11 @@ static void test_stop_cause(void)
     CHECK("VC-C22", ended_as_overturn(),
           "IMU interlock of unknown kind -> FAULT IMU 0x4005 (fail safe, not a "
           "lift)");
+}
 
+/* test_stop_cause(), part 2 of 3. */
+static void test_stop_cause_part2(void)
+{
     /* 4. genuine S2 safe stop: no IMU cause */
     start_mission();
     tally_clear();
@@ -2083,7 +2165,11 @@ static void test_stop_cause(void)
     CHECK("VC-C31", ended_as_overturn() && (3u <= g_sm.st.reports_after_end),
           "three more safe-stop reports after an overturn: cause unchanged, "
           "all counted");
+}
 
+/* test_stop_cause(), part 3 of 3. */
+static void test_stop_cause_part3(void)
+{
     /* 8. Reset then a new run: the next stop gets its own cause */
     feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
     CHECK("VC-C32",
@@ -2145,6 +2231,13 @@ static void test_stop_cause(void)
     feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
     CHECK("VC-C39", ended_as_lift(),
           "lift while paused (S2 report first) -> MISSION_COMPLETE");
+}
+
+static void test_stop_cause(void)
+{
+    test_stop_cause_part1();
+    test_stop_cause_part2();
+    test_stop_cause_part3();
 }
 
 int main(void)

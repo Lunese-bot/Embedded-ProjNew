@@ -174,6 +174,12 @@ extern volatile uint32_t g_s2_odo_ticks;
 extern volatile uint32_t g_s2_ticks_l;
 extern volatile uint32_t g_s2_ticks_r;
 
+/* Live-tuning values written by the dashboard (debugging/web_debug_bridge.c),
+   defined in task_motion.c (S2_WEBDEBUG builds only). */
+extern volatile int32_t g_s2_dbg_trim_l;
+extern volatile int32_t g_s2_dbg_trim_r;
+extern volatile int32_t g_s2_dbg_straight;
+
 /* ---------------------------------------------------------------------
  *  IF-M3: motion events, subsystem 2 -> Vehicle Controller.
  *  Wait with tk_wai_flg(g_flg_motion, bits, TWF_ORW | TWF_BITCLR, ...),
