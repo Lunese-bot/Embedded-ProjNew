@@ -80,6 +80,10 @@ void s1_txq_post_tlm(s1_txq_t * p_q, s1_stats_t * p_st, const uint8_t * p_line,
     {
         tlm_drop_oldest(p_q, p_st);
     }
+    else
+    {
+        /* no other case needs any action */
+    }
     p_slot = &p_q->tlm[(p_q->tlm_head + p_q->tlm_count) % S1_TLM_QUEUE_MAX];
     for (idx = 0; idx < len; idx++)
     {

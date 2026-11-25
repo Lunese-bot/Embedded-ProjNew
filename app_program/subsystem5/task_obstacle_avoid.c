@@ -462,6 +462,10 @@ static step_result_t run_pass_step(const s5_step_t * p_step)
         /* the motion ended on its own: nothing was measured to the end */
         g_pass_why = S5_PASS_FALLBACK;
     }
+    else
+    {
+        /* no other case needs any action */
+    }
     if ((STEP_DONE == result) && (S5_PASS_CLEARED == g_pass_why))
     {
         tm_printf((uint8_t *)"s5: pass measured: first echo %d mm last echo %d "
@@ -478,6 +482,10 @@ static step_result_t run_pass_step(const s5_step_t * p_step)
             (uint8_t *)"s5: no side echo, depth assumed (fixed pass %d mm, "
                        "clearance not certified)\n",
             p_step->m.distance_mm);
+    }
+    else
+    {
+        /* no other case needs any action */
     }
     return result;
 #else
@@ -653,6 +661,10 @@ static step_result_t confirm_line_ahead(bool b_search_nearby)
             else if (STEP_LINE_LOST == result)
             {
                 result = STEP_DONE; /* keep checking nearby headings */
+            }
+            else
+            {
+                /* no other case needs any action */
             }
         }
         if (STEP_LINE == result)

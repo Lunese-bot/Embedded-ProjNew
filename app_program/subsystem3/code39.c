@@ -491,6 +491,75 @@ static bool partial_widths_ok(uint32_t const * p_widths, uint32_t count,
     return true;
 }
 
+/* One window of a partial read (code39_decode_partial): the letter that
+   the two characters starting at element `kdx` frame between '*' markers,
+   or '\0' when this window does not hold a clean letter. */
+static char partial_window_letter(uint32_t const * p_widths, uint32_t count,
+                                  code39_options_t const * p_options,
+                                  bool b_reverse, uint32_t kdx)
+{
+    uint32_t orig  = b_reverse ? (count - 1u - kdx) : kdx;
+    uint32_t gap_i = kdx + ELEMENTS_PER_CHAR;
+    uint32_t gap;
+    uint32_t jdx;
+    uint32_t widest = 0u;
+    char     c1_val;
+    char     c2_val;
+    char     letter;
+
+    if (0u != (orig % 2u))
+    {
+        return '\0'; /* a character starts on a bar (even element) */
+    }
+    /* stricter than a full read: no "bars and spaces separately"
+       fallback, and a clear split between thick and thin */
+    c1_val = window_char_strict(p_widths, count, b_reverse, kdx);
+    c2_val = window_char_strict(p_widths, count, b_reverse, kdx + CHAR_PITCH);
+    /* The clean '*' must be at its own end of the list (at most
+       PARTIAL_END_SLACK stray elements beyond it).  Read backwards,
+       some letters look like '*' and '*' like a letter, so a '*'
+       found in the middle of the list proves nothing. */
+    if (('*' == c1_val) && ('*' != c2_val) && ('\0' != c2_val) &&
+        (kdx <= PARTIAL_END_SLACK))
+    {
+        letter = c2_val; /* start '*', then the letter */
+    }
+    else if (('*' == c2_val) && ('*' != c1_val) && ('\0' != c1_val) &&
+             ((count - (kdx + (2u * CHAR_PITCH) - 1u)) <= PARTIAL_END_SLACK))
+    {
+        letter = c1_val; /* the letter, then the stop '*' */
+    }
+    else
+    {
+        return '\0';
+    }
+    if (p_options->letters_only && ((letter < 'A') || (letter > 'Z')))
+    {
+        return '\0';
+    }
+    /* the gap between the two characters is narrow: never wider
+       than the widest element of the two characters */
+    gap = b_reverse ? p_widths[count - 1u - gap_i] : p_widths[gap_i];
+    for (jdx = 0u; jdx < (2u * CHAR_PITCH) - 1u; jdx++)
+    {
+        uint32_t pos   = kdx + jdx;
+        uint32_t width = b_reverse ? p_widths[count - 1u - pos] : p_widths[pos];
+        if ((jdx != ELEMENTS_PER_CHAR) && (width > widest))
+        {
+            widest = width;
+        }
+    }
+    if (gap > widest)
+    {
+        return '\0';
+    }
+    if (!partial_widths_ok(p_widths, count, b_reverse, kdx, ('*' == c1_val)))
+    {
+        return '\0';
+    }
+    return letter;
+}
+
 code39_result_t code39_decode_partial(uint32_t const * p_widths, uint32_t count,
                                       code39_options_t const * p_options,
                                       char * p_text, uint32_t text_size,
@@ -518,77 +587,24 @@ code39_result_t code39_decode_partial(uint32_t const * p_widths, uint32_t count,
 
         for (kdx = 0u; (kdx + (2u * CHAR_PITCH) - 1u) <= count; kdx++)
         {
-            uint32_t orig  = b_reverse ? (count - 1u - kdx) : kdx;
-            uint32_t gap_i = kdx + ELEMENTS_PER_CHAR;
-            uint32_t gap;
-            uint32_t jdx;
-            uint32_t widest = 0u;
-            char     c1_val;
-            char     c2_val;
-            char     letter;
+            char letter = partial_window_letter(p_widths, count, p_options,
+                                                b_reverse, kdx);
 
-            if (0u != (orig % 2u))
+            if ('\0' == letter)
             {
-                continue; /* a character starts on a bar (even element) */
+                /* this window holds no clean letter */
             }
-            /* stricter than a full read: no "bars and spaces separately"
-               fallback, and a clear split between thick and thin */
-            c1_val = window_char_strict(p_widths, count, b_reverse, kdx);
-            c2_val = window_char_strict(p_widths, count, b_reverse,
-                                        kdx + CHAR_PITCH);
-            /* The clean '*' must be at its own end of the list (at most
-               PARTIAL_END_SLACK stray elements beyond it).  Read backwards,
-               some letters look like '*' and '*' like a letter, so a '*'
-               found in the middle of the list proves nothing. */
-            if (('*' == c1_val) && ('*' != c2_val) && ('\0' != c2_val) &&
-                (kdx <= PARTIAL_END_SLACK))
-            {
-                letter = c2_val; /* start '*', then the letter */
-            }
-            else if (('*' == c2_val) && ('*' != c1_val) && ('\0' != c1_val) &&
-                     ((count - (kdx + (2u * CHAR_PITCH) - 1u)) <=
-                      PARTIAL_END_SLACK))
-            {
-                letter = c1_val; /* the letter, then the stop '*' */
-            }
-            else
-            {
-                continue;
-            }
-            if (p_options->letters_only && ((letter < 'A') || (letter > 'Z')))
-            {
-                continue;
-            }
-            /* the gap between the two characters is narrow: never wider
-               than the widest element of the two characters */
-            gap = b_reverse ? p_widths[count - 1u - gap_i] : p_widths[gap_i];
-            for (jdx = 0u; jdx < (2u * CHAR_PITCH) - 1u; jdx++)
-            {
-                uint32_t pos = kdx + jdx;
-                uint32_t width =
-                    b_reverse ? p_widths[count - 1u - pos] : p_widths[pos];
-                if ((jdx != ELEMENTS_PER_CHAR) && (width > widest))
-                {
-                    widest = width;
-                }
-            }
-            if (gap > widest)
-            {
-                continue;
-            }
-            if (!partial_widths_ok(p_widths, count, b_reverse, kdx,
-                                   ('*' == c1_val)))
-            {
-                continue;
-            }
-            if (('\0' != found) &&
-                ((found != letter) || (b_found_rev != b_reverse)))
+            else if (('\0' != found) &&
+                     ((found != letter) || (b_found_rev != b_reverse)))
             {
                 p_text[0] = '\0';
                 return CODE39_ERR_FRAME; /* two different answers: give up */
             }
-            found       = letter;
-            b_found_rev = b_reverse;
+            else
+            {
+                found       = letter;
+                b_found_rev = b_reverse;
+            }
         }
     }
 

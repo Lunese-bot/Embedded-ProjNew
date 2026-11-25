@@ -626,6 +626,10 @@ static void on_run(const s3_bc_run_t * p_run)
                     /* keep reading */
                 }
             }
+            else
+            {
+                /* no other case needs any action */
+            }
             break;
 
         default:

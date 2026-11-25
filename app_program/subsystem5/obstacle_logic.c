@@ -213,6 +213,10 @@ s5_side_t s5_choose_side(s5_profile_t * p_profile)
     {
         b_l_ok = false;
     }
+    else
+    {
+        /* no other case needs any action */
+    }
 
     if (b_l_ok && b_r_ok)
     {

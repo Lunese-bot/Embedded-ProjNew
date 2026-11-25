@@ -383,16 +383,18 @@ int32_t s1_bridge_service(s1_publish_fn_t publish, int32_t max_attempts)
             /* cannot happen for lines s1_post() accepted; never retry */
             s1_txq_drop_claim(&g_s1_txq, &g_s1_stats, &claim);
             s1_unlock();
-            continue;
         }
-        s1_txq_finish(&g_s1_txq, &g_s1_stats, &claim, err);
-        s1_unlock();
-        if (err != S1_ERR_OK)
+        else
         {
-            break; /* retried on the next drain, never in a tight loop */
+            s1_txq_finish(&g_s1_txq, &g_s1_stats, &claim, err);
+            s1_unlock();
+            if (S1_ERR_OK != err)
+            {
+                break; /* retried on the next drain, never in a tight loop */
+            }
+            g_s1_stat.sent++;
+            accepted++;
         }
-        g_s1_stat.sent++;
-        accepted++;
     }
     return accepted;
 }

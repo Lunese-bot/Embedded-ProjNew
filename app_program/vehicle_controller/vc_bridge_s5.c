@@ -214,6 +214,10 @@ void vc_bridge_s5_after(const vc_event_t * p_event, vc_state_t state_after,
         g_wait_event = VC_EV_NONE;
         send_cmd(S5_CMD_MOTION_DONE, 0, g_wait_seq);
     }
+    else
+    {
+        /* no other case needs any action */
+    }
 }
 
 void vc_bridge_s5_motion_event(const vc_event_t * p_event)

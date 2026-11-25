@@ -487,6 +487,10 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
             {
                 p_trk->corr_count++; /* same side: carry on growing */
             }
+            else
+            {
+                /* no other case needs any action */
+            }
             p_trk->mem_side = side;
             mag             = ((int32_t)p_params->kp_num * S3_STRADDLE_BASE) +
                   ((int32_t)p_params->kd_num * (int32_t)p_trk->corr_count);

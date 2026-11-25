@@ -305,6 +305,10 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
         cmd    = '!';
         b_lock = true; /* someone else is using this area */
     }
+    else
+    {
+        /* no other case needs any action */
+    }
 
     switch (cmd)
     {

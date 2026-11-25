@@ -80,70 +80,76 @@ void telemetry_task(int32_t stacd, void * p_exinf)
         if (E_OK != vc_get_status(&vc_st))
         {
             tm_printf((uint8_t *)"s1: failed to read controller status\n");
-            continue;
         }
-        s2_get_status(&motion_st);
-        s3_get_line_status(&line_st);
-        s4_get_status(&imu_st);
-        s5_get_status(&obs_st);
-        tk_get_tim(&now);
+        else
+        {
+            s2_get_status(&motion_st);
+            s3_get_line_status(&line_st);
+            s4_get_status(&imu_st);
+            s5_get_status(&obs_st);
+            tk_get_tim(&now);
 
 #if TM_WIFI_CYW43
-        cyw43_utk_get_status(&wifi_st);
-        g_s1_stat.wifi_up = (S1_CYW43_LINK_UP == wifi_st.link_status);
+            cyw43_utk_get_status(&wifi_st);
+            g_s1_stat.wifi_up = (S1_CYW43_LINK_UP == wifi_st.link_status);
 #endif
-        tlm.version     = S1_PROTO_VERSION;
-        tlm.seq         = seq++;
-        tlm.state       = (uint8_t)vc_st.state;
-        tlm.speed_l_mms = motion_st.speed_l_mm_s;
-        tlm.speed_r_mms = motion_st.speed_r_mm_s;
-        tlm.distance_mm = motion_st.distance_mm;
-        tlm.line_pos    = line_st.position;
-        tlm.obs_dist_cm = (0 == obs_st.last_distance_mm)
-                              ? S1_OBS_MAX_CM
-                              : (uint32_t)(obs_st.last_distance_mm / 10);
-        tlm.obs_detected =
-            (obs_st.state >= S5_ST_DETECTED) && (obs_st.state != S5_ST_ERROR);
-        tlm.obs_state = (uint8_t)obs_st.state;
-        tlm.nav       = (uint8_t)vc_st.last_nav;
-        tlm.barcodes =
-            (vc_st.barcodes_read > 15U) ? 15U : (uint8_t)vc_st.barcodes_read;
-        tlm.pitch_cdeg  = imu_st.pitch_cdeg;
-        tlm.hump_now_um = imu_st.hump_height_um;
-        tlm.hump_max_um = imu_st.max_peak_um;
-        tlm.fault_code  = vc_st.last_fault_code;
-        tlm.wifi_up     = g_s1_stat.wifi_up;
-        tlm.paused      = vc_st.paused;
-        s1_tlm_encode(&tlm, frame);
-        (void)s1_post(S1_TOPIC_TLM, frame, sizeof(frame));
-        post_obstacle_profile();
+            tlm.version      = S1_PROTO_VERSION;
+            tlm.seq          = seq++;
+            tlm.state        = (uint8_t)vc_st.state;
+            tlm.speed_l_mms  = motion_st.speed_l_mm_s;
+            tlm.speed_r_mms  = motion_st.speed_r_mm_s;
+            tlm.distance_mm  = motion_st.distance_mm;
+            tlm.line_pos     = line_st.position;
+            tlm.obs_dist_cm  = (0 == obs_st.last_distance_mm)
+                                   ? S1_OBS_MAX_CM
+                                   : (uint32_t)(obs_st.last_distance_mm / 10);
+            tlm.obs_detected = (obs_st.state >= S5_ST_DETECTED) &&
+                               (obs_st.state != S5_ST_ERROR);
+            tlm.obs_state   = (uint8_t)obs_st.state;
+            tlm.nav         = (uint8_t)vc_st.last_nav;
+            tlm.barcodes    = (vc_st.barcodes_read > 15U)
+                                  ? 15U
+                                  : (uint8_t)vc_st.barcodes_read;
+            tlm.pitch_cdeg  = imu_st.pitch_cdeg;
+            tlm.hump_now_um = imu_st.hump_height_um;
+            tlm.hump_max_um = imu_st.max_peak_um;
+            tlm.fault_code  = vc_st.last_fault_code;
+            tlm.wifi_up     = g_s1_stat.wifi_up;
+            tlm.paused      = vc_st.paused;
+            s1_tlm_encode(&tlm, frame);
+            (void)s1_post(S1_TOPIC_TLM, frame, sizeof(frame));
+            post_obstacle_profile();
 
-        /* The casts match each value to its %d / %u conversion.  Every
-           value fits: they are 32-bit or smaller on this target. */
-        tm_sprintf(
-            buf,
-            (const uint8_t *)"{\"t\":%u,\"st\":\"%s\",\"v\":[%d,%d],\"odo\":%d,"
-                             "\"line\":%d,\"bc\":%u,\"nav\":%d,\"pitch\":%d,"
-                             "\"hump\":%d,\"maxhump\":%d,\"us\":%d,\"obs\":%d}",
-            (unsigned)now.lo, vc_state_name(vc_st.state),
-            (int)motion_st.speed_l_mm_s, (int)motion_st.speed_r_mm_s,
-            (int)motion_st.distance_mm, (int)line_st.position,
-            (unsigned)vc_st.barcodes_read, (int)vc_st.last_nav,
-            (int)imu_st.pitch_cdeg, (int)(imu_st.hump_height_um / S1_UM_PER_MM),
-            (int)(imu_st.max_peak_um / S1_UM_PER_MM),
-            (int)obs_st.last_distance_mm, (int)obs_st.state);
+            /* The casts match each value to its %d / %u conversion.  Every
+               value fits: they are 32-bit or smaller on this target. */
+            tm_sprintf(buf,
+                       (const uint8_t *)"{\"t\":%u,\"st\":\"%s\",\"v\":[%d,%d],"
+                                        "\"odo\":%d,"
+                                        "\"line\":%d,\"bc\":%u,\"nav\":%d,"
+                                        "\"pitch\":%d,"
+                                        "\"hump\":%d,\"maxhump\":%d,\"us\":%d,"
+                                        "\"obs\":%d}",
+                       (unsigned)now.lo, vc_state_name(vc_st.state),
+                       (int)motion_st.speed_l_mm_s, (int)motion_st.speed_r_mm_s,
+                       (int)motion_st.distance_mm, (int)line_st.position,
+                       (unsigned)vc_st.barcodes_read, (int)vc_st.last_nav,
+                       (int)imu_st.pitch_cdeg,
+                       (int)(imu_st.hump_height_um / S1_UM_PER_MM),
+                       (int)(imu_st.max_peak_um / S1_UM_PER_MM),
+                       (int)obs_st.last_distance_mm, (int)obs_st.state);
 
-        if ((!g_s1_stat.mqtt_up) && (0 == (tick % S1_CONSOLE_EVERY)))
-        {
-            tm_printf((uint8_t *)"%s\n", buf);
-        }
+            if ((!g_s1_stat.mqtt_up) && (0 == (tick % S1_CONSOLE_EVERY)))
+            {
+                tm_printf((uint8_t *)"%s\n", buf);
+            }
 
-        /* Delivery counters every 5 s, connected or not (s1_stats.h). */
-        if (0 == (tick % S1_STATS_EVERY))
-        {
-            (void)s1_bridge_format_counters(s_stats_line,
-                                            (int32_t)sizeof(s_stats_line));
-            tm_printf((uint8_t *)"%s\n", s_stats_line);
+            /* Delivery counters every 5 s, connected or not (s1_stats.h). */
+            if (0 == (tick % S1_STATS_EVERY))
+            {
+                (void)s1_bridge_format_counters(s_stats_line,
+                                                (int32_t)sizeof(s_stats_line));
+                tm_printf((uint8_t *)"%s\n", s_stats_line);
+            }
         }
     }
 }

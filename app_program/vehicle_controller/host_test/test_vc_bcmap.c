@@ -229,6 +229,10 @@ static void run_actions(void)
                 reply_now(S1_CFG_OP_WRITE, obj_id, (uint8_t)result);
             }
         }
+        else
+        {
+            /* no other case needs any action */
+        }
     }
 }
 

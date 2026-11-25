@@ -254,9 +254,12 @@ static bool next_s3_event(vc_event_t * p_event, vc_state_t state)
                  (VC_ST_AVOID_OBSTACLE == state) ||
                  predates_bypass_handoff(s3_evt.time_ms)))
             {
-                continue;
+                /* discarded: read the next event */
             }
-            b_event = map_s3_event(&s3_evt, p_event);
+            else
+            {
+                b_event = map_s3_event(&s3_evt, p_event);
+            }
         }
         else
         {

@@ -424,43 +424,19 @@ static void fill_floor(const uint16_t * p_l, uint32_t count2, int32_t fr16)
     }
 }
 
-/* Steps 2-7 on g_sig / g_pos.  hi_permille 0: humps at half the 6th
-   highest; otherwise at hi_permille / 1000 of the darkest point.
-   min_hump: how far (raw) a hump must rise above the floor at all. */
-static c39g_result_t decode_humps(uint32_t count2, int32_t hi_permille,
-                                  int32_t       min_hump, void (*p_yield)(void),
-                                  c39g_info_t * p_info)
+/* Steps 2 and 3 of decode_humps(): find the humps, then the N_CAND
+   widest of them (in trace order) in p_cand. */
+static c39g_result_t pick_candidates(uint32_t count2, int32_t hi_permille,
+                                     int32_t min_hump, void (*p_yield)(void),
+                                     c39g_info_t * p_info,
+                                     uint32_t p_cand[N_CAND], uint32_t * p_n_c)
 {
-    int32_t   top6[N_WIDE];
-    int32_t   thr2;
-    uint32_t  n_h;
-    uint32_t  n_c;
-    uint32_t  cand[N_CAND];
-    int32_t   cq_val[N_CAND]; /* candidate centres, 1/16 unit */
-    int32_t   cw_val[N_CAND]; /* candidate widths,  1/16 unit */
-    uint32_t  idx2;
-    uint32_t  kdx;
-    uint32_t  ri_val;
-    uint32_t  key;
-    uint16_t  order = 0u;
-    uint8_t   good[N_LETTERS * 2u];
-    uint32_t  n_good = 0u;
-    score_t   sc_val[TOP_MODEL + N_RIVAL];
-    uint32_t  n_sc;
-    uint32_t  n_riv = 0u;
-    int32_t   base;
-    float64_t margin;
-
-    p_info->letter      = 0;
-    p_info->best        = 0;
-    p_info->runner      = '-';
-    p_info->b_reversed  = false;
-    p_info->n_humps     = 0u;
-    p_info->err_x100    = 0u;
-    p_info->margin_x100 = 0u;
-    p_info->module_x10  = 0u;
-    p_info->ratio_x100  = 0u;
-    p_info->fit_x100    = 0u;
+    int32_t  top6[N_WIDE];
+    int32_t  thr2;
+    uint32_t n_h;
+    uint32_t n_c;
+    uint32_t idx2;
+    uint32_t kdx;
 
     /* 2. humps: threshold at half the 6th highest */
     if (find_humps(count2, 2 * min_hump, NULL, 0u, top6) < N_WIDE)
@@ -533,16 +509,124 @@ static c39g_result_t decode_humps(uint32_t count2, int32_t hi_permille,
         {
             if (b_used[idx2])
             {
-                cand[kdx] = idx2;
+                p_cand[kdx] = idx2;
                 kdx++;
             }
         }
     }
+    *p_n_c = n_c;
+    return C39G_OK;
+}
+
+/* Step 4 of decode_humps() for one choice of 6 candidates (p_idx):
+   fit the letter layout p_lay to them and keep the fit in p_f if it is
+   the best so far. */
+static void fit_combo(const int32_t * p_cq, const int32_t * p_cw,
+                      const uint32_t p_idx[N_WIDE], const layout_t * p_lay,
+                      int64_t sx_val, int64_t sxx, int32_t r4_val,
+                      uint32_t ri_val, int32_t base, fit_t * p_f,
+                      uint16_t * p_order)
+{
+    uint32_t  kdx;
+    int64_t   sp_val = 0;
+    int64_t   sxp    = 0;
+    int64_t   sw_val = 0;
+    int64_t   nb_val;
+    int64_t   c0_val;
+    int64_t   worst = 0;
+    float32_t err;
+    bool      b_far;
+
+    /* quick look first: a fit within C39G_PRUNE_X10 / 10
+       module needs every centre within twice that of the
+       line through the first and last one */
+    {
+        int32_t dq_val = p_cq[p_idx[N_WIDE - 1u]] - p_cq[p_idx[0]];
+        int32_t dx_val = p_lay->wide_x8[N_WIDE - 1u] - p_lay->wide_x8[0];
+        int32_t lim    = (2 * 8 * C39G_PRUNE_X10 * dq_val) / 10;
+        b_far          = (dq_val <= 0);
+        for (kdx = 1u; (kdx < (N_WIDE - 1u)) && !b_far; kdx++)
+        {
+            int32_t dev = ((p_cq[p_idx[kdx]] - p_cq[p_idx[0]]) * dx_val) -
+                          (dq_val * (p_lay->wide_x8[kdx] - p_lay->wide_x8[0]));
+            b_far = (dev > lim) || (dev < -lim);
+        }
+    }
+    if (!b_far)
+    {
+        for (kdx = 0u; kdx < N_WIDE; kdx++)
+        {
+            sp_val += p_cq[p_idx[kdx]];
+            sxp += (int64_t)p_lay->wide_x8[kdx] * p_cq[p_idx[kdx]];
+            sw_val += p_cw[p_idx[kdx]];
+        }
+        /* slope in (1/16 unit) per (1/8 module) is nb / sxx */
+        nb_val = ((int64_t)N_WIDE * sxp) - (sx_val * sp_val);
+        if (nb_val > 0) /* else the bars are in the wrong order */
+        {
+            /* residual x 6 sxx = 6 sxx q - sxx sp + nb sx - 6 nb x */
+            c0_val = (nb_val * sx_val) - (sxx * sp_val);
+            for (kdx = 0u; kdx < N_WIDE; kdx++)
+            {
+                int64_t r_val =
+                    ((int64_t)N_WIDE * sxx * p_cq[p_idx[kdx]]) + c0_val -
+                    ((int64_t)N_WIDE * nb_val * p_lay->wide_x8[kdx]);
+                r_val = (r_val < 0) ? -r_val : r_val;
+                if (r_val > worst)
+                {
+                    worst = r_val;
+                }
+            }
+            /* Cast: error in modules = worst / (48 nb) */
+            err = (float32_t)worst / (48.0f * (float32_t)nb_val);
+            if ((0u == p_f->b_ok) || (err < p_f->err))
+            {
+                /* hump width 0.4 .. 1.8 of a wide bar:
+                   wid = sw sxx / (48 nb), wide bar = r4 / 4 modules */
+                int64_t lhs = 5 * sw_val * sxx;
+                if ((lhs >= (24 * r4_val * nb_val)) &&
+                    (lhs <= (108 * r4_val * nb_val)))
+                {
+                    /* Casts: final scale to trace units */
+                    float64_t bq_val = (float64_t)nb_val / (float64_t)sxx;
+                    float64_t aq_val =
+                        ((float64_t)sp_val - (bq_val * (float64_t)sx_val)) /
+                        (float64_t)N_WIDE;
+                    if (0u == p_f->b_ok)
+                    {
+                        p_f->order = *p_order;
+                        (*p_order)++;
+                    }
+                    p_f->b_ok = 1u;
+                    p_f->err  = err;
+                    p_f->a =
+                        (float32_t)((aq_val + (float64_t)base) / (float64_t)Q);
+                    p_f->b     = (float32_t)(bq_val * 8.0 / (float64_t)Q);
+                    p_f->ratio = (uint8_t)ri_val;
+                }
+            }
+        }
+    }
+}
+
+/* Step 4 of decode_humps(): lay the 6 wide bars of every letter on
+   6 of the n_c candidates and keep the best fit of each in g_fit. */
+static void fit_letters(uint32_t n_c, const uint32_t p_cand[N_CAND],
+                        void (*p_yield)(void))
+{
+    int32_t  cq_val[N_CAND]; /* candidate centres, 1/16 unit */
+    int32_t  cw_val[N_CAND]; /* candidate widths,  1/16 unit */
+    uint32_t kdx;
+    uint32_t ri_val;
+    uint32_t key;
+    uint16_t order = 0u;
+    int32_t  base;
+
     for (kdx = 0u; kdx < n_c; kdx++)
     {
         /* Casts: trace positions to 1/16 unit, well inside int32 */
-        float32_t chr   = g_hump[cand[kdx]].c * (float32_t)Q;
-        float32_t width = g_hump[cand[kdx]].w * (float32_t)Q;
+        float32_t chr   = g_hump[p_cand[kdx]].c * (float32_t)Q;
+        float32_t width = g_hump[p_cand[kdx]].w * (float32_t)Q;
         cq_val[kdx]     = (int32_t)(chr + ((chr >= 0.0f) ? 0.5f : -0.5f));
         cw_val[kdx]     = (int32_t)(width + 0.5f);
     }
@@ -579,86 +663,8 @@ static c39g_result_t decode_humps(uint32_t count2, int32_t hi_permille,
             sxx = ((int64_t)N_WIDE * sxx) - (sx_val * sx_val);
             do
             {
-                int64_t   sp_val = 0;
-                int64_t   sxp    = 0;
-                int64_t   sw_val = 0;
-                int64_t   nb_val;
-                int64_t   c0_val;
-                int64_t   worst = 0;
-                float32_t err;
-                /* quick look first: a fit within C39G_PRUNE_X10 / 10
-                   module needs every centre within twice that of the
-                   line through the first and last one */
-                {
-                    int32_t dq_val = cq_val[idx[N_WIDE - 1u]] - cq_val[idx[0]];
-                    int32_t dx_val = lay.wide_x8[N_WIDE - 1u] - lay.wide_x8[0];
-                    int32_t lim    = (2 * 8 * C39G_PRUNE_X10 * dq_val) / 10;
-                    bool    b_far  = (dq_val <= 0);
-                    for (kdx = 1u; (kdx < (N_WIDE - 1u)) && !b_far; kdx++)
-                    {
-                        int32_t dev =
-                            ((cq_val[idx[kdx]] - cq_val[idx[0]]) * dx_val) -
-                            (dq_val * (lay.wide_x8[kdx] - lay.wide_x8[0]));
-                        b_far = (dev > lim) || (dev < -lim);
-                    }
-                    if (b_far)
-                    {
-                        continue;
-                    }
-                }
-                for (kdx = 0u; kdx < N_WIDE; kdx++)
-                {
-                    sp_val += cq_val[idx[kdx]];
-                    sxp += (int64_t)lay.wide_x8[kdx] * cq_val[idx[kdx]];
-                    sw_val += cw_val[idx[kdx]];
-                }
-                /* slope in (1/16 unit) per (1/8 module) is nb / sxx */
-                nb_val = ((int64_t)N_WIDE * sxp) - (sx_val * sp_val);
-                if (nb_val <= 0)
-                {
-                    continue; /* bars in the wrong order */
-                }
-                /* residual x 6 sxx = 6 sxx q - sxx sp + nb sx - 6 nb x */
-                c0_val = (nb_val * sx_val) - (sxx * sp_val);
-                for (kdx = 0u; kdx < N_WIDE; kdx++)
-                {
-                    int64_t r_val =
-                        ((int64_t)N_WIDE * sxx * cq_val[idx[kdx]]) + c0_val -
-                        ((int64_t)N_WIDE * nb_val * lay.wide_x8[kdx]);
-                    r_val = (r_val < 0) ? -r_val : r_val;
-                    if (r_val > worst)
-                    {
-                        worst = r_val;
-                    }
-                }
-                /* Cast: error in modules = worst / (48 nb) */
-                err = (float32_t)worst / (48.0f * (float32_t)nb_val);
-                if ((0u == p_f->b_ok) || (err < p_f->err))
-                {
-                    /* hump width 0.4 .. 1.8 of a wide bar:
-                       wid = sw sxx / (48 nb), wide bar = r4 / 4 modules */
-                    int64_t lhs = 5 * sw_val * sxx;
-                    if ((lhs >= (24 * r4_val * nb_val)) &&
-                        (lhs <= (108 * r4_val * nb_val)))
-                    {
-                        /* Casts: final scale to trace units */
-                        float64_t bq_val = (float64_t)nb_val / (float64_t)sxx;
-                        float64_t aq_val =
-                            ((float64_t)sp_val - (bq_val * (float64_t)sx_val)) /
-                            (float64_t)N_WIDE;
-                        if (0u == p_f->b_ok)
-                        {
-                            p_f->order = order;
-                            order++;
-                        }
-                        p_f->b_ok  = 1u;
-                        p_f->err   = err;
-                        p_f->a     = (float32_t)((aq_val + (float64_t)base) /
-                                             (float64_t)Q);
-                        p_f->b     = (float32_t)(bq_val * 8.0 / (float64_t)Q);
-                        p_f->ratio = (uint8_t)ri_val;
-                    }
-                }
+                fit_combo(cq_val, cw_val, idx, &lay, sx_val, sxx, r4_val,
+                          ri_val, base, p_f, &order);
             } while (next_combo(idx, n_c));
             if ((NULL != p_yield) && (1u == (key % 2u)))
             {
@@ -666,7 +672,20 @@ static c39g_result_t decode_humps(uint32_t count2, int32_t hi_permille,
             }
         }
     }
+}
 
+/* Step 5 of decode_humps(): the letters that fit, best first, then
+   the rivals, in p_good.  *p_n_sc good letters, *p_n_riv rivals. */
+static c39g_result_t rank_fits(uint8_t       p_good[N_LETTERS * 2u],
+                               c39g_info_t * p_info, uint32_t * p_n_sc,
+                               uint32_t * p_n_riv)
+{
+    uint32_t key;
+    uint32_t kdx;
+    uint32_t idx2;
+    uint32_t n_good = 0u;
+
+    *p_n_riv = 0u;
     /* 5. letters that fit within C39G_ERR_MAX_X100, best first */
     for (key = 0u; key < (N_LETTERS * 2u); key++)
     {
@@ -688,15 +707,15 @@ static c39g_result_t decode_humps(uint32_t count2, int32_t hi_permille,
             /* insertion sort by (err, order) */
             uint32_t m_val = n_good;
             while ((m_val > 0u) &&
-                   ((g_fit[good[m_val - 1u]].err > g_fit[key].err) ||
-                    ((g_fit[good[m_val - 1u]].err == g_fit[key].err) &&
-                     (g_fit[good[m_val - 1u]].order > g_fit[key].order))))
+                   ((g_fit[p_good[m_val - 1u]].err > g_fit[key].err) ||
+                    ((g_fit[p_good[m_val - 1u]].err == g_fit[key].err) &&
+                     (g_fit[p_good[m_val - 1u]].order > g_fit[key].order))))
             {
-                good[m_val] = good[m_val - 1u];
+                p_good[m_val] = p_good[m_val - 1u];
                 m_val--;
             }
             /* Cast: key < 52 */
-            good[m_val] = (uint8_t)key;
+            p_good[m_val] = (uint8_t)key;
             n_good++;
         }
     }
@@ -719,7 +738,7 @@ static c39g_result_t decode_humps(uint32_t count2, int32_t hi_permille,
     /* 5b. rivals: the letters that fit best of the rest.  Without them
        a lone letter under the limit would be taken with nothing to beat;
        a test with one thin gap printed black read Z as Q that way. */
-    n_sc = (n_good < TOP_MODEL) ? n_good : TOP_MODEL;
+    *p_n_sc = (n_good < TOP_MODEL) ? n_good : TOP_MODEL;
     for (kdx = 0u; kdx < N_RIVAL; kdx++)
     {
         uint32_t pick = N_LETTERS * 2u;
@@ -728,9 +747,9 @@ static c39g_result_t decode_humps(uint32_t count2, int32_t hi_permille,
             bool b_taken =
                 (0u == g_fit[key].b_ok) ||
                 (g_fit[key].err < ((float32_t)C39G_ERR_MAX_X100 / 100.0f));
-            for (idx2 = 0u; (idx2 < n_riv) && !b_taken; idx2++)
+            for (idx2 = 0u; (idx2 < *p_n_riv) && !b_taken; idx2++)
             {
-                b_taken = (good[n_sc + idx2] == key);
+                b_taken = (p_good[*p_n_sc + idx2] == key);
             }
             if ((!b_taken) && (((N_LETTERS * 2u) == pick) ||
                                (g_fit[key].err < g_fit[pick].err)))
@@ -742,16 +761,25 @@ static c39g_result_t decode_humps(uint32_t count2, int32_t hi_permille,
         {
             break;
         }
-        /* Cast: pick < 52; good[] has room, rivals are not good */
-        good[n_sc + n_riv] = (uint8_t)pick;
-        n_riv++;
+        /* Cast: pick < 52; p_good[] has room, rivals are not good */
+        p_good[*p_n_sc + *p_n_riv] = (uint8_t)pick;
+        (*p_n_riv)++;
     }
+    return C39G_OK;
+}
+
+/* Step 6 of decode_humps(): score the blurred-bar model of the whole
+   code for each of the n_sc + n_riv letters, sorted into p_sc. */
+static void score_models(uint32_t count2, const uint8_t * p_good, uint32_t n_sc,
+                         uint32_t n_riv, score_t * p_sc, void (*p_yield)(void))
+{
+    uint32_t kdx;
 
     /* 6. blurred-bar model of the whole code for the best fits */
     for (kdx = 0u; kdx < (n_sc + n_riv); kdx++)
     {
         static const float32_t k_db[3] = { 0.985f, 1.0f, 1.015f };
-        const fit_t *          p_f     = &g_fit[good[kdx]];
+        const fit_t *          p_f     = &g_fit[p_good[kdx]];
         layout_t               lay;
         float64_t              best    = 0.0;
         float64_t              best_r2 = 0.0;
@@ -759,8 +787,8 @@ static c39g_result_t decode_humps(uint32_t count2, int32_t hi_permille,
         uint32_t               di_val;
         uint32_t               ai_val;
 
-        make_layout(good[kdx] / 2u, k_ratio_q4[p_f->ratio],
-                    (1u == (good[kdx] % 2u)), &lay);
+        make_layout(p_good[kdx] / 2u, k_ratio_q4[p_f->ratio],
+                    (1u == (p_good[kdx] % 2u)), &lay);
         for (di_val = 0u; di_val < 3u; di_val++)
         {
             for (ai_val = 0u; ai_val < 9u; ai_val++)
@@ -782,64 +810,113 @@ static c39g_result_t decode_humps(uint32_t count2, int32_t hi_permille,
         /* insertion sort by (mse, letter, direction) */
         {
             uint32_t m_val = kdx;
-            while ((m_val > 0u) && ((sc_val[m_val - 1u].mse > best) ||
-                                    ((sc_val[m_val - 1u].mse == best) &&
-                                     (sc_val[m_val - 1u].key > good[kdx]))))
+            while ((m_val > 0u) && ((p_sc[m_val - 1u].mse > best) ||
+                                    ((p_sc[m_val - 1u].mse == best) &&
+                                     (p_sc[m_val - 1u].key > p_good[kdx]))))
             {
-                sc_val[m_val] = sc_val[m_val - 1u];
+                p_sc[m_val] = p_sc[m_val - 1u];
                 m_val--;
             }
-            sc_val[m_val].mse     = best;
-            sc_val[m_val].r2      = best_r2;
-            sc_val[m_val].b       = best_b;
-            sc_val[m_val].key     = good[kdx];
-            sc_val[m_val].b_rival = (kdx >= n_sc) ? 1u : 0u;
+            p_sc[m_val].mse     = best;
+            p_sc[m_val].r2      = best_r2;
+            p_sc[m_val].b       = best_b;
+            p_sc[m_val].key     = p_good[kdx];
+            p_sc[m_val].b_rival = (kdx >= n_sc) ? 1u : 0u;
         }
         if (NULL != p_yield)
         {
             p_yield();
         }
     }
+}
+
+/* Step 7 of decode_humps(): the best of the `count` scored letters
+   must clearly beat the best other letter. */
+static c39g_result_t judge_best(const score_t * p_sc, uint32_t count,
+                                c39g_info_t * p_info)
+{
+    uint32_t  kdx;
+    float64_t margin;
 
     /* 7. the best letter must clearly beat the best other letter */
-    n_sc += n_riv;
     margin = 9.9;
-    for (kdx = 1u; kdx < n_sc; kdx++)
+    for (kdx = 1u; kdx < count; kdx++)
     {
-        if ((sc_val[kdx].key / 2u) != (sc_val[0].key / 2u))
+        if ((p_sc[kdx].key / 2u) != (p_sc[0].key / 2u))
         {
             /* Cast: letters are 'A' + 0..25 */
-            p_info->runner = (char)('A' + (int32_t)(sc_val[kdx].key / 2u));
-            if (sc_val[0].mse > 0.0)
+            p_info->runner = (char)('A' + (int32_t)(p_sc[kdx].key / 2u));
+            if (p_sc[0].mse > 0.0)
             {
-                margin = (sc_val[kdx].mse / sc_val[0].mse) - 1.0;
+                margin = (p_sc[kdx].mse / p_sc[0].mse) - 1.0;
             }
             break;
         }
     }
     {
-        const fit_t * p_f  = &g_fit[sc_val[0].key];
+        const fit_t * p_f  = &g_fit[p_sc[0].key];
         /* Casts: rounded values for the dashboard; letters 'A' + 0..25 */
-        p_info->best       = (char)('A' + (int32_t)(sc_val[0].key / 2u));
-        p_info->b_reversed = (1u == (sc_val[0].key % 2u));
+        p_info->best       = (char)('A' + (int32_t)(p_sc[0].key / 2u));
+        p_info->b_reversed = (1u == (p_sc[0].key % 2u));
         p_info->err_x100   = (uint16_t)((p_f->err * 100.0f) + 0.5f);
         p_info->margin_x100 =
             (uint16_t)((margin > 600.0) ? 60000.0 : ((margin * 100.0) + 0.5));
-        p_info->module_x10 = (uint16_t)((sc_val[0].b * 10.0f) + 0.5f);
+        p_info->module_x10 = (uint16_t)((p_sc[0].b * 10.0f) + 0.5f);
         p_info->ratio_x100 = (uint16_t)(k_ratio_q4[p_f->ratio] * 25);
-        p_info->fit_x100   = (uint8_t)((sc_val[0].r2 * 100.0) + 0.5);
+        p_info->fit_x100   = (uint8_t)((p_sc[0].r2 * 100.0) + 0.5);
     }
-    if ((0u != sc_val[0].b_rival) ||
+    if ((0u != p_sc[0].b_rival) ||
         (margin < ((float64_t)C39G_MARGIN_X100 / 100.0)))
     {
         return C39G_TIE; /* a rival fits the trace better, or about as well */
     }
-    if (sc_val[0].r2 < ((float64_t)C39G_MIN_FIT_X100 / 100.0))
+    if (p_sc[0].r2 < ((float64_t)C39G_MIN_FIT_X100 / 100.0))
     {
         return C39G_WEAK; /* the bars do not look like this letter */
     }
     p_info->letter = p_info->best;
     return C39G_OK;
+}
+
+/* Steps 2-7 on g_sig / g_pos.  hi_permille 0: humps at half the 6th
+   highest; otherwise at hi_permille / 1000 of the darkest point.
+   min_hump: how far (raw) a hump must rise above the floor at all. */
+static c39g_result_t decode_humps(uint32_t count2, int32_t hi_permille,
+                                  int32_t       min_hump, void (*p_yield)(void),
+                                  c39g_info_t * p_info)
+{
+    uint32_t      cand[N_CAND];
+    uint32_t      n_c = 0u;
+    uint8_t       good[N_LETTERS * 2u];
+    score_t       sc_val[TOP_MODEL + N_RIVAL];
+    uint32_t      n_sc  = 0u;
+    uint32_t      n_riv = 0u;
+    c39g_result_t result;
+
+    p_info->letter      = 0;
+    p_info->best        = 0;
+    p_info->runner      = '-';
+    p_info->b_reversed  = false;
+    p_info->n_humps     = 0u;
+    p_info->err_x100    = 0u;
+    p_info->margin_x100 = 0u;
+    p_info->module_x10  = 0u;
+    p_info->ratio_x100  = 0u;
+    p_info->fit_x100    = 0u;
+
+    result = pick_candidates(count2, hi_permille, min_hump, p_yield, p_info,
+                             cand, &n_c);
+    if (C39G_OK == result)
+    {
+        fit_letters(n_c, cand, p_yield);
+        result = rank_fits(good, p_info, &n_sc, &n_riv);
+    }
+    if (C39G_OK == result)
+    {
+        score_models(count2, good, n_sc, n_riv, sc_val, p_yield);
+        result = judge_best(sc_val, n_sc + n_riv, p_info);
+    }
+    return result;
 }
 
 int32_t c39g_min_hump(int32_t noise_margin)

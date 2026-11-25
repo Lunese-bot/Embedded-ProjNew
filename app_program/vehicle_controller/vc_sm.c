@@ -1233,6 +1233,10 @@ static void on_avoid_obstacle(vc_sm_t * p_sm, const vc_event_t * p_event,
         {
             go_fault(p_sm, VC_SRC_MOTION, VC_FC_STATE_TIMEOUT, now_ms, p_out);
         }
+        else
+        {
+            /* no other case needs any action */
+        }
     }
     else if (VC_EV_AVOID_DONE == type)
     {
@@ -1351,6 +1355,10 @@ static void on_junction_stop(vc_sm_t * p_sm, const vc_event_t * p_event,
          */
         drop_pending(p_sm, p_out);
         enter(p_sm, VC_ST_AVOID_OBSTACLE, now_ms, p_out);
+    }
+    else
+    {
+        /* no other case needs any action */
     }
 }
 
@@ -1556,6 +1564,10 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
                 else if (VC_EV_CMD_RESET == type)
                 {
                     move(p_out, VC_MOVE_RESET, 0);
+                }
+                else
+                {
+                    /* no other case needs any action */
                 }
                 break;
             case VC_ST_MISSION_START:

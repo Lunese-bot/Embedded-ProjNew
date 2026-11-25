@@ -545,6 +545,7 @@ void line_task(int32_t stacd, void * p_exinf)
     for (;;)
     {
         bool b_avoiding;
+        bool b_skip = false; /* avoiding and not searching: no IR read */
 
         tk_slp_tsk(TMO_FEVR); /* woken by s3_line_cyclic_isr */
         g_s3_line_wakeups++;
@@ -560,7 +561,7 @@ void line_task(int32_t stacd, void * p_exinf)
             if (!g_b_obstacle_line_search)
             {
                 g_s3_black_mask_live = 0u;
-                continue;
+                b_skip               = true;
             }
         }
         else
@@ -568,25 +569,28 @@ void line_task(int32_t stacd, void * p_exinf)
             handle_requests();
         }
 
-        t_us = drv_ir_time_us();
-        if (drv_ir_read(raw) < E_OK)
+        if (!b_skip)
         {
-            g_s3_black_mask_live = 0u;
-            g_s3_line_read_errors++; /* TODO: report S3 fault */
-        }
-        else if (b_avoiding)
-        {
-            search_step(raw);
-        }
-        else if (g_b_calibrating)
-        {
-            calibrate_step(raw);
-            publish_status(raw);
-        }
-        else
-        {
-            follow_step(raw, t_us, b_rejoining);
-            b_rejoining = false;
+            t_us = drv_ir_time_us();
+            if (drv_ir_read(raw) < E_OK)
+            {
+                g_s3_black_mask_live = 0u;
+                g_s3_line_read_errors++; /* TODO: report S3 fault */
+            }
+            else if (b_avoiding)
+            {
+                search_step(raw);
+            }
+            else if (g_b_calibrating)
+            {
+                calibrate_step(raw);
+                publish_status(raw);
+            }
+            else
+            {
+                follow_step(raw, t_us, b_rejoining);
+                b_rejoining = false;
+            }
         }
     }
 }

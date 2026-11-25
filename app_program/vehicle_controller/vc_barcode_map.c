@@ -378,22 +378,25 @@ bool vc_bcmap_get(vc_bcmap_snapshot_t * p_snap)
         bcmap_barrier();
         if (0u != (before & 1u))
         {
-            continue;
+            /* a write is in progress: try again */
         }
-        p_snap->gen = s_active.gen;
-        for (idx = 0u; idx < VC_BCMAP_PACKED_BYTES; idx++)
+        else
         {
-            p_snap->packed[idx] = s_active.packed[idx];
-        }
-        p_snap->flags = s_active.flags;
-        bcmap_barrier();
-        if (s_seq == before)
-        {
-            if (s_b_mission_active)
+            p_snap->gen = s_active.gen;
+            for (idx = 0u; idx < VC_BCMAP_PACKED_BYTES; idx++)
             {
-                p_snap->flags |= VC_BCMAP_FLAG_MISSION_ACTIVE;
+                p_snap->packed[idx] = s_active.packed[idx];
             }
-            return true;
+            p_snap->flags = s_active.flags;
+            bcmap_barrier();
+            if (s_seq == before)
+            {
+                if (s_b_mission_active)
+                {
+                    p_snap->flags |= VC_BCMAP_FLAG_MISSION_ACTIVE;
+                }
+                return true;
+            }
         }
     }
     return false;
