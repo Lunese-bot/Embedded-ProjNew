@@ -113,6 +113,49 @@ Not yet done: flashing the new firmware and running the on-target tests
 (`make TEST=1`) on the robot. Run those on the bench before the next track
 session.
 
+## Second pass on `main` (2026-11-25)
+
+Code added since the first pass (the S1 codec and config, the barcode
+shape read, the barcode map, the S5 side pass and width estimate, the
+U-turn recovery, the dashboard) was brought to the same standard in one
+commit on `main`:
+
+| Rule | What changed |
+|---|---|
+| 1.2, 1.3, 3.x layout | every file in `app_program/` now matches `app_program/.clang-format` (tabs, K&R braces and long lines in the new S1 files, `debugging/`, `code39_geom.c`, `vc_barcode_map.c`) |
+| 3.3.c, 4.1 | trailing comments on `#define` / `#include` lines moved above them; end-of-file markers added |
+| 5.1, 5.2, 7.1 | `int`, `unsigned`, `float` and `double` became fixed-width types (`float32_t` / `float64_t` in the new `float_types.h`); upper-case typedefs became `_t` names; locals, parameters and globals got their `p_`, `b_`, `g_` prefixes and at least 3 characters |
+| 1.4.b, 8.6.a | parentheses around every operand of `&&` / `\|\|`; constants on the left of `==` |
+| 6.3.a | function-like macros that could be functions became `static inline` functions |
+| 1.7.d, 8.2.d | no `continue` left; every `else if` chain ends in `else` |
+| 6.2.a | every function is 100 lines or less (16 production functions and 9 test functions split into helpers, for example `web_debug_motion()`, `line_tracker_step()`, `decode_humps()`, `vc_sm_handle()`) |
+| 4.2.c, 4.3.c | the S2 live-tuning `extern`s moved into `subsystem2.h`; each `.c` includes its own header |
+
+How it was checked (no behaviour change intended):
+
+1. Layout, naming, type and macro steps: all 9 build variants gave
+   byte-identical `.bin` files (with `__LINE__` fixed to 0 in the test
+   report).
+2. Restructured logic was compiled on a PC in its old and new form and fed
+   the same input, with every output compared:
+   * barcode shape read (`code39_geom.c`): the 94 replay traces plus 300
+     perturbed copies of each, about 340,000 decodes;
+   * line tracker and barcode edge finder (`line_algo.c`): 6,000,000 steps;
+   * IMU terrain, lift and overturn (`imu_terrain.c`): 6,000,000 samples;
+   * Vehicle Controller (`vc_sm.c`): 3,600,000 random events reaching every
+     state.
+   All were identical. The S3 replay (`testing/subsystem3/replay`, `make
+   check`) gives the same output line for line.
+3. All host suites give the same results as before (VC 222 + 60, S1, S3
+   144, S4, S5). All 9 build variants build with no warnings.
+4. Task-level code that has no PC harness (`task_line.c`, `task_barcode.c`,
+   `task_obstacle_avoid.c`, the bridges, `web_debug_bridge.c`) was split
+   only at statement boundaries and reviewed line by line; for the
+   dashboard command `switch`, a script confirmed every case keeps the same
+   code.
+
+Not yet done: a power-cycled run on the robot with this firmware.
+
 ## Deviations
 
 | # | Rule | Where | Why we deviate |
@@ -121,18 +164,27 @@ session.
 | D2 | 6.3 function-like macros | `TEST_INIT`, `TEST_CHECK`, `TEST_SUMMARY` (`test_report.h`) and `CHECK` (host test) | They need `__FILE__` and `__LINE__` from the caller and update the caller's local counters, which a function cannot do. |
 | D2 | 6.3 function-like macros | `VC_READY_BIT()`, `VC_FLG_STATE()` | They are used in constant expressions (`VC_READY_ALL` and flag patterns that other subsystems build), where a function call is not allowed. |
 | D2 | 6.3 function-like macros | `S5_ARRAY_LEN()` (S5 test) | `sizeof` must see the array itself. A function would only see a pointer. |
+| D2 | 6.3 function-like macros | `VC_PIVOT_COUNTS()`, `S1_MQTT_RL_BYTES()`, `S1_MQTT_PUBLISH_BYTES()`; the X-macro tables `VC_BARCODE_LETTER_TABLE`, `VC_FACTORY_LINE`, `VC_RULE_LINE`, `VC_RULE_VALID`, `VC_RULE_COUNT`; host test helpers `VC_EXPECT`, `NAV_CHECK`, `UT_DEG` | Used in constant expressions (array sizes, `static` initialisers, `case` labels) or to build one table from one list, which a function cannot do. The test helpers report the caller's line like `CHECK`. |
 | D3 | 1.6 cast comments | `(uint8_t *)` on string literals passed to `tm_printf`, `tm_sprintf` and `tk_opn_dev`, `(FP)` on handler addresses, `(void)` on unused parameters | These casts are required by kernel prototypes and appear hundreds of times. This entry is the blanket justification. Casts that change a value's range are commented where they occur. |
 | D4 | 5.3 bitwise operators on signed data | `convert_dlhc()` in `drv_lsm303.c` (`>> 4` on `int16_t`) | The DLHC accelerometer value is left-justified 12-bit data. An arithmetic right shift keeps its sign, which is the documented GCC behaviour on ARM. Replacing it with `/ 16` would round negative readings differently. This path only runs with an LSM303DLHC; the team's LSM303D uses `convert_lsm303d()`. |
 | D4 | 5.3 | `PWM_CH_CSR_EN` and similar register macros from the kernel BSP | They are signed constants defined in vendor headers, which are out of scope. |
 | D5 | 6.2 single exit (preferred practice) | `subsystemN_init()` and `subsystemN_start()`, the device drivers (`drv_*.c`), `s3_get_line_status()`, `s5_get_status()` | They return as soon as a kernel object cannot be created or a device cannot be opened. A single exit would need deeply nested `if` blocks. Every early return passes the kernel error code back unchanged. |
+| D5 | 6.2.c single exit (preferred practice) | the functions listed one by one in `tools/barrc/allowlist.tsv` (guard clauses in the decoders, the barcode map, the S1 queue and codec, the S5 profile code) | 6.2.c is a preferred practice, not a "shall". These return early on a guard (bad input, nothing to do, a result found). The checker lists them by name, so a new function with several returns fails the check until it is reviewed. |
 | D6 | 5.4 `isfinite()` from `<math.h>` | `motion_pid.c` | `<math.h>` clashes with the kernel's `size_t` definition, so the code uses the GCC built-in `__builtin_isfinite()` instead. |
 | D7 | compiler extensions | `__attribute__((weak))` in `task_motion.c` (`s4_set_speed_mm_s`) and `s5_ports.c` (`s5_port_line_detected`) | This lets a subsystem link and run on its own until the subsystem that provides the real function is built in (TEAM.md section 5). |
 | D8 | magic numbers in tests | `subsystem*_test.c` and the host test | Expected values such as `(samples >= 45U)` are left as literals so that each check reads like the requirement it tests. Production code uses named constants. |
+| D9 | 5.2 plain `int` / `unsigned` | casts in `tm_printf()` / `tm_sprintf()` arguments (`task_telemetry.c`, `task_vehicle_ctrl.c`) | `%d` and `%u` take `int` and `unsigned int`. `int32_t` is `long` on the target, so the cast makes each argument match its conversion. |
+| D10 | 4.2, 7.1 names | `__bcmap_flash_start` in `vc_bcmap_flash.c` | The linker script defines this symbol and fixes its name. |
 
 ## Keeping it compliant
 
 * Format before committing: `clang-format -i app_program/<folder>/*.[ch]`
   (the `.clang-format` file is in `app_program/`).
+* Run `make -C tools/barrc` before committing. It runs the BARR-C checker
+  (`tools/barrc/barrc_check.py`) and fails on any finding that
+  `tools/barrc/allowlist.tsv` does not list, then checks the formatting
+  with clang-format 18. A new deviation needs a reviewed line in the
+  allowlist and a row in the table above.
 * Build with `make` as usual. App code now compiles with `-Wall -Wextra`;
   treat any new warning as a bug.
 * Follow the naming above for anything new: `g_` for globals, `p_` for
