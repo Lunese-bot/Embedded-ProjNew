@@ -283,7 +283,8 @@ static void check_emergency_stop(void)
         enter_latched(MSTATE_SAFE_STOP, MFAULT_NONE);
         if ((epoch == UINT32_MAX) && (g_handled_stop_epoch != UINT32_MAX))
         {
-            tm_printf((uint8_t *)"motion: stop generation exhausted; restart required\n");
+            tm_printf((uint8_t *)"motion: stop generation exhausted; restart "
+                                 "required\n");
         }
         g_handled_stop_epoch = epoch;
     }
@@ -297,8 +298,8 @@ static void receive_commands(void)
     ER           ercd;
 
     check_emergency_stop();
-    ercd = tk_wai_flg(g_flg_motion, MFLG_ESTOP_REQ, TWF_ORW | TWF_BITCLR,
-                      &ptn, TMO_POL);
+    ercd = tk_wai_flg(g_flg_motion, MFLG_ESTOP_REQ, TWF_ORW | TWF_BITCLR, &ptn,
+                      TMO_POL);
     if ((ercd < E_OK) && (ercd != E_TMOUT))
     {
         app_check(ercd, "motion stop flag");
@@ -319,8 +320,7 @@ static void receive_commands(void)
         }
     }
     check_emergency_stop();
-    if ((0U != g_s2_imu_stop) &&
-        (MSTATE_SAFE_STOP != g_motion_ctx.state))
+    if ((0U != g_s2_imu_stop) && (MSTATE_SAFE_STOP != g_motion_ctx.state))
     {
         enter_latched(MSTATE_SAFE_STOP, MFAULT_NONE);
     }
@@ -408,12 +408,12 @@ static int32_t slow_near_end(int32_t speed, float32_t remaining_mm,
    Start at the s2_config.h values; lost on reboot.  Read by the control
    task, written by the WiFi task: single aligned words, so no lock needed
    for bench use. */
-volatile uint32_t g_s2_odo_ticks   = 0U; /* subsystem2.h */
-volatile uint32_t g_s2_ticks_l     = 0U;
-volatile uint32_t g_s2_ticks_r     = 0U;
-volatile int32_t g_s2_dbg_trim_l   = S2_TRIM_L_PERMILLE;
-volatile int32_t g_s2_dbg_trim_r   = S2_TRIM_R_PERMILLE;
-volatile int32_t g_s2_dbg_straight = 1; /* 1 = hold DRIVE straight */
+volatile uint32_t g_s2_odo_ticks    = 0U; /* subsystem2.h */
+volatile uint32_t g_s2_ticks_l      = 0U;
+volatile uint32_t g_s2_ticks_r      = 0U;
+volatile int32_t  g_s2_dbg_trim_l   = S2_TRIM_L_PERMILLE;
+volatile int32_t  g_s2_dbg_trim_r   = S2_TRIM_R_PERMILLE;
+volatile int32_t  g_s2_dbg_straight = 1; /* 1 = hold DRIVE straight */
 #define TRIM_L g_s2_dbg_trim_l
 #define TRIM_R g_s2_dbg_trim_r
 #else
@@ -456,19 +456,19 @@ static void mode_logic(void)
             /* Bench only: hold a plain forward/back DRIVE straight by
                slowing the wheel that has travelled further since the
                drive started (same idea as DRIVE_DIST). */
-            if ((0 != g_s2_dbg_straight) && (0 == g_motion_ctx.cmd.steer_mm_s) &&
+            if ((0 != g_s2_dbg_straight) &&
+                (0 == g_motion_ctx.cmd.steer_mm_s) &&
                 (0 != g_motion_ctx.cmd.speed_mm_s))
             {
                 float32_t fix = S2_STRAIGHT_K * (delta_l - delta_r);
-                fix = (fix > 100.0f) ? 100.0f : ((fix < -100.0f) ? -100.0f : fix);
+                fix =
+                    (fix > 100.0f) ? 100.0f : ((fix < -100.0f) ? -100.0f : fix);
                 g_motion_ctx.want_l -= (int32_t)fix;
                 g_motion_ctx.want_r += (int32_t)fix;
             }
 #endif
-            g_motion_ctx.want_l =
-                apply_trim(g_motion_ctx.want_l, TRIM_L);
-            g_motion_ctx.want_r =
-                apply_trim(g_motion_ctx.want_r, TRIM_R);
+            g_motion_ctx.want_l = apply_trim(g_motion_ctx.want_l, TRIM_L);
+            g_motion_ctx.want_r = apply_trim(g_motion_ctx.want_r, TRIM_R);
             break;
 
         case MSTATE_DRIVING_DIST:
@@ -487,10 +487,8 @@ static void mode_logic(void)
             /* steer is a few hundred mm/s at most: fits int32_t */
             g_motion_ctx.want_l = (dir * speed) - (int32_t)steer;
             g_motion_ctx.want_r = (dir * speed) + (int32_t)steer;
-            g_motion_ctx.want_l =
-                apply_trim(g_motion_ctx.want_l, TRIM_L);
-            g_motion_ctx.want_r =
-                apply_trim(g_motion_ctx.want_r, TRIM_R);
+            g_motion_ctx.want_l = apply_trim(g_motion_ctx.want_l, TRIM_L);
+            g_motion_ctx.want_r = apply_trim(g_motion_ctx.want_r, TRIM_R);
             break;
 
         case MSTATE_TURNING:
@@ -558,15 +556,15 @@ static int32_t wheel_duty(pid_ctrl_t * p_pid, int32_t target,
            too SLOW.  A wheel already at or above its target may drop to
            0 duty, so the inner wheel of a sharp turn can really slow
            down (the 125 floor held it at ~75 mm/s when 14 was asked). */
-        int32_t dir  = (target > 0) ? 1 : -1;
-        int32_t tmag = target * dir;               /* wanted speed, > 0 */
+        int32_t   dir  = (target > 0) ? 1 : -1;
+        int32_t   tmag = target * dir;              /* wanted speed, > 0 */
         float32_t mmag = measured * (float32_t)dir; /* speed that way    */
-        int32_t dmag = duty * dir;
-        int32_t floor_duty;
+        int32_t   dmag = duty * dir;
+        int32_t   floor_duty;
 
         if (mmag >= (float32_t)tmag)
         {
-            floor_duty = 0;                /* fast enough: may coast  */
+            floor_duty = 0; /* fast enough: may coast  */
         }
         else if ((mmag > -20.0f) && (mmag < 20.0f))
         {
@@ -580,7 +578,7 @@ static int32_t wheel_duty(pid_ctrl_t * p_pid, int32_t target,
         }
         if (dmag < floor_duty)
         {
-            dmag = floor_duty;             /* also never reverses     */
+            dmag = floor_duty; /* also never reverses     */
         }
         duty = dmag * dir;
     }
@@ -598,13 +596,13 @@ static void calculate_pwm(float32_t dt_s)
 
 #if S2_WEBDEBUG
     /* live tuning of the speed PID from the dashboard */
-    g_motion_ctx.pid_l.kp = (float32_t)g_lt_pid_kp100 / 100.0f;
-    g_motion_ctx.pid_r.kp = (float32_t)g_lt_pid_kp100 / 100.0f;
-    g_motion_ctx.pid_l.ki = (float32_t)g_lt_pid_ki100 / 100.0f;
-    g_motion_ctx.pid_r.ki = (float32_t)g_lt_pid_ki100 / 100.0f;
+    g_motion_ctx.pid_l.kp      = (float32_t)g_lt_pid_kp100 / 100.0f;
+    g_motion_ctx.pid_r.kp      = (float32_t)g_lt_pid_kp100 / 100.0f;
+    g_motion_ctx.pid_l.ki      = (float32_t)g_lt_pid_ki100 / 100.0f;
+    g_motion_ctx.pid_r.ki      = (float32_t)g_lt_pid_ki100 / 100.0f;
     /* per-wheel feed-forward and the integral limit */
-    g_motion_ctx.pid_l.kff = S2_PID_KFF * (float32_t)g_lt_ff_l / 1000.0f;
-    g_motion_ctx.pid_r.kff = S2_PID_KFF * (float32_t)g_lt_ff_r / 1000.0f;
+    g_motion_ctx.pid_l.kff     = S2_PID_KFF * (float32_t)g_lt_ff_l / 1000.0f;
+    g_motion_ctx.pid_r.kff     = S2_PID_KFF * (float32_t)g_lt_ff_r / 1000.0f;
     g_motion_ctx.pid_l.i_limit = (float32_t)g_lt_ilim;
     g_motion_ctx.pid_r.i_limit = (float32_t)g_lt_ilim;
 #endif
@@ -731,10 +729,12 @@ void motion_task(int32_t stacd, void * p_exinf)
     (void)stacd;
     (void)p_exinf;
 
-    pid_init(&g_motion_ctx.pid_l, S2_PID_KFF * (float32_t)S2_PID_KFF_BOOST_L / 1000.0f, S2_PID_KP, S2_PID_KI, S2_PID_KD,
-             S2_PID_I_LIMIT, (float32_t)S2_DUTY_MAX);
-    pid_init(&g_motion_ctx.pid_r, S2_PID_KFF * (float32_t)S2_PID_KFF_BOOST_R / 1000.0f, S2_PID_KP, S2_PID_KI, S2_PID_KD,
-             S2_PID_I_LIMIT, (float32_t)S2_DUTY_MAX);
+    pid_init(&g_motion_ctx.pid_l,
+             S2_PID_KFF * (float32_t)S2_PID_KFF_BOOST_L / 1000.0f, S2_PID_KP,
+             S2_PID_KI, S2_PID_KD, S2_PID_I_LIMIT, (float32_t)S2_DUTY_MAX);
+    pid_init(&g_motion_ctx.pid_r,
+             S2_PID_KFF * (float32_t)S2_PID_KFF_BOOST_R / 1000.0f, S2_PID_KP,
+             S2_PID_KI, S2_PID_KD, S2_PID_I_LIMIT, (float32_t)S2_DUTY_MAX);
 
     if ((E_OK != drv_motor_init()) || (E_OK != drv_encoder_init()))
     {

@@ -151,9 +151,8 @@ typedef struct
 /* Combine two reads of the S2 interlock taken before and after one read of
    S4's status (status_ok == 0 if that read failed) into one coherent
    value.  safety_stop is imu_status_t.safety_stop (IMU_SAFETY_*). */
-void s1_latch_resolve(S1_LATCH * p_out, uint32_t stop_before,
-                      int32_t status_ok, uint32_t safety_stop,
-                      uint32_t stop_after);
+void s1_latch_resolve(S1_LATCH * p_out, uint32_t stop_before, int32_t status_ok,
+                      uint32_t safety_stop, uint32_t stop_after);
 
 /* Write the text above into p_buf; same bounds rules as s1_stats_format.
    Returns the length written (0 if it did not fit: never a cut field). */

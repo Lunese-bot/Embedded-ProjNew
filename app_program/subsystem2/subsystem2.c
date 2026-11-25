@@ -13,11 +13,11 @@
 #include <tk/smp.h>
 #endif
 
-ID g_mbf_motion_cmd; /* IF-M1 */
-ID g_mtx_motion;     /* IF-M2 */
-ID g_flg_motion;     /* IF-M3 */
-ID g_tid_motion;
-ID g_cyc_motion;
+ID                g_mbf_motion_cmd; /* IF-M1 */
+ID                g_mtx_motion;     /* IF-M2 */
+ID                g_flg_motion;     /* IF-M3 */
+ID                g_tid_motion;
+ID                g_cyc_motion;
 volatile uint32_t g_s2_imu_stop; /* S2_IMU_CAUSE_* while the IMU interlock is
                                     set, 0 once the robot is set down */
 /* The last IMU interlock and the stop generation it raised.  Kept after

@@ -40,26 +40,25 @@
 #define S5_ENABLE_AT_START 1
 
 /* Timing (NFR2) */
-#define S5_PERIOD_MS        20   /* monitoring period              */
+#define S5_PERIOD_MS 20 /* monitoring period              */
 
 /* Servo motion limits.  A hobby servo told to jump 80 deg swings at full
    speed (~600 deg/s) and can throw the sensor off its mount.  The scan
    task ramps instead: S5_SERVO_STEP_DEG every S5_SERVO_STEP_MS, about
    5 / 25 ms = 200 deg/s, then waits S5_SERVO_SETTLE_MS before measuring.
    Lower the speed (bigger STEP_MS) if the mount still shakes. */
-#define S5_SERVO_STEP_DEG   5    /* degrees per small move         */
-#define S5_SERVO_STEP_MS    25   /* pause between small moves      */
-#define S5_SERVO_SETTLE_MS  60   /* after a long move: settle, then ping */
+#define S5_SERVO_STEP_DEG        5  /* degrees per small move         */
+#define S5_SERVO_STEP_MS         25 /* pause between small moves      */
+#define S5_SERVO_SETTLE_MS       60 /* after a long move: settle, then ping */
 #define S5_SERVO_SETTLE_SHORT_MS 30 /* after one small step (fine scan)  */
-#define S5_SCAN_TMO_MS      8000 /* whole coarse+fine scan.  Worst case
-                                    with gentle servo ramps ~5.2 s (wide
-                                    obstacle, 25 fine angles); was 4000,
-                                    which a wide scan could overrun */
-#define S5_TURN_TMO_MS      6000 /* allow slow turns to finish */
-#define S5_MOVE_SLACK_MS    2000 /* added to distance/speed        */
+/* whole coarse+fine scan. Worst case with gentle servo ramps ~5.2 s (wide
+   obstacle, 25 fine angles); was 4000, which a wide scan could overrun */
+#define S5_SCAN_TMO_MS           8000
+#define S5_TURN_TMO_MS           6000 /* allow slow turns to finish */
+#define S5_MOVE_SLACK_MS         2000 /* added to distance/speed        */
 /* Silent pings in a row -> fault (only counted while scanning, open
    space also gives no echo) */
-#define S5_ECHO_FAULT_COUNT 25
+#define S5_ECHO_FAULT_COUNT      25
 
 /* g_flg_s5 bits (private event flag between the two tasks) */
 #define S5_FLG_ENABLED  0x0001 /* VC: monitoring allowed         */
@@ -67,11 +66,12 @@
 #define S5_FLG_PROFILE  0x0004 /* scan -> avoid: profile done    */
 #define S5_FLG_RESUME   0x0008 /* avoid -> scan: back to monitor */
 
-#define S5_FLG_SIDE_REQ 0x0010 /* avoid -> scan: look sideways (angle in s5_side_deg) */
+/* avoid -> scan: look sideways (angle in s5_side_deg) */
+#define S5_FLG_SIDE_REQ 0x0010
 #define S5_FLG_SIDE_END 0x0020 /* avoid -> scan: stop looking sideways    */
 
-#define S5_EVT_BUF_MSGS 8
-#define S5_CMD_BUF_MSGS 8
+#define S5_EVT_BUF_MSGS     8
+#define S5_CMD_BUF_MSGS     8
 #define S5_MBF_MSG_OVERHEAD 4 /* kernel header bytes per message */
 
 extern ID g_flg_s5;
@@ -101,7 +101,7 @@ extern void    s5_side_end(void);
 extern int32_t s5_side_deg(void);
 extern void    s5_side_arm(void);
 extern void    s5_side_publish(uint8_t status, uint16_t mm);
-extern bool    s5_side_read(s5_side_reading_t * p_reading); /* TRUE once armed */
+extern bool s5_side_read(s5_side_reading_t * p_reading); /* TRUE once armed */
 
 /* Send an event to the Vehicle Controller without blocking */
 extern ER       s5_send_evt(s5_evt_t * p_evt);

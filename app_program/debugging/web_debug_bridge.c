@@ -20,12 +20,13 @@
 #include "live_tune.h"
 #include "web_debug_bridge.h"
 
-#define WD_SPEED_DEFAULT 60 /* forward/back test speed: start at the lowest (WD_SPEED_MIN) */
+/* forward/back test speed: start at the lowest (WD_SPEED_MIN) */
+#define WD_SPEED_DEFAULT 60
 #define WD_SPEED_STEP    25
 #define WD_SPEED_MIN     60
-#define WD_SPIN_MM_S  120 /* wheel speed while spinning on the spot */
-#define WD_TURN_DEG   90
-#define WD_TRIM_STEP  2 /* permille per button press */
+#define WD_SPIN_MM_S     120 /* wheel speed while spinning on the spot */
+#define WD_TURN_DEG      90
+#define WD_TRIM_STEP     2 /* permille per button press */
 
 static volatile int32_t g_wd_speed = WD_SPEED_DEFAULT;
 
@@ -77,7 +78,8 @@ static int32_t clamp_trim(int32_t v)
  *  is never locked, and STOP ('s') always works for everybody.
  * --------------------------------------------------------------------- */
 #define WD_LOCK_MS 5000U
-#define WD_AREAS   5 /* m = motor, l = line, i = imu, o = obstacle/servo, v = mission */
+/* m = motor, l = line, i = imu, o = obstacle/servo, v = mission */
+#define WD_AREAS   5
 
 static uint32_t g_lock_id[WD_AREAS];
 static uint32_t g_lock_ms[WD_AREAS];
@@ -94,23 +96,93 @@ static int32_t area_of(char c)
 {
     switch (c)
     {
-        case 'f': case 'b': case 'l': case 'r': case 'L': case 'R': case 'x':
-        case 't': case 'T': case 'u': case 'U': case 'h': case 'v': case 'V':
-        case 'p': case 'P': case 'i': case 'I':
-        case '8': case '9': case '0': case 'S': case '-': case '.': case '_':
-        case '(': case ')': case ',': case '*':
+        case 'f':
+        case 'b':
+        case 'l':
+        case 'r':
+        case 'L':
+        case 'R':
+        case 'x':
+        case 't':
+        case 'T':
+        case 'u':
+        case 'U':
+        case 'h':
+        case 'v':
+        case 'V':
+        case 'p':
+        case 'P':
+        case 'i':
+        case 'I':
+        case '8':
+        case '9':
+        case '0':
+        case 'S':
+        case '-':
+        case '.':
+        case '_':
+        case '(':
+        case ')':
+        case ',':
+        case '*':
             return 0; /* motor */
-        case 'k': case 'K': case 'd': case 'D': case '1': case '2': case '3': case '4': case '5': case '6': case '7': case 'w': case 'X': case 'a': case 'B': case 'o': case 'O': case 'm':
-        case 'n': case 'y': case 'Y': case 'z':
-        case 'Z': case '~': case '=': case '[': case ']': case '{': case '}':
-        case '`': case '|': case '@': case '^': case '$':
-        case '/': case '+':
+        case 'k':
+        case 'K':
+        case 'd':
+        case 'D':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case 'w':
+        case 'X':
+        case 'a':
+        case 'B':
+        case 'o':
+        case 'O':
+        case 'm':
+        case 'n':
+        case 'y':
+        case 'Y':
+        case 'z':
+        case 'Z':
+        case '~':
+        case '=':
+        case '[':
+        case ']':
+        case '{':
+        case '}':
+        case '`':
+        case '|':
+        case '@':
+        case '^':
+        case '$':
+        case '/':
+        case '+':
             return 1; /* line */
-        case 'j': case 'J': case 'q': case 'H':
+        case 'j':
+        case 'J':
+        case 'q':
+        case 'H':
             return 2; /* imu */
-        case 'Q': case 'W': case 'E': case 'e': case 'g': case 'G':
+        case 'Q':
+        case 'W':
+        case 'E':
+        case 'e':
+        case 'g':
+        case 'G':
             return 3; /* obstacle + servo */
-        case 'M': case 'N': case 'F': case 'A': case 'c': case 'C': case ':': case ';':
+        case 'M':
+        case 'N':
+        case 'F':
+        case 'A':
+        case 'c':
+        case 'C':
+        case ':':
+        case ';':
             return 4; /* mission */
         default:
             return -1; /* 's', '?' : no lock */
@@ -236,7 +308,9 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
 
     switch (cmd)
     {
-        case '!': er = E_OBJ; break;
+        case '!':
+            er = E_OBJ;
+            break;
         /* mode switch */
         case 'M':
         case 'N':
@@ -263,36 +337,112 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
             g_s2_dbg_straight = 0;
             (void)s2_cmd_reset();
             (void)vc_post_event(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0, TMO_POL);
-            er        = vc_post_event(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0, TMO_POL);
+            er = vc_post_event(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0, TMO_POL);
             g_wd_mode = (E_OK == er) ? 1 : g_wd_mode;
             break;
-        case 'Q': er = servo_test(45); break;   /* + = left */
-        case 'W': er = servo_test(0); break;
-        case 'E': er = servo_test(-45); break;
-        case '}': g_lt_next_nav = 0; er = E_OK; break; /* junction: barcode decides */
-        case '[': g_lt_next_nav = 1; er = E_OK; break; /* every junction: left */
-        case ']': g_lt_next_nav = 2; er = E_OK; break; /* every junction: right */
-        case '{': g_lt_next_nav = 3; er = E_OK; break; /* every junction: straight */
-        case '/': g_lt_steer_hold = 0; er = E_OK; break; /* steering correction normal */
-        case '+': g_lt_steer_hold = (g_lt_steer_hold + 1) % 3; er = E_OK; break; /* next mode */
-        case '`': g_lt_bc_edge = 1; er = E_OK; break; /* barcode: edge finder */
-        case '|': g_lt_bc_edge = 0; er = E_OK; break; /* barcode: fixed cut-off */
+        case 'Q':
+            er = servo_test(45);
+            break; /* + = left */
+        case 'W':
+            er = servo_test(0);
+            break;
+        case 'E':
+            er = servo_test(-45);
+            break;
+        case '}':
+            g_lt_next_nav = 0;
+            er            = E_OK;
+            break; /* junction: barcode decides */
+        case '[':
+            g_lt_next_nav = 1;
+            er            = E_OK;
+            break; /* every junction: left */
+        case ']':
+            g_lt_next_nav = 2;
+            er            = E_OK;
+            break; /* every junction: right */
+        case '{':
+            g_lt_next_nav = 3;
+            er            = E_OK;
+            break; /* every junction: straight */
+        case '/':
+            g_lt_steer_hold = 0;
+            er              = E_OK;
+            break; /* steering correction normal */
+        case '+':
+            g_lt_steer_hold = (g_lt_steer_hold + 1) % 3;
+            er              = E_OK;
+            break; /* next mode */
+        case '`':
+            g_lt_bc_edge = 1;
+            er           = E_OK;
+            break; /* barcode: edge finder */
+        case '|':
+            g_lt_bc_edge = 0;
+            er           = E_OK;
+            break; /* barcode: fixed cut-off */
         /* steps of 50 down to 50, then steps of 5 down to 10 (weak print) */
-        case '@': g_lt_bc_swing = clamp_to(g_lt_bc_swing - ((g_lt_bc_swing > 50) ? 50 : 5), 10, 2000); er = E_OK; break;
-        case '^': g_lt_bc_swing = clamp_to(g_lt_bc_swing + ((g_lt_bc_swing >= 50) ? 50 : 5), 10, 2000); er = E_OK; break;
-        case '$': /* floor steps 0 (off) -> 300 -> 400 -> 600 -> 800 -> 1000 -> 0 */
-            g_lt_bc_floor = (g_lt_bc_floor < 300) ? 300 : ((g_lt_bc_floor < 400) ? 400 : ((g_lt_bc_floor < 600) ? 600 :
-                            ((g_lt_bc_floor < 800) ? 800 : ((g_lt_bc_floor < 1000) ? 1000 : 0))));
-            er = E_OK; break;
-        case '5': g_lt_junc_mode = 0; er = E_OK; break; /* junction detection off */
-        case '6': g_lt_junc_mode = 1; er = E_OK; break; /* C + R */
-        case '7': g_lt_junc_mode = 2; er = E_OK; break; /* L + C + R */
-        case '3': g_lt_junc_thr = clamp_to(g_lt_junc_thr - 25, 500, 1000); er = E_OK; break;
-        case '4': g_lt_junc_thr = clamp_to(g_lt_junc_thr + 25, 500, 1000); er = E_OK; break;
-        case '1': g_lt_lost = clamp_to(g_lt_lost - 10, 2, 500); er = E_OK; break;
-        case '2': g_lt_lost = clamp_to(g_lt_lost + 10, 2, 500); er = E_OK; break;
-        case 'w': g_lt_steer_inv = 1; er = E_OK; break; /* swap steering direction */
-        case 'X': g_lt_steer_inv = 0; er = E_OK; break;
+        case '@':
+            g_lt_bc_swing = clamp_to(
+                g_lt_bc_swing - ((g_lt_bc_swing > 50) ? 50 : 5), 10, 2000);
+            er = E_OK;
+            break;
+        case '^':
+            g_lt_bc_swing = clamp_to(
+                g_lt_bc_swing + ((g_lt_bc_swing >= 50) ? 50 : 5), 10, 2000);
+            er = E_OK;
+            break;
+        case '$': /* floor steps 0 (off) -> 300 -> 400 -> 600 -> 800 -> 1000 ->
+                     0 */
+            g_lt_bc_floor =
+                (g_lt_bc_floor < 300)
+                    ? 300
+                    : ((g_lt_bc_floor < 400)
+                           ? 400
+                           : ((g_lt_bc_floor < 600)
+                                  ? 600
+                                  : ((g_lt_bc_floor < 800)
+                                         ? 800
+                                         : ((g_lt_bc_floor < 1000) ? 1000
+                                                                   : 0))));
+            er = E_OK;
+            break;
+        case '5':
+            g_lt_junc_mode = 0;
+            er             = E_OK;
+            break; /* junction detection off */
+        case '6':
+            g_lt_junc_mode = 1;
+            er             = E_OK;
+            break; /* C + R */
+        case '7':
+            g_lt_junc_mode = 2;
+            er             = E_OK;
+            break; /* L + C + R */
+        case '3':
+            g_lt_junc_thr = clamp_to(g_lt_junc_thr - 25, 500, 1000);
+            er            = E_OK;
+            break;
+        case '4':
+            g_lt_junc_thr = clamp_to(g_lt_junc_thr + 25, 500, 1000);
+            er            = E_OK;
+            break;
+        case '1':
+            g_lt_lost = clamp_to(g_lt_lost - 10, 2, 500);
+            er        = E_OK;
+            break;
+        case '2':
+            g_lt_lost = clamp_to(g_lt_lost + 10, 2, 500);
+            er        = E_OK;
+            break;
+        case 'w':
+            g_lt_steer_inv = 1;
+            er             = E_OK;
+            break; /* swap steering direction */
+        case 'X':
+            g_lt_steer_inv = 0;
+            er             = E_OK;
+            break;
         case 'a': /* mission ignores barcodes */
             g_lt_bc_en = 0;
             er         = s3_request(S3_REQ_BC_DISABLE);
@@ -301,9 +451,17 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
             g_lt_bc_en = 1;
             er         = s3_request(S3_REQ_BC_ENABLE);
             break;
-        case 'q': g_lt_imu_en = 0; er = E_OK; break; /* mission ignores the IMU */
-        case 'H': g_lt_imu_en = 1; er = E_OK; break;
-        case 'e': er = monitoring_on(); break;
+        case 'q':
+            g_lt_imu_en = 0;
+            er          = E_OK;
+            break; /* mission ignores the IMU */
+        case 'H':
+            g_lt_imu_en = 1;
+            er          = E_OK;
+            break;
+        case 'e':
+            er = monitoring_on();
+            break;
         case 'g': /* mission ignores the obstacle sensor */
             g_lt_obst_en = 0;
             er           = obst_stop();
@@ -312,20 +470,44 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
             g_lt_obst_en = 1;
             er           = monitoring_on();
             break;
-        case 'y': er = s3_request(S3_REQ_CALIBRATE); break;
-        case 'Y': er = s3_request(S3_REQ_RESET_LINE); break;
-        case 'z': er = s3_request(S3_REQ_BC_ENABLE); break;
-        case 'Z': er = s3_request(S3_REQ_BC_DISABLE); break;
-        case 'j': er = s4_request_calibration(); break;
-        case 'J': er = s4_request_peak_reset(); break;
-        case 'f': er = s2_cmd_drive(g_wd_speed, 0); break;
-        case 'b': er = s2_cmd_drive(-g_wd_speed, 0); break;
-        case 'l': er = s2_cmd_drive(0, WD_SPIN_MM_S); break;  /* + = left */
-        case 'r': er = s2_cmd_drive(0, -WD_SPIN_MM_S); break;
+        case 'y':
+            er = s3_request(S3_REQ_CALIBRATE);
+            break;
+        case 'Y':
+            er = s3_request(S3_REQ_RESET_LINE);
+            break;
+        case 'z':
+            er = s3_request(S3_REQ_BC_ENABLE);
+            break;
+        case 'Z':
+            er = s3_request(S3_REQ_BC_DISABLE);
+            break;
+        case 'j':
+            er = s4_request_calibration();
+            break;
+        case 'J':
+            er = s4_request_peak_reset();
+            break;
+        case 'f':
+            er = s2_cmd_drive(g_wd_speed, 0);
+            break;
+        case 'b':
+            er = s2_cmd_drive(-g_wd_speed, 0);
+            break;
+        case 'l':
+            er = s2_cmd_drive(0, WD_SPIN_MM_S);
+            break; /* + = left */
+        case 'r':
+            er = s2_cmd_drive(0, -WD_SPIN_MM_S);
+            break;
         /* one wheel only at the test speed (other wheel target 0):
            left = speed - steer, right = speed + steer */
-        case '(': er = s2_cmd_drive(g_wd_speed / 2, -(g_wd_speed / 2)); break;
-        case ')': er = s2_cmd_drive(g_wd_speed / 2, g_wd_speed / 2); break;
+        case '(':
+            er = s2_cmd_drive(g_wd_speed / 2, -(g_wd_speed / 2));
+            break;
+        case ')':
+            er = s2_cmd_drive(g_wd_speed / 2, g_wd_speed / 2);
+            break;
         case 's':
             if (1 == g_wd_mode)
             {
@@ -338,60 +520,178 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
             (void)vc_post_event(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0, TMO_POL);
             er = s2_cmd_reset();
             break;
-        case 'L': er = s2_cmd_turn(S2_TURN_SPEED_MM_S, WD_TURN_DEG); break;
-        case 'R': er = s2_cmd_turn(S2_TURN_SPEED_MM_S, -WD_TURN_DEG); break;
+        case 'L':
+            er = s2_cmd_turn(S2_TURN_SPEED_MM_S, WD_TURN_DEG);
+            break;
+        case 'R':
+            er = s2_cmd_turn(S2_TURN_SPEED_MM_S, -WD_TURN_DEG);
+            break;
         /* live tuning: no motion command, just change the trims */
-        case 't': g_s2_dbg_trim_l = clamp_trim(g_s2_dbg_trim_l - g_lt_trim_step); er = E_OK; break;
-        case 'T': g_s2_dbg_trim_l = clamp_trim(g_s2_dbg_trim_l + g_lt_trim_step); er = E_OK; break;
-        case 'u': g_s2_dbg_trim_r = clamp_trim(g_s2_dbg_trim_r - g_lt_trim_step); er = E_OK; break;
-        case 'U': g_s2_dbg_trim_r = clamp_trim(g_s2_dbg_trim_r + g_lt_trim_step); er = E_OK; break;
-        case 'S': g_lt_trim_step = (2 == g_lt_trim_step) ? 10 : ((10 == g_lt_trim_step) ? 25 : 2); er = E_OK; break;
-        case '~': g_lt_lost_en = 0; er = E_OK; break; /* mission ignores LINE_LOST */
-        case '=': g_lt_lost_en = 1; er = E_OK; break;
-        case ',': g_lt_dmin = clamp_to(g_lt_dmin - 25, 0, S2_DUTY_MIN_MOVE); er = E_OK; break;
-        case '*': g_lt_dmin = clamp_to(g_lt_dmin + 25, 0, S2_DUTY_MIN_MOVE); er = E_OK; break;
-        case '8': g_lt_ff_l = clamp_to(g_lt_ff_l - 25, 400, 2500); er = E_OK; break;
-        case '9': g_lt_ff_l = clamp_to(g_lt_ff_l + 25, 400, 2500); er = E_OK; break;
-        case '-': g_lt_ff_r = clamp_to(g_lt_ff_r - 25, 400, 2500); er = E_OK; break;
-        case '.': g_lt_ff_r = clamp_to(g_lt_ff_r + 25, 400, 2500); er = E_OK; break;
-        case '0': g_lt_ilim = clamp_to(g_lt_ilim - 100, 0, 900); er = E_OK; break;
-        case '_': g_lt_ilim = clamp_to(g_lt_ilim + 100, 0, 900); er = E_OK; break;
-        case 'h': g_s2_dbg_straight = (0 != g_s2_dbg_straight) ? 0 : 1; er = E_OK; break;
-        case 'v': g_wd_speed = (g_wd_speed - WD_SPEED_STEP < WD_SPEED_MIN) ? WD_SPEED_MIN : (g_wd_speed - WD_SPEED_STEP); er = E_OK; break;
-        case 'V': g_wd_speed = (g_wd_speed + WD_SPEED_STEP > S2_MAX_SPEED_MM_S) ? S2_MAX_SPEED_MM_S : (g_wd_speed + WD_SPEED_STEP); er = E_OK; break;
+        case 't':
+            g_s2_dbg_trim_l = clamp_trim(g_s2_dbg_trim_l - g_lt_trim_step);
+            er              = E_OK;
+            break;
+        case 'T':
+            g_s2_dbg_trim_l = clamp_trim(g_s2_dbg_trim_l + g_lt_trim_step);
+            er              = E_OK;
+            break;
+        case 'u':
+            g_s2_dbg_trim_r = clamp_trim(g_s2_dbg_trim_r - g_lt_trim_step);
+            er              = E_OK;
+            break;
+        case 'U':
+            g_s2_dbg_trim_r = clamp_trim(g_s2_dbg_trim_r + g_lt_trim_step);
+            er              = E_OK;
+            break;
+        case 'S':
+            g_lt_trim_step =
+                (2 == g_lt_trim_step) ? 10 : ((10 == g_lt_trim_step) ? 25 : 2);
+            er = E_OK;
+            break;
+        case '~':
+            g_lt_lost_en = 0;
+            er           = E_OK;
+            break; /* mission ignores LINE_LOST */
+        case '=':
+            g_lt_lost_en = 1;
+            er           = E_OK;
+            break;
+        case ',':
+            g_lt_dmin = clamp_to(g_lt_dmin - 25, 0, S2_DUTY_MIN_MOVE);
+            er        = E_OK;
+            break;
+        case '*':
+            g_lt_dmin = clamp_to(g_lt_dmin + 25, 0, S2_DUTY_MIN_MOVE);
+            er        = E_OK;
+            break;
+        case '8':
+            g_lt_ff_l = clamp_to(g_lt_ff_l - 25, 400, 2500);
+            er        = E_OK;
+            break;
+        case '9':
+            g_lt_ff_l = clamp_to(g_lt_ff_l + 25, 400, 2500);
+            er        = E_OK;
+            break;
+        case '-':
+            g_lt_ff_r = clamp_to(g_lt_ff_r - 25, 400, 2500);
+            er        = E_OK;
+            break;
+        case '.':
+            g_lt_ff_r = clamp_to(g_lt_ff_r + 25, 400, 2500);
+            er        = E_OK;
+            break;
+        case '0':
+            g_lt_ilim = clamp_to(g_lt_ilim - 100, 0, 900);
+            er        = E_OK;
+            break;
+        case '_':
+            g_lt_ilim = clamp_to(g_lt_ilim + 100, 0, 900);
+            er        = E_OK;
+            break;
+        case 'h':
+            g_s2_dbg_straight = (0 != g_s2_dbg_straight) ? 0 : 1;
+            er                = E_OK;
+            break;
+        case 'v':
+            g_wd_speed = (g_wd_speed - WD_SPEED_STEP < WD_SPEED_MIN)
+                             ? WD_SPEED_MIN
+                             : (g_wd_speed - WD_SPEED_STEP);
+            er         = E_OK;
+            break;
+        case 'V':
+            g_wd_speed = (g_wd_speed + WD_SPEED_STEP > S2_MAX_SPEED_MM_S)
+                             ? S2_MAX_SPEED_MM_S
+                             : (g_wd_speed + WD_SPEED_STEP);
+            er         = E_OK;
+            break;
         /* live tuning of the controllers (see live_tune.h) */
-        case 'p': g_lt_pid_kp100 = clamp_to(g_lt_pid_kp100 - 10, 0, 1000); er = E_OK; break;
-        case 'P': g_lt_pid_kp100 = clamp_to(g_lt_pid_kp100 + 10, 0, 1000); er = E_OK; break;
-        case 'i': g_lt_pid_ki100 = clamp_to(g_lt_pid_ki100 - 50, 0, 3000); er = E_OK; break;
-        case 'I': g_lt_pid_ki100 = clamp_to(g_lt_pid_ki100 + 50, 0, 3000); er = E_OK; break;
-        case 'o': g_lt_line_sp = clamp_to(g_lt_line_sp - 100, -1000, 1000); er = E_OK; break;
-        case 'O': g_lt_line_sp = clamp_to(g_lt_line_sp + 100, -1000, 1000); er = E_OK; break;
-        case 'm': g_lt_line_all = 0; er = E_OK; break; /* centre + right steer */
-        case 'n': g_lt_line_all = 1; er = E_OK; break; /* left + centre + right */
-        case 'k': g_lt_line_kp = clamp_to(g_lt_line_kp - 1, 0, 60); er = E_OK; break;
-        case 'K': g_lt_line_kp = clamp_to(g_lt_line_kp + 1, 0, 60); er = E_OK; break;
-        case 'd': g_lt_line_kd = clamp_to(g_lt_line_kd - 2, 0, 100); er = E_OK; break;
-        case 'D': g_lt_line_kd = clamp_to(g_lt_line_kd + 2, 0, 100); er = E_OK; break;
-        case ':': g_lt_curve = clamp_to(g_lt_curve - 100, 0, 800); er = E_OK; break;
-        case ';': g_lt_curve = clamp_to(g_lt_curve + 100, 0, 800); er = E_OK; break;
-        case 'c': g_lt_speed_pct = clamp_to(g_lt_speed_pct - 10, 20, 150); er = E_OK; break;
-        case 'C': g_lt_speed_pct = clamp_to(g_lt_speed_pct + 10, 20, 150); er = E_OK; break;
-        case '?': er = E_OK; break; /* status only */
-        default: er = E_PAR; break;
+        case 'p':
+            g_lt_pid_kp100 = clamp_to(g_lt_pid_kp100 - 10, 0, 1000);
+            er             = E_OK;
+            break;
+        case 'P':
+            g_lt_pid_kp100 = clamp_to(g_lt_pid_kp100 + 10, 0, 1000);
+            er             = E_OK;
+            break;
+        case 'i':
+            g_lt_pid_ki100 = clamp_to(g_lt_pid_ki100 - 50, 0, 3000);
+            er             = E_OK;
+            break;
+        case 'I':
+            g_lt_pid_ki100 = clamp_to(g_lt_pid_ki100 + 50, 0, 3000);
+            er             = E_OK;
+            break;
+        case 'o':
+            g_lt_line_sp = clamp_to(g_lt_line_sp - 100, -1000, 1000);
+            er           = E_OK;
+            break;
+        case 'O':
+            g_lt_line_sp = clamp_to(g_lt_line_sp + 100, -1000, 1000);
+            er           = E_OK;
+            break;
+        case 'm':
+            g_lt_line_all = 0;
+            er            = E_OK;
+            break; /* centre + right steer */
+        case 'n':
+            g_lt_line_all = 1;
+            er            = E_OK;
+            break; /* left + centre + right */
+        case 'k':
+            g_lt_line_kp = clamp_to(g_lt_line_kp - 1, 0, 60);
+            er           = E_OK;
+            break;
+        case 'K':
+            g_lt_line_kp = clamp_to(g_lt_line_kp + 1, 0, 60);
+            er           = E_OK;
+            break;
+        case 'd':
+            g_lt_line_kd = clamp_to(g_lt_line_kd - 2, 0, 100);
+            er           = E_OK;
+            break;
+        case 'D':
+            g_lt_line_kd = clamp_to(g_lt_line_kd + 2, 0, 100);
+            er           = E_OK;
+            break;
+        case ':':
+            g_lt_curve = clamp_to(g_lt_curve - 100, 0, 800);
+            er         = E_OK;
+            break;
+        case ';':
+            g_lt_curve = clamp_to(g_lt_curve + 100, 0, 800);
+            er         = E_OK;
+            break;
+        case 'c':
+            g_lt_speed_pct = clamp_to(g_lt_speed_pct - 10, 20, 150);
+            er             = E_OK;
+            break;
+        case 'C':
+            g_lt_speed_pct = clamp_to(g_lt_speed_pct + 10, 20, 150);
+            er             = E_OK;
+            break;
+        case '?':
+            er = E_OK;
+            break; /* status only */
+        default:
+            er = E_PAR;
+            break;
     }
 
     p_out[0] = '\0';
-    pos = put_str(p_out, pos, out_max,
-                  (E_OK == er) ? "ok" : (b_lock ? "LOCKED (another user is using this)" : "ERR"));
-    pos = put_str(p_out, pos, out_max, " mode=");
-    pos = put_int(p_out, pos, out_max, g_wd_mode);
-    pos = put_str(p_out, pos, out_max, " speed=");
-    pos = put_int(p_out, pos, out_max, g_wd_speed);
-    pos = put_str(p_out, pos, out_max, " trimL=");
-    pos = put_int(p_out, pos, out_max, g_s2_dbg_trim_l);
-    pos = put_str(p_out, pos, out_max, " trimR=");
-    pos = put_int(p_out, pos, out_max, g_s2_dbg_trim_r);
-    pos = put_str(p_out, pos, out_max,
+    pos      = put_str(p_out, pos, out_max,
+                  (E_OK == er) ? "ok"
+                                    : (b_lock ? "LOCKED (another user is using "
+                                                "this)"
+                                              : "ERR"));
+    pos      = put_str(p_out, pos, out_max, " mode=");
+    pos      = put_int(p_out, pos, out_max, g_wd_mode);
+    pos      = put_str(p_out, pos, out_max, " speed=");
+    pos      = put_int(p_out, pos, out_max, g_wd_speed);
+    pos      = put_str(p_out, pos, out_max, " trimL=");
+    pos      = put_int(p_out, pos, out_max, g_s2_dbg_trim_l);
+    pos      = put_str(p_out, pos, out_max, " trimR=");
+    pos      = put_int(p_out, pos, out_max, g_s2_dbg_trim_r);
+    pos      = put_str(p_out, pos, out_max,
                   (0 != g_s2_dbg_straight) ? " straight=ON" : " straight=OFF");
     if (E_OK == s2_get_status(&st))
     {
@@ -444,19 +744,19 @@ static bool has(const char * p_x, char c)
 int32_t web_debug_snapshot(char * p_out, int32_t out_max, uint32_t client,
                            const char * p_x)
 {
-    motion_status_t    m;
-    s3_line_status_t   l;
-    imu_status_t       imu;
-    s5_status_t        o;
-    vc_status_t        vc;
-    int32_t            n = 0;
+    motion_status_t  m;
+    s3_line_status_t l;
+    imu_status_t     imu;
+    s5_status_t      o;
+    vc_status_t      vc;
+    int32_t          n = 0;
 
     p_out[0] = '\0';
-    n = put_str(p_out, n, out_max, "{\"cfg\":{");
-    n = kv(p_out, n, out_max, "speed", g_wd_speed);
-    n = kv(p_out, n, out_max, "trimL", g_s2_dbg_trim_l);
-    n = kv(p_out, n, out_max, "trimR", g_s2_dbg_trim_r);
-    n = kv(p_out, n, out_max, "straight", g_s2_dbg_straight);
+    n        = put_str(p_out, n, out_max, "{\"cfg\":{");
+    n        = kv(p_out, n, out_max, "speed", g_wd_speed);
+    n        = kv(p_out, n, out_max, "trimL", g_s2_dbg_trim_l);
+    n        = kv(p_out, n, out_max, "trimR", g_s2_dbg_trim_r);
+    n        = kv(p_out, n, out_max, "straight", g_s2_dbg_straight);
     if (0U == client)
     {
         client = 1U;
@@ -661,20 +961,20 @@ int32_t web_debug_barcode(char * p_out, int32_t out_max)
 {
     static uint32_t  w[S3_BC_MAX_ELEMENTS]; /* static: small task stack */
     static uint32_t  d[S3_BC_MAX_ELEMENTS]; /* same, by wheel distance */
-    uint32_t         unit = 0U;
-    int32_t          g_res = 255; /* shape read (S3_BC_GEOM) */
+    uint32_t         unit   = 0U;
+    int32_t          g_res  = 255; /* shape read (S3_BC_GEOM) */
     int32_t          g_best = 0;
     int32_t          g_err  = 0;
     int32_t          g_mrg  = 0;
     int32_t          g_fit  = 0;
     int32_t          g_ms   = 0;
     s3_line_status_t l;
-    uint32_t         seq  = 0U;
-    uint32_t         cnt  = 0U;
+    uint32_t         seq = 0U;
+    uint32_t         cnt = 0U;
     uint32_t         k;
     int32_t          tries;
-    int32_t          n    = 0;
-    int32_t          err  = -1;
+    int32_t          n   = 0;
+    int32_t          err = -1;
 
     /* copy, and copy again if barcode_task wrote in between */
     for (tries = 0; tries < 3; tries++)
@@ -764,14 +1064,15 @@ int32_t web_debug_barcode(char * p_out, int32_t out_max)
     n = put_str(p_out, n, out_max, "],\"rec\":[");
     for (k = 0U; k < S3_BC_REC_N; k++)
     {
-        volatile s3_bc_rec_t const * p = &g_s3_bc_rec[k];
-        int32_t const f[17] = {
-            (int32_t)p->seq, (int32_t)p->t_ms, (int32_t)p->pos,
-            (int32_t)p->len, (int32_t)p->white, (int32_t)p->margin,
-            (int32_t)p->n, (int32_t)p->end, (int32_t)p->path,
-            (int32_t)p->letter, (int32_t)p->lock_why, (int32_t)p->lock_len,
-            (int32_t)p->v_start, (int32_t)p->v_min, (int32_t)p->v_end,
-            (int32_t)p->v_up, (int32_t)p->up_len };
+        volatile s3_bc_rec_t const * p     = &g_s3_bc_rec[k];
+        int32_t const                f[17] = {
+            (int32_t)p->seq,     (int32_t)p->t_ms,     (int32_t)p->pos,
+            (int32_t)p->len,     (int32_t)p->white,    (int32_t)p->margin,
+            (int32_t)p->n,       (int32_t)p->end,      (int32_t)p->path,
+            (int32_t)p->letter,  (int32_t)p->lock_why, (int32_t)p->lock_len,
+            (int32_t)p->v_start, (int32_t)p->v_min,    (int32_t)p->v_end,
+            (int32_t)p->v_up,    (int32_t)p->up_len
+        };
         uint32_t j;
         n = put_str(p_out, n, out_max, (0U == k) ? "[" : ",[");
         for (j = 0U; j < 17U; j++)
@@ -794,13 +1095,13 @@ int32_t web_debug_ltrace(char * p_out, int32_t out_max, int32_t live,
     uint32_t first = 0U; /* first sample of this page (frozen copy) */
     uint32_t total;      /* samples in the whole trace */
     uint32_t k;
-    int32_t  n     = 0;
+    int32_t  n    = 0;
     /* raw levels where L switches (normalised threshold +- S3_BC_HYST),
        for an analogue L scaled between S3_L_ADC_WHITE and _BLACK */
-    int32_t  span  = (int32_t)S3_L_ADC_BLACK - (int32_t)S3_L_ADC_WHITE;
-    int32_t  on    = (int32_t)S3_L_ADC_WHITE +
-                  ((span * (S3_BLACK_THRESHOLD + S3_BC_HYST)) / 1000);
-    int32_t  off   = (int32_t)S3_L_ADC_WHITE +
+    int32_t  span = (int32_t)S3_L_ADC_BLACK - (int32_t)S3_L_ADC_WHITE;
+    int32_t  on   = (int32_t)S3_L_ADC_WHITE +
+                 ((span * (S3_BLACK_THRESHOLD + S3_BC_HYST)) / 1000);
+    int32_t off = (int32_t)S3_L_ADC_WHITE +
                   ((span * (S3_BLACK_THRESHOLD - S3_BC_HYST)) / 1000);
 
     if (0 != g_lt_bc_edge)

@@ -23,7 +23,8 @@
 #include "drv_ir.h"
 #include "line_algo.h"
 #include "../debugging/live_tune.h"
-#include "../subsystem2/subsystem2.h" /* g_s2_odo_ticks: bar widths by distance */
+/* g_s2_odo_ticks: bar widths by distance */
+#include "../subsystem2/subsystem2.h"
 
 /* Line task state, private to this file */
 static line_params_t  g_params;
@@ -36,8 +37,8 @@ static volatile bool  g_b_obstacle_line_search; /* set by S5 */
 static uint32_t       g_cal_start_ms;
 static uint8_t        g_bc_level; /* barcode sensor: 1 = black */
 #if S3_BC_EDGE
-static bc_edge_t      g_bc_edge;  /* edge finder state (line_algo.h) */
-static int32_t        g_bc_edge_was_on = 1;
+static bc_edge_t g_bc_edge; /* edge finder state (line_algo.h) */
+static int32_t   g_bc_edge_was_on = 1;
 #if S2_WEBDEBUG
 #define BC_EDGE_ON    (g_lt_bc_edge)
 #define BC_EDGE_SWING (g_lt_bc_swing)
@@ -49,12 +50,12 @@ static int32_t        g_bc_edge_was_on = 1;
 #endif
 #endif
 #if S3_BC_EDGE && S3_BC_EDGE_ADAPT
-static uint32_t       g_bc_relearn_seen; /* last g_s3_bc_relearn_seq acted on */
+static uint32_t g_bc_relearn_seen; /* last g_s3_bc_relearn_seq acted on */
 #endif
-volatile int32_t      g_s3_bc_margin; /* subsystem3.h */
-volatile int32_t      g_s3_bc_white = -1; /* subsystem3.h */
-static uint32_t       g_bc_run_start_us;
-static uint32_t       g_bc_run_start_pos; /* wheel counts when the run began */
+volatile int32_t g_s3_bc_margin;     /* subsystem3.h */
+volatile int32_t g_s3_bc_white = -1; /* subsystem3.h */
+static uint32_t  g_bc_run_start_us;
+static uint32_t  g_bc_run_start_pos; /* wheel counts when the run began */
 
 void s3_set_obstacle_mode(bool b_active)
 {
@@ -79,9 +80,9 @@ uint32_t s3_bc_pos(void)
     return g_s2_odo_ticks;
 #endif
 }
-uint32_t              g_s3_line_overruns; /* periods missed (task too slow) */
-uint32_t              g_s3_line_read_errors;
-uint32_t              g_s3_line_wakeups; /* times the loop ran */
+uint32_t g_s3_line_overruns; /* periods missed (task too slow) */
+uint32_t g_s3_line_read_errors;
+uint32_t g_s3_line_wakeups; /* times the loop ran */
 
 /* Cyclic handler: interrupt context, keep it this short */
 void s3_line_cyclic_isr(void * p_exinf)
@@ -175,8 +176,8 @@ static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT],
     if ((0 != BC_EDGE_ON) != (0 != g_bc_edge_was_on))
     {
         /* mode switched on the dashboard: start clean on white */
-        g_bc_edge_was_on  = (0 != BC_EDGE_ON) ? 1 : 0;
-        g_bc_level        = 0U;
+        g_bc_edge_was_on   = (0 != BC_EDGE_ON) ? 1 : 0;
+        g_bc_level         = 0U;
         g_bc_run_start_us  = t_us;
         g_bc_run_start_pos = pos;
         bc_edge_reset_pos(&g_bc_edge, (int32_t)p_raw[S3_BC_SENSOR], t_us, pos);
@@ -193,7 +194,7 @@ static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT],
         uint32_t edge_us  = t_us;
         uint32_t edge_pos = pos;
 #if S3_BC_EDGE_ADAPT
-        uint8_t  b_edge;
+        uint8_t b_edge;
         /* learn white again after a barcode rearm (task_barcode.c) */
         if (g_s3_bc_relearn_seq != g_bc_relearn_seen)
         {
@@ -203,17 +204,18 @@ static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT],
         /* thresholds from L's learned white and noise, frozen while a
            read is open (line_algo.h) */
         g_bc_edge.hold = (uint8_t)S3_BC_ADAPT_HOLD;
-        b_edge = bc_edge_step_adapt(&g_bc_edge, (int32_t)p_raw[S3_BC_SENSOR],
-                                    t_us, pos, g_b_s3_bc_scanning, &edge_us,
-                                    &edge_pos);
+        b_edge =
+            bc_edge_step_adapt(&g_bc_edge, (int32_t)p_raw[S3_BC_SENSOR], t_us,
+                               pos, g_b_s3_bc_scanning, &edge_us, &edge_pos);
         g_s3_bc_margin = bc_edge_margin(&g_bc_edge); /* for the shape read */
-        g_s3_bc_white  = (0U != g_bc_edge.w_valid) ? (g_bc_edge.w_x16 / 16) : -1;
+        g_s3_bc_white = (0U != g_bc_edge.w_valid) ? (g_bc_edge.w_x16 / 16) : -1;
         if (0U != b_edge)
 #else
         /* weak print: with a small rise/fall, ask for several samples in
            a row so single noisy readings cannot make a bar or a gap */
         g_bc_edge.hold = (BC_EDGE_SWING <= S3_BC_WEAK_SWING_MAX)
-                             ? (uint8_t)S3_BC_WEAK_HOLD : 0U;
+                             ? (uint8_t)S3_BC_WEAK_HOLD
+                             : 0U;
         if (0U != bc_edge_step_pos(&g_bc_edge, (int32_t)p_raw[S3_BC_SENSOR],
                                    t_us, pos, BC_EDGE_SWING, BC_EDGE_FLOOR,
                                    &edge_us, &edge_pos))
@@ -226,8 +228,8 @@ static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT],
                 /* a bar ended: measure it from its own 50 % start, and
                    report how much later than the first guess that is, so
                    the space before it gets that piece */
-                run.lead_us  = g_bc_edge.bar_t_us - g_bc_run_start_us;
-                run.lead_pos = g_bc_edge.bar_pos - g_bc_run_start_pos;
+                run.lead_us        = g_bc_edge.bar_t_us - g_bc_run_start_us;
+                run.lead_pos       = g_bc_edge.bar_pos - g_bc_run_start_pos;
                 g_bc_run_start_us  = g_bc_edge.bar_t_us;
                 g_bc_run_start_pos = g_bc_edge.bar_pos;
             }
@@ -250,12 +252,16 @@ static void barcode_runs_step(const uint16_t p_norm[S3_IR_COUNT],
     if (0U != g_bc_level)
     {
         level = ((int32_t)p_norm[S3_BC_SENSOR] <
-                 ((int32_t)g_params.black_threshold - S3_BC_HYST)) ? 0U : 1U;
+                 ((int32_t)g_params.black_threshold - S3_BC_HYST))
+                    ? 0U
+                    : 1U;
     }
     else
     {
         level = ((int32_t)p_norm[S3_BC_SENSOR] >=
-                 ((int32_t)g_params.black_threshold + S3_BC_HYST)) ? 1U : 0U;
+                 ((int32_t)g_params.black_threshold + S3_BC_HYST))
+                    ? 1U
+                    : 0U;
     }
     if (level != g_bc_level)
     {
@@ -297,7 +303,7 @@ static void publish_status(const uint16_t p_raw[S3_IR_COUNT])
 static void search_step(const uint16_t p_raw[S3_IR_COUNT])
 {
     uint16_t norm[S3_IR_COUNT];
-    uint8_t mask = 0u;
+    uint8_t  mask = 0u;
 
     line_normalise(&g_cal, (uint8_t)DRV_IR_ANALOG_MASK,
                    (0 != S3_ADC_BLACK_IS_HIGH), (uint8_t)S3_IR_BLACK_LEVEL,
@@ -332,7 +338,7 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us,
         g_bc_run_start_pos = s3_bc_pos();
 #if S3_BC_EDGE
         bc_edge_reset_pos(&g_bc_edge, (int32_t)p_raw[S3_BC_SENSOR], t_us,
-                           g_bc_run_start_pos);
+                          g_bc_run_start_pos);
 #endif
         g_tr_last_l = g_s2_ticks_l;
         g_tr_last_r = g_s2_ticks_r;
@@ -347,22 +353,24 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us,
        while barcode_task is reading one */
 #if S2_WEBDEBUG
     /* live tuning of the steering PD from the dashboard */
-    g_params.kp_num = (int16_t)g_lt_line_kp;
-    g_params.kd_num = (int16_t)g_lt_line_kd;
+    g_params.kp_num             = (int16_t)g_lt_line_kp;
+    g_params.kd_num             = (int16_t)g_lt_line_kd;
     g_params.junction_threshold = (uint16_t)g_lt_junc_thr;
     if (g_lt_junc_mode >= 0)
     {
         g_params.junction_mask =
             (0 == g_lt_junc_mode)
                 ? (uint8_t)0
-                : ((1 == g_lt_junc_mode) ? (uint8_t)(S3_MASK_C | S3_MASK_R)
-                                         : (uint8_t)(S3_MASK_L | S3_MASK_C | S3_MASK_R));
+                : ((1 == g_lt_junc_mode)
+                       ? (uint8_t)(S3_MASK_C | S3_MASK_R)
+                       : (uint8_t)(S3_MASK_L | S3_MASK_C | S3_MASK_R));
     }
     g_params.lost_samples = (uint16_t)g_lt_lost;
-    g_params.setpoint  = (int16_t)g_lt_line_sp;
+    g_params.setpoint     = (int16_t)g_lt_line_sp;
     /* straddle only applies with C+R steering; L+C+R uses the old weights */
-    g_params.straddle = (0 == g_lt_line_all) && (0 != S3_STRADDLE);
-    g_params.weight[S3_IR_C] = (0 != g_lt_line_all) ? S3_WEIGHT_C : S3_WEIGHT_C_CR;
+    g_params.straddle     = (0 == g_lt_line_all) && (0 != S3_STRADDLE);
+    g_params.weight[S3_IR_C] =
+        (0 != g_lt_line_all) ? S3_WEIGHT_C : S3_WEIGHT_C_CR;
     g_params.line_mask = (0 != g_lt_line_all)
                              ? (uint8_t)(S3_MASK_L | S3_MASK_C | S3_MASK_R)
                              : (uint8_t)S3_LINE_MASK;
@@ -375,7 +383,7 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us,
         static uint32_t end_pos = 0U;
         bool            b_scan  = g_b_s3_bc_bars; /* not the first bar:
                                    that may be a junction's side arm */
-        const bool b_follow_straight = live_tune_straight_at_junction();
+        const bool      b_follow_straight = live_tune_straight_at_junction();
 
         if (b_rejoining)
         {
@@ -409,19 +417,20 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us,
                bc_lock_apply() in line_algo.c, host tests H-K11..K14. */
             static bc_lock_ctl_t       ctl;
             static bool                b_init = false;
-            static bc_lock_cfg_t const cfg    = {
-                S3_BC_LOCK_FIRST_COUNTS, S3_BC_LOCK_AFTER_COUNTS,
-                S3_BC_LOCK_MAX_COUNTS,   S3_BC_LOCK_SIDE_COUNTS,
-                S3_BC_LOCK_STEER_MAX };
+            static bc_lock_cfg_t const cfg    = { S3_BC_LOCK_FIRST_COUNTS,
+                                                  S3_BC_LOCK_AFTER_COUNTS,
+                                                  S3_BC_LOCK_MAX_COUNTS,
+                                                  S3_BC_LOCK_SIDE_COUNTS,
+                                                  S3_BC_LOCK_STEER_MAX };
             if (!b_init)
             {
                 bc_lock_ctl_reset(&ctl);
                 b_init = true;
             }
             bool b_was = g_b_s3_bc_lock;
-            g_b_s3_bc_lock = bc_lock_apply(&ctl, &cfg, &g_tracker,
-                                           g_b_s3_bc_scanning, b_scan,
-                                           s3_bc_pos());
+            g_b_s3_bc_lock =
+                bc_lock_apply(&ctl, &cfg, &g_tracker, g_b_s3_bc_scanning,
+                              b_scan, s3_bc_pos());
             {
                 /* per-read record (subsystem3.h): when the lock let go,
                    and when the requested speed first rose again */
@@ -496,10 +505,10 @@ static void follow_step(const uint16_t p_raw[S3_IR_COUNT], uint32_t t_us,
         int32_t  fwd  = dl + dr;
         int32_t  yaw  = dr - dl;
 
-        g_tr_last_l = tl;
-        g_tr_last_r = tr;
-        fwd = (fwd > 255) ? 255 : ((fwd < 0) ? 0 : fwd);
-        yaw = (yaw > 127) ? 127 : ((yaw < -127) ? -127 : yaw);
+        g_tr_last_l           = tl;
+        g_tr_last_r           = tr;
+        fwd                   = (fwd > 255) ? 255 : ((fwd < 0) ? 0 : fwd);
+        yaw                   = (yaw > 127) ? 127 : ((yaw < -127) ? -127 : yaw);
         g_s3_ltrace[slot]     = p_raw[S3_BC_SENSOR];
         g_s3_ltrace_fwd[slot] = (uint8_t)fwd;
         g_s3_ltrace_yaw[slot] = (int8_t)yaw;
@@ -526,7 +535,7 @@ void line_task(int32_t stacd, void * p_exinf)
     ercd = drv_ir_init();
     app_check(ercd, "drv_ir_init");
 
-    g_bc_level        = 0;
+    g_bc_level         = 0;
     g_bc_run_start_us  = drv_ir_time_us();
     g_bc_run_start_pos = s3_bc_pos();
 #if S3_BC_EDGE

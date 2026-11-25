@@ -10,7 +10,7 @@
 /* Compiler + hardware barrier: the map is read from another task (and on
    the RP2040 possibly the other core) while the VC task replaces it. */
 #if defined(__arm__)
-#define BCMAP_BARRIER() __asm__ volatile ("dmb" ::: "memory")
+#define BCMAP_BARRIER() __asm__ volatile("dmb" ::: "memory")
 #else
 #define BCMAP_BARRIER() __atomic_thread_fence(__ATOMIC_SEQ_CST)
 #endif
@@ -28,12 +28,22 @@ int32_t vc_bcmap_wire_from_nav(navigation_command_t nav)
 
     switch (nav)
     {
-        case NAV_NONE:     /* "no meaning assigned" = straight (factory table) */
-        case NAV_STRAIGHT: code = (int32_t)VC_BCW_STRAIGHT; break;
-        case NAV_LEFT:     code = (int32_t)VC_BCW_LEFT;     break;
-        case NAV_RIGHT:    code = (int32_t)VC_BCW_RIGHT;    break;
-        case NAV_U_TURN:   code = (int32_t)VC_BCW_UTURN;    break;
-        default:           code = -1;                       break;
+        case NAV_NONE: /* "no meaning assigned" = straight (factory table) */
+        case NAV_STRAIGHT:
+            code = (int32_t)VC_BCW_STRAIGHT;
+            break;
+        case NAV_LEFT:
+            code = (int32_t)VC_BCW_LEFT;
+            break;
+        case NAV_RIGHT:
+            code = (int32_t)VC_BCW_RIGHT;
+            break;
+        case NAV_U_TURN:
+            code = (int32_t)VC_BCW_UTURN;
+            break;
+        default:
+            code = -1;
+            break;
     }
     return code;
 }
@@ -44,11 +54,21 @@ navigation_command_t vc_bcmap_nav_from_wire(uint32_t code)
 
     switch (code)
     {
-        case VC_BCW_STRAIGHT: nav = NAV_STRAIGHT; break;
-        case VC_BCW_LEFT:     nav = NAV_LEFT;     break;
-        case VC_BCW_RIGHT:    nav = NAV_RIGHT;    break;
-        case VC_BCW_UTURN:    nav = NAV_U_TURN;   break;
-        default:              nav = NAV_NONE;     break;
+        case VC_BCW_STRAIGHT:
+            nav = NAV_STRAIGHT;
+            break;
+        case VC_BCW_LEFT:
+            nav = NAV_LEFT;
+            break;
+        case VC_BCW_RIGHT:
+            nav = NAV_RIGHT;
+            break;
+        case VC_BCW_UTURN:
+            nav = NAV_U_TURN;
+            break;
+        default:
+            nav = NAV_NONE;
+            break;
     }
     return nav;
 }
@@ -59,7 +79,7 @@ static uint32_t shift_of(uint32_t letter)
 }
 
 uint32_t vc_bcmap_packed_code(const uint8_t packed[VC_BCMAP_PACKED_BYTES],
-                              uint32_t letter)
+                              uint32_t      letter)
 {
     if (letter >= VC_BCMAP_LETTERS)
     {
@@ -69,7 +89,7 @@ uint32_t vc_bcmap_packed_code(const uint8_t packed[VC_BCMAP_PACKED_BYTES],
 }
 
 int32_t vc_bcmap_pack(const navigation_command_t nav[VC_BCMAP_LETTERS],
-                      uint8_t out[VC_BCMAP_PACKED_BYTES])
+                      uint8_t                    out[VC_BCMAP_PACKED_BYTES])
 {
     uint8_t  tmp[VC_BCMAP_PACKED_BYTES] = { 0 };
     uint32_t i;
@@ -96,7 +116,7 @@ static bool padding_ok(const uint8_t in[VC_BCMAP_PACKED_BYTES])
     return 0u == (in[VC_BCMAP_PACKED_BYTES - 1u] & 0x0Fu);
 }
 
-int32_t vc_bcmap_unpack(const uint8_t in[VC_BCMAP_PACKED_BYTES],
+int32_t vc_bcmap_unpack(const uint8_t        in[VC_BCMAP_PACKED_BYTES],
                         navigation_command_t nav[VC_BCMAP_LETTERS])
 {
     uint32_t i;
@@ -159,8 +179,9 @@ static uint32_t get_le32(const uint8_t * p)
 
 #define REC_CRC_OFFSET 20u
 
-void vc_bcmap_record_encode(uint32_t gen, const uint8_t packed[VC_BCMAP_PACKED_BYTES],
-                            uint8_t out[VC_BCMAP_RECORD_BYTES])
+void vc_bcmap_record_encode(uint32_t      gen,
+                            const uint8_t packed[VC_BCMAP_PACKED_BYTES],
+                            uint8_t       out[VC_BCMAP_RECORD_BYTES])
 {
     uint32_t i;
 
@@ -181,8 +202,9 @@ void vc_bcmap_record_encode(uint32_t gen, const uint8_t packed[VC_BCMAP_PACKED_B
     put_le32(&out[REC_CRC_OFFSET], vc_bcmap_crc32(out, REC_CRC_OFFSET));
 }
 
-bool vc_bcmap_record_decode(const uint8_t in[VC_BCMAP_RECORD_BYTES], uint32_t * p_gen,
-                            uint8_t packed[VC_BCMAP_PACKED_BYTES])
+bool vc_bcmap_record_decode(const uint8_t in[VC_BCMAP_RECORD_BYTES],
+                            uint32_t *    p_gen,
+                            uint8_t       packed[VC_BCMAP_PACKED_BYTES])
 {
     uint32_t i;
 
@@ -207,13 +229,13 @@ bool vc_bcmap_record_decode(const uint8_t in[VC_BCMAP_RECORD_BYTES], uint32_t * 
 /* ---- active map ----------------------------------------------------- */
 
 /* Seqlock: odd while the VC task is changing s_active. */
-static volatile uint32_t         s_seq;
-static vc_bcmap_snapshot_t       s_active;
-static navigation_command_t      s_nav[VC_BCMAP_LETTERS]; /* VC task only */
-static int32_t                   s_active_slot = -1;      /* -1 = factory */
-static const vc_bcmap_store_t *  s_store;
-static volatile bool             s_mission_active;
-static bool                      s_b_init;
+static volatile uint32_t        s_seq;
+static vc_bcmap_snapshot_t      s_active;
+static navigation_command_t     s_nav[VC_BCMAP_LETTERS]; /* VC task only */
+static int32_t                  s_active_slot = -1;      /* -1 = factory */
+static const vc_bcmap_store_t * s_store;
+static volatile bool            s_mission_active;
+static bool                     s_b_init;
 
 static bool same_packed(const uint8_t * p_a, const uint8_t * p_b)
 {
@@ -229,7 +251,8 @@ static bool same_packed(const uint8_t * p_a, const uint8_t * p_b)
     return true;
 }
 
-static uint8_t base_flags(const uint8_t packed[VC_BCMAP_PACKED_BYTES], bool b_saved)
+static uint8_t base_flags(const uint8_t packed[VC_BCMAP_PACKED_BYTES],
+                          bool          b_saved)
 {
     uint8_t factory[VC_BCMAP_PACKED_BYTES];
     uint8_t flags = 0u;
@@ -251,8 +274,9 @@ static uint8_t base_flags(const uint8_t packed[VC_BCMAP_PACKED_BYTES], bool b_sa
 }
 
 /* The only writer of s_active (VC task). */
-static void set_active(uint32_t gen, const uint8_t packed[VC_BCMAP_PACKED_BYTES],
-                       bool b_saved)
+static void set_active(uint32_t      gen,
+                       const uint8_t packed[VC_BCMAP_PACKED_BYTES],
+                       bool          b_saved)
 {
     uint32_t i;
 
@@ -467,9 +491,11 @@ bool vc_bcmap_service(bool b_allowed, uint16_t * p_request_id,
     }
     BCMAP_BARRIER();
     *p_request_id = s_pending.request_id;
-    *p_result     = vc_bcmap_replace(s_pending.packed, s_pending.expected_gen,
-                                     !b_allowed);
+    *p_result =
+        vc_bcmap_replace(s_pending.packed, s_pending.expected_gen, !b_allowed);
     BCMAP_BARRIER();
     s_pending.full = 0u;
     return true;
 }
+
+/*** end of file ***/

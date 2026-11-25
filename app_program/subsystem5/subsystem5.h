@@ -32,7 +32,7 @@
  *  Native vs packed (Tribunal 1 Version C):
  *    S5 <-> Vehicle Controller  native s5_evt_t / s5_cmd_t structs
  *    S5 -> telemetry / MQTT     packed 16-bit word, s5_get_status_packed()
- *                               (layout in s5_pack.h)    
+ *                               (layout in s5_pack.h)
  *  Safety: OBSTACLE_DETECTED goes through a latched stop path, so a
  *  full VC queue cannot leave the robot driving (s5_local.h).
  */
@@ -41,7 +41,7 @@
 #define SUBSYSTEM5_H
 
 #include "../app.h"
-#include "s5_pack.h" /* 16-bit telemetry word */
+#include "s5_pack.h"        /* 16-bit telemetry word */
 #include "s5_obst_report.h" /* obstacle size report and its MQTT frame */
 
 /* ---------------------------------------------------------------------
@@ -208,9 +208,11 @@ extern ER s5_get_obstacle_report(s5_obst_report_t * p_out);
 
 /* Hooks to other subsystems.  Defined __attribute__((weak)) in
    s5_ports.c; the owning subsystem overrides them with a real one. */
-extern uint32_t s5_port_odo_mm(void); /* S2: forward travel since boot, mm (wraps; use differences) */
-extern bool s5_port_line_detected(void); /* S3: C or R sees black */
-extern void s5_port_set_line_search(bool b_active); /* S3: sample only for this search */
+extern uint32_t s5_port_odo_mm(void); /* S2: forward travel since boot, mm
+                                         (wraps; use differences) */
+extern bool     s5_port_line_detected(void);        /* S3: C or R sees black */
+extern void s5_port_set_line_search(bool b_active); /* S3: sample only for this
+                                                       search */
 
 #endif /* SUBSYSTEM5_H */
 

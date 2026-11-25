@@ -55,26 +55,26 @@
 
 #include <stdint.h>
 
-#define S1_CFG_MARKER      0xC1u
-#define S1_CFG_OP_READ     0x01u
-#define S1_CFG_OP_WRITE    0x02u
-#define S1_CFG_OP_FACTORY  0x03u
-#define S1_CFG_OP_REPLY    0x80u
-#define S1_CFG_MAP_BYTES   7u
-#define S1_CFG_READ_LEN    4
-#define S1_CFG_WRITE_LEN   13
-#define S1_CFG_REPLY_LEN   15
-#define S1_JX_MARKER       0xD1u
-#define S1_JX_LEN          6
+#define S1_CFG_MARKER     0xC1u
+#define S1_CFG_OP_READ    0x01u
+#define S1_CFG_OP_WRITE   0x02u
+#define S1_CFG_OP_FACTORY 0x03u
+#define S1_CFG_OP_REPLY   0x80u
+#define S1_CFG_MAP_BYTES  7u
+#define S1_CFG_READ_LEN   4
+#define S1_CFG_WRITE_LEN  13
+#define S1_CFG_REPLY_LEN  15
+#define S1_JX_MARKER      0xD1u
+#define S1_JX_LEN         6
 
-#define S1_CFG_TOPIC_SUFFIX   "cfg"   /* subscribed: robot/g10/cfg */
-#define S1_CFG_REPLY_SUFFIX   "cfgr"  /* published:  robot/g10/cfgr */
+#define S1_CFG_TOPIC_SUFFIX "cfg"  /* subscribed: robot/g10/cfg */
+#define S1_CFG_REPLY_SUFFIX "cfgr" /* published:  robot/g10/cfgr */
 
 typedef struct
 {
-    uint8_t  op;            /* S1_CFG_OP_READ / _WRITE / _FACTORY, 0 when unreadable */
-    uint16_t request_id;    /* 0 when the request was too short */
-    uint16_t expected_gen;  /* WRITE only */
+    uint8_t  op; /* S1_CFG_OP_READ / _WRITE / _FACTORY, 0 when unreadable */
+    uint16_t request_id;   /* 0 when the request was too short */
+    uint16_t expected_gen; /* WRITE only */
     uint8_t  map[S1_CFG_MAP_BYTES];
 } S1_CFG_REQ;
 
@@ -85,16 +85,18 @@ int s1_cfg_decode_request(const uint8_t * p_in, int len, S1_CFG_REQ * p_req);
 int s1_cfg_encode_read(uint16_t request_id, uint8_t out[S1_CFG_READ_LEN]);
 int s1_cfg_encode_write(uint16_t request_id, uint16_t expected_gen,
                         const uint8_t map[S1_CFG_MAP_BYTES],
-                        uint8_t out[S1_CFG_WRITE_LEN]);
+                        uint8_t       out[S1_CFG_WRITE_LEN]);
 
 /* Reply: returns S1_CFG_REPLY_LEN. */
 int s1_cfg_encode_reply(uint8_t op, uint16_t request_id, uint8_t result,
                         uint16_t gen, uint8_t flags,
                         const uint8_t map[S1_CFG_MAP_BYTES],
-                        uint8_t out[S1_CFG_REPLY_LEN]);
+                        uint8_t       out[S1_CFG_REPLY_LEN]);
 
 /* Junction note (vc_junction_note_t kind): returns S1_JX_LEN. */
 int s1_cfg_encode_junction(uint8_t kind, uint8_t letter, uint8_t code,
                            uint16_t gen, uint8_t out[S1_JX_LEN]);
 
 #endif /* S1_CFG_H */
+
+/*** end of file ***/

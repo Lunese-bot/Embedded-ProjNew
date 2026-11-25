@@ -176,8 +176,7 @@ navigation_command_t s3_text_to_nav(const uint8_t * p_text)
     {
         return NAV_RIGHT;
     }
-    if ((S3_BC_CHAR_STRAIGHT != '\0') &&
-        (p_text[0] == S3_BC_CHAR_STRAIGHT))
+    if ((S3_BC_CHAR_STRAIGHT != '\0') && (p_text[0] == S3_BC_CHAR_STRAIGHT))
     {
         return NAV_STRAIGHT;
     }

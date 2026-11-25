@@ -1,32 +1,32 @@
 /*
- *	code39.c
- *	Subsystem 3 -- Code 39 barcode decoder (see code39.h).
+ *      code39.c
+ *      Subsystem 3 -- Code 39 barcode decoder (see code39.h).
  *
- *	A Code 39 character is 9 elements, B S B S B S B S B, exactly three
- *	of them wide.  Characters are separated by one narrow space, so a
- *	barcode of n characters has 10*n - 1 elements.  Every barcode
- *	starts and ends with '*'.
+ *      A Code 39 character is 9 elements, B S B S B S B S B, exactly three
+ *      of them wide.  Characters are separated by one narrow space, so a
+ *      barcode of n characters has 10*n - 1 elements.  Every barcode
+ *      starts and ends with '*'.
  *
- *	Each character is classified on its own (its 3 widest elements are
- *	"wide"), so a slow drift in robot speed along the barcode does not
- *	matter.  For the same reason the physical size of the barcode does not
- *	matter either, and neither does the number of characters.
+ *      Each character is classified on its own (its 3 widest elements are
+ *      "wide"), so a slow drift in robot speed along the barcode does not
+ *      matter.  For the same reason the physical size of the barcode does not
+ *      matter either, and neither does the number of characters.
  */
 
 #include "code39.h"
 
-#define ELEMENTS_PER_CHAR   9u
-#define CHAR_PITCH          10u     /* 9 elements + 1 gap */
-#define MIN_CHARS           3u      /* '*' + one data char + '*' */
-#define PARTIAL_END_SLACK   2u      /* stray elements allowed past a '*' */
-#define PARTIAL_CHAR_TOL_PCT  10u   /* '*' and letter widths may differ by */
-#define PARTIAL_OTHER_TOL_PCT 12u   /* damaged '*' still 15 units, +- */
+#define ELEMENTS_PER_CHAR       9u
+#define CHAR_PITCH              10u /* 9 elements + 1 gap */
+#define MIN_CHARS               3u  /* '*' + one data char + '*' */
+#define PARTIAL_END_SLACK       2u  /* stray elements allowed past a '*' */
+#define PARTIAL_CHAR_TOL_PCT    10u /* '*' and letter widths may differ by */
+#define PARTIAL_OTHER_TOL_PCT   12u /* damaged '*' still 15 units, +- */
 /* ... but it may be up to this much SHORT: the read started a bar late
    (2026-11-12 09:51:54 pass: the first narrow bar and the wide space
    after it were missing, the damaged '*' was 18 % short; *A* clean) */
 #define PARTIAL_OTHER_SHORT_PCT 25u
-#define PARTIAL_MIN_EL_PCT    50u   /* thinnest element vs one unit */
-#define PARTIAL_MIN_RATIO_X10 18u   /* thick at least 1.8 x thin */
+#define PARTIAL_MIN_EL_PCT      50u /* thinnest element vs one unit */
+#define PARTIAL_MIN_RATIO_X10   18u /* thick at least 1.8 x thin */
 
 /* Patterns as 9 bits, first element in bit 8, 1 = wide */
 typedef struct
@@ -35,8 +35,7 @@ typedef struct
     uint16_t pattern;
 } code39_entry_t;
 
-static code39_entry_t const g_table[] =
-{
+static code39_entry_t const g_table[] = {
     { '0', 0x034 }, { '1', 0x121 }, { '2', 0x061 }, { '3', 0x160 },
     { '4', 0x031 }, { '5', 0x130 }, { '6', 0x070 }, { '7', 0x025 },
     { '8', 0x124 }, { '9', 0x064 }, { 'A', 0x109 }, { 'B', 0x049 },
@@ -50,10 +49,9 @@ static code39_entry_t const g_table[] =
     { '$', 0x0A8 }, { '/', 0x0A2 }, { '+', 0x08A }, { '%', 0x02A }
 };
 
-#define TABLE_SIZE  (sizeof(g_table) / sizeof(g_table[0]))
+#define TABLE_SIZE (sizeof(g_table) / sizeof(g_table[0]))
 
-static char
-pattern_to_char (uint16_t pattern)
+static char pattern_to_char(uint16_t pattern)
 {
     uint32_t idx;
 
@@ -68,8 +66,7 @@ pattern_to_char (uint16_t pattern)
     return '\0';
 }
 
-static uint16_t
-char_to_pattern (char ch)
+static uint16_t char_to_pattern(char ch)
 {
     uint32_t idx;
 
@@ -88,15 +85,14 @@ char_to_pattern (char ch)
  * Classify the 9 elements of one character.  Returns the pattern, or 0
  * if wide and narrow cannot be told apart.
  */
-static uint16_t
-classify_char (uint32_t const * p_el, uint8_t min_ratio_x10)
+static uint16_t classify_char(uint32_t const * p_el, uint8_t min_ratio_x10)
 {
     uint32_t sorted[ELEMENTS_PER_CHAR];
     uint32_t tmp;
     uint32_t threshold;
     uint16_t pattern = 0u;
-    uint32_t   i;
-    uint32_t   j;
+    uint32_t i;
+    uint32_t j;
 
     for (i = 0u; i < ELEMENTS_PER_CHAR; i++)
     {
@@ -108,7 +104,7 @@ classify_char (uint32_t const * p_el, uint8_t min_ratio_x10)
     for (i = 1u; i < ELEMENTS_PER_CHAR; i++)
     {
         tmp = sorted[i];
-        j = i;
+        j   = i;
         while ((j > 0u) && (sorted[j - 1u] < tmp))
         {
             sorted[j] = sorted[j - 1u];
@@ -145,13 +141,13 @@ classify_char (uint32_t const * p_el, uint8_t min_ratio_x10)
  * spaces is not upset by that.  Returns the pattern, or 0 if wide and
  * narrow cannot be told apart.
  */
-static uint16_t
-classify_char_split (uint32_t const * p_el, uint8_t min_ratio_x10)
+static uint16_t classify_char_split(uint32_t const * p_el,
+                                    uint8_t          min_ratio_x10)
 {
-    uint32_t wide[2]   = { 0u, 0u }; /* two widest bars, wide[0] >= wide[1] */
-    uint32_t bar_next  = 0u;         /* widest of the other three bars     */
-    uint32_t sp_wide   = 0u;         /* widest space                       */
-    uint32_t sp_next   = 0u;         /* second widest space                */
+    uint32_t wide[2]  = { 0u, 0u }; /* two widest bars, wide[0] >= wide[1] */
+    uint32_t bar_next = 0u;         /* widest of the other three bars     */
+    uint32_t sp_wide  = 0u;         /* widest space                       */
+    uint32_t sp_next  = 0u;         /* second widest space                */
     uint32_t thr_bar;
     uint32_t thr_sp;
     uint16_t pattern = 0u;
@@ -163,16 +159,39 @@ classify_char_split (uint32_t const * p_el, uint8_t min_ratio_x10)
 
         if (0u == (i % 2u)) /* bar */
         {
-            if (w > wide[0])      { bar_next = wide[1]; wide[1] = wide[0]; wide[0] = w; }
-            else if (w > wide[1]) { bar_next = wide[1]; wide[1] = w; }
-            else if (w > bar_next) { bar_next = w; }
-            else { /* a narrower bar */ }
+            if (w > wide[0])
+            {
+                bar_next = wide[1];
+                wide[1]  = wide[0];
+                wide[0]  = w;
+            }
+            else if (w > wide[1])
+            {
+                bar_next = wide[1];
+                wide[1]  = w;
+            }
+            else if (w > bar_next)
+            {
+                bar_next = w;
+            }
+            else
+            { /* a narrower bar */
+            }
         }
-        else                /* space */
+        else /* space */
         {
-            if (w > sp_wide)      { sp_next = sp_wide; sp_wide = w; }
-            else if (w > sp_next) { sp_next = w; }
-            else { /* a narrower space */ }
+            if (w > sp_wide)
+            {
+                sp_next = sp_wide;
+                sp_wide = w;
+            }
+            else if (w > sp_next)
+            {
+                sp_next = w;
+            }
+            else
+            { /* a narrower space */
+            }
         }
     }
 
@@ -196,17 +215,17 @@ classify_char_split (uint32_t const * p_el, uint8_t min_ratio_x10)
 }
 
 /* Decode in one direction.  p_el is read with stride +1 or -1. */
-static code39_result_t
-decode_direction (uint32_t const * p_widths, uint32_t count, bool reverse,
-                  code39_options_t const * p_opt, char * p_text,
-                  uint32_t text_size)
+static code39_result_t decode_direction(uint32_t const * p_widths,
+                                        uint32_t count, bool reverse,
+                                        code39_options_t const * p_opt,
+                                        char * p_text, uint32_t text_size)
 {
     uint32_t el[ELEMENTS_PER_CHAR];
-    uint32_t   n_chars = (count + 1u) / CHAR_PITCH;
-    uint32_t   c;
-    uint32_t   i;
-    uint32_t   pos;
-    uint32_t   out = 0u;
+    uint32_t n_chars = (count + 1u) / CHAR_PITCH;
+    uint32_t c;
+    uint32_t i;
+    uint32_t pos;
+    uint32_t out = 0u;
     uint16_t pattern;
     char     ch;
 
@@ -214,7 +233,7 @@ decode_direction (uint32_t const * p_widths, uint32_t count, bool reverse,
     {
         for (i = 0u; i < ELEMENTS_PER_CHAR; i++)
         {
-            pos = (c * CHAR_PITCH) + i;
+            pos   = (c * CHAR_PITCH) + i;
             el[i] = reverse ? p_widths[count - 1u - pos] : p_widths[pos];
         }
 
@@ -231,8 +250,7 @@ decode_direction (uint32_t const * p_widths, uint32_t count, bool reverse,
             }
             if ('\0' == ch)
             {
-                return (0u == pattern) ? CODE39_ERR_RATIO
-                                       : CODE39_ERR_PATTERN;
+                return (0u == pattern) ? CODE39_ERR_RATIO : CODE39_ERR_PATTERN;
             }
         }
 
@@ -271,10 +289,10 @@ decode_direction (uint32_t const * p_widths, uint32_t count, bool reverse,
     return CODE39_OK;
 }
 
-code39_result_t
-code39_decode_ex (uint32_t const * p_widths, uint32_t count,
-                  code39_options_t const * p_options,
-                  char * p_text, uint32_t text_size, bool * p_reversed)
+code39_result_t code39_decode_ex(uint32_t const * p_widths, uint32_t count,
+                                 code39_options_t const * p_options,
+                                 char * p_text, uint32_t text_size,
+                                 bool * p_reversed)
 {
     code39_result_t result;
     uint32_t        n_chars;
@@ -301,14 +319,14 @@ code39_decode_ex (uint32_t const * p_widths, uint32_t count,
     }
 
     *p_reversed = false;
-    result = decode_direction(p_widths, count, false,
-                              p_options, p_text, text_size);
+    result =
+        decode_direction(p_widths, count, false, p_options, p_text, text_size);
     if ((CODE39_ERR_FRAME == result) || (CODE39_ERR_PATTERN == result))
     {
         /* '*' read backwards is not '*', so try the other way */
         *p_reversed = true;
-        result = decode_direction(p_widths, count, true,
-                                  p_options, p_text, text_size);
+        result      = decode_direction(p_widths, count, true, p_options, p_text,
+                                       text_size);
     }
 
     if (CODE39_OK != result)
@@ -321,14 +339,13 @@ code39_decode_ex (uint32_t const * p_widths, uint32_t count,
 
 /* Strict: the 3 widest of the 9 must be at least PARTIAL_MIN_RATIO_X10 / 10
    times the 4th widest, then the pattern must be a Code 39 character. */
-static char
-window_char_strict (uint32_t const * p_widths, uint32_t count, bool reverse,
-                    uint32_t start)
+static char window_char_strict(uint32_t const * p_widths, uint32_t count,
+                               bool reverse, uint32_t start)
 {
     uint32_t el[ELEMENTS_PER_CHAR];
     uint32_t i;
     uint32_t j;
-    uint32_t big[4] = { 0u, 0u, 0u, 0u }; /* 4 widest, largest first */
+    uint32_t big[4]  = { 0u, 0u, 0u, 0u }; /* 4 widest, largest first */
     uint16_t pattern = 0u;
 
     for (i = 0u; i < ELEMENTS_PER_CHAR; i++)
@@ -371,12 +388,11 @@ window_char_strict (uint32_t const * p_widths, uint32_t count, bool reverse,
    split INSIDE the letter makes the 9-element window cover the wrong
    stretch, which shows as a width mismatch.  Also the whole read is
    47 units for a one-letter code (merges and splits do not change it). */
-static bool
-partial_widths_ok (uint32_t const * p_widths, uint32_t count, bool reverse,
-                   uint32_t k, bool star_first)
+static bool partial_widths_ok(uint32_t const * p_widths, uint32_t count,
+                              bool reverse, uint32_t k, bool star_first)
 {
-    uint32_t a = 0u;
-    uint32_t b = 0u;
+    uint32_t a     = 0u;
+    uint32_t b     = 0u;
     uint32_t total = 0u;
     uint32_t i;
     uint32_t w;
@@ -389,7 +405,8 @@ partial_widths_ok (uint32_t const * p_widths, uint32_t count, bool reverse,
         {
             a += w;
         }
-        if ((i >= (k + CHAR_PITCH)) && (i < (k + CHAR_PITCH + ELEMENTS_PER_CHAR)))
+        if ((i >= (k + CHAR_PITCH)) &&
+            (i < (k + CHAR_PITCH + ELEMENTS_PER_CHAR)))
         {
             b += w;
         }
@@ -403,9 +420,9 @@ partial_widths_ok (uint32_t const * p_widths, uint32_t count, bool reverse,
         uint32_t idx[3];
         uint32_t m;
 
-        idx[0] = k + ELEMENTS_PER_CHAR;                     /* between */
-        idx[1] = k + (2u * CHAR_PITCH) - 1u;                /* after second */
-        idx[2] = (k > 0u) ? (k - 1u) : count;               /* before first */
+        idx[0] = k + ELEMENTS_PER_CHAR;       /* between */
+        idx[1] = k + (2u * CHAR_PITCH) - 1u;  /* after second */
+        idx[2] = (k > 0u) ? (k - 1u) : count; /* before first */
         for (m = 0u; m < 3u; m++)
         {
             if (idx[m] < count)
@@ -448,7 +465,7 @@ partial_widths_ok (uint32_t const * p_widths, uint32_t count, bool reverse,
         uint32_t first  = star_first ? (k + (2u * CHAR_PITCH)) : 0u;
         uint32_t last   = star_first ? count : ((k > 0u) ? (k - 1u) : 0u);
         uint32_t e;
-        bool     b_ok   = false;
+        bool     b_ok = false;
 
         for (e = 0u; (e <= PARTIAL_END_SLACK) && !b_ok; e++)
         {
@@ -471,10 +488,10 @@ partial_widths_ok (uint32_t const * p_widths, uint32_t count, bool reverse,
     return true;
 }
 
-code39_result_t
-code39_decode_partial (uint32_t const * p_widths, uint32_t count,
-                       code39_options_t const * p_options,
-                       char * p_text, uint32_t text_size, bool * p_reversed)
+code39_result_t code39_decode_partial(uint32_t const * p_widths, uint32_t count,
+                                      code39_options_t const * p_options,
+                                      char * p_text, uint32_t text_size,
+                                      bool * p_reversed)
 {
     uint32_t pass;
     uint32_t k;
@@ -525,7 +542,8 @@ code39_decode_partial (uint32_t const * p_widths, uint32_t count,
                 letter = c2; /* start '*', then the letter */
             }
             else if (('*' == c2) && ('*' != c1) && ('\0' != c1) &&
-                     ((count - (k + (2u * CHAR_PITCH) - 1u)) <= PARTIAL_END_SLACK))
+                     ((count - (k + (2u * CHAR_PITCH) - 1u)) <=
+                      PARTIAL_END_SLACK))
             {
                 letter = c1; /* the letter, then the stop '*' */
             }
@@ -543,8 +561,8 @@ code39_decode_partial (uint32_t const * p_widths, uint32_t count,
             for (j = 0u; j < (2u * CHAR_PITCH) - 1u; j++)
             {
                 uint32_t pos = k + j;
-                uint32_t w   = reverse ? p_widths[count - 1u - pos]
-                                       : p_widths[pos];
+                uint32_t w =
+                    reverse ? p_widths[count - 1u - pos] : p_widths[pos];
                 if ((j != ELEMENTS_PER_CHAR) && (w > widest))
                 {
                     widest = w;
@@ -554,12 +572,12 @@ code39_decode_partial (uint32_t const * p_widths, uint32_t count,
             {
                 continue;
             }
-            if (!partial_widths_ok(p_widths, count, reverse, k,
-                                   ('*' == c1)))
+            if (!partial_widths_ok(p_widths, count, reverse, k, ('*' == c1)))
             {
                 continue;
             }
-            if (('\0' != found) && ((found != letter) || (found_rev != reverse)))
+            if (('\0' != found) &&
+                ((found != letter) || (found_rev != reverse)))
             {
                 p_text[0] = '\0';
                 return CODE39_ERR_FRAME; /* two different answers: give up */
@@ -579,10 +597,9 @@ code39_decode_partial (uint32_t const * p_widths, uint32_t count,
     return CODE39_OK;
 }
 
-code39_result_t
-code39_decode (uint32_t const * p_widths, uint32_t count,
-               code39_params_t const * p_params,
-               char * p_text, uint32_t text_size, bool * p_reversed)
+code39_result_t code39_decode(uint32_t const * p_widths, uint32_t count,
+                              code39_params_t const * p_params, char * p_text,
+                              uint32_t text_size, bool * p_reversed)
 {
     code39_options_t options;
 
@@ -592,18 +609,18 @@ code39_decode (uint32_t const * p_widths, uint32_t count,
     }
 
     options.min_ratio_x10 = p_params->min_ratio_x10;
-    options.letters_only  = false;      /* the old behaviour: every character */
-    options.max_chars     = 0u;         /* no length limit */
+    options.letters_only  = false; /* the old behaviour: every character */
+    options.max_chars     = 0u;    /* no length limit */
 
-    return code39_decode_ex(p_widths, count, &options,
-                            p_text, text_size, p_reversed);
+    return code39_decode_ex(p_widths, count, &options, p_text, text_size,
+                            p_reversed);
 }
 
-static uint32_t
-encode_char (char ch, uint32_t narrow, uint32_t wide, uint32_t * p_out)
+static uint32_t encode_char(char ch, uint32_t narrow, uint32_t wide,
+                            uint32_t * p_out)
 {
     uint16_t pattern = char_to_pattern(ch);
-    uint32_t   i;
+    uint32_t i;
 
     if (0u == pattern)
     {
@@ -618,15 +635,14 @@ encode_char (char ch, uint32_t narrow, uint32_t wide, uint32_t * p_out)
     return ELEMENTS_PER_CHAR;
 }
 
-uint32_t
-code39_encode (char const * p_text, uint32_t narrow, uint32_t wide,
-               uint32_t * p_widths, uint32_t max_widths)
+uint32_t code39_encode(char const * p_text, uint32_t narrow, uint32_t wide,
+                       uint32_t * p_widths, uint32_t max_widths)
 {
     uint32_t len = 0u;
     uint32_t n_chars;
     uint32_t c;
     uint32_t pos = 0u;
-    char   ch;
+    char     ch;
 
     if ((NULL == p_text) || (NULL == p_widths))
     {
@@ -655,10 +671,12 @@ code39_encode (char const * p_text, uint32_t narrow, uint32_t wide,
 
         if (c < (n_chars - 1u))
         {
-            p_widths[pos] = narrow;     /* inter-character gap */
+            p_widths[pos] = narrow; /* inter-character gap */
             pos++;
         }
     }
 
     return pos;
 }
+
+/*** end of file ***/

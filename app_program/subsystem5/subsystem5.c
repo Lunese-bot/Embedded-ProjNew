@@ -20,7 +20,7 @@
  */
 
 #include "s5_local.h"
-#include "drv_ultrasonic.h" /* US_NO_ECHO */
+#include "drv_ultrasonic.h"           /* US_NO_ECHO */
 #include "../subsystem2/subsystem2.h" /* s2_emergency_stop (stop path only) */
 
 ID       g_mbf_s5_cmd;
@@ -31,10 +31,10 @@ ID       g_tid_s5_scan;
 ID       g_tid_s5_avoid;
 uint32_t g_s5_evt_dropped;
 
-static s5_status_t g_s5_status;
+static s5_status_t    g_s5_status;
 static s5_width_est_t g_s5_width_est; /* under g_mtx_s5, like the profile */
 
-#define S5_STATUS_TMO_MS    100 /* s5_get_status(): longest mutex wait */
+#define S5_STATUS_TMO_MS 100 /* s5_get_status(): longest mutex wait */
 
 ER subsystem5_init(void)
 {
@@ -132,7 +132,7 @@ ER s5_get_status_packed(uint16_t * p_word)
         return E_PAR;
     }
     *p_word = 0U;
-    ercd = s5_get_status(&st);
+    ercd    = s5_get_status(&st);
     if (ercd < E_OK)
     {
         return ercd;
@@ -262,7 +262,7 @@ bool s5_side_read(s5_side_reading_t * p_reading)
     *p_reading = (s5_side_reading_t){ 0 };
     if (s5_lock())
     {
-        b_armed   = g_side.armed;
+        b_armed    = g_side.armed;
         *p_reading = g_side.reading;
         s5_unlock();
     }
@@ -398,8 +398,9 @@ ER s5_send_critical_to(ID mbf, s5_evt_t * p_evt)
     {
         g_s5_evt_dropped++;
         g_s5_estops++;
-        tm_printf((uint8_t *)"s5: event %d LOST (queue full) -> emergency stop\n",
-                  (int32_t)p_evt->type);
+        tm_printf(
+            (uint8_t *)"s5: event %d LOST (queue full) -> emergency stop\n",
+            (int32_t)p_evt->type);
         app_check(g_s5_stop_fn(), "s5 emergency stop");
     }
     return ercd;

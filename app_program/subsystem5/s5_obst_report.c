@@ -36,10 +36,9 @@ void s5_or_begin(s5_obst_report_t * p_rec, uint16_t id, uint32_t t0_ms)
     p_rec->stage      = (uint8_t)S5_OR_STAGE_SCANNING;
 }
 
-void s5_or_front(s5_obst_report_t * p_rec, uint8_t valid,
-                 uint16_t distance_mm, int32_t right_edge_deg,
-                 int32_t left_edge_deg, uint16_t width_mm,
-                 uint8_t bypass_side, int32_t scan_min_deg,
+void s5_or_front(s5_obst_report_t * p_rec, uint8_t valid, uint16_t distance_mm,
+                 int32_t right_edge_deg, int32_t left_edge_deg,
+                 uint16_t width_mm, uint8_t bypass_side, int32_t scan_min_deg,
                  int32_t scan_max_deg, bool b_length_follows,
                  s5_or_reason_t no_length_reason)
 {
@@ -62,7 +61,8 @@ void s5_or_front(s5_obst_report_t * p_rec, uint8_t valid,
             p_rec->width_status = (uint8_t)S5_OR_W_ONE_BEAM;
             p_rec->width_mm     = 0U;
         }
-        else if ((right_edge_deg <= scan_min_deg) || (left_edge_deg >= scan_max_deg))
+        else if ((right_edge_deg <= scan_min_deg) ||
+                 (left_edge_deg >= scan_max_deg))
         {
             p_rec->width_status = (uint8_t)S5_OR_W_LOWER_BOUND;
         }
@@ -79,9 +79,9 @@ void s5_or_front(s5_obst_report_t * p_rec, uint8_t valid,
     else
     {
         p_rec->length_status = (uint8_t)S5_OR_L_UNAVAILABLE;
-        p_rec->length_reason = (uint8_t)((S5_OR_R_NONE == no_length_reason)
-                                             ? S5_OR_R_NO_BYPASS
-                                             : no_length_reason);
+        p_rec->length_reason =
+            (uint8_t)((S5_OR_R_NONE == no_length_reason) ? S5_OR_R_NO_BYPASS
+                                                         : no_length_reason);
     }
     p_rec->length_mm = 0U;
     touch(p_rec);
@@ -101,8 +101,8 @@ void s5_or_length(s5_obst_report_t * p_rec, s5_or_length_t status,
     {
         p_rec->length_status = (uint8_t)S5_OR_L_UNAVAILABLE;
         p_rec->length_mm     = 0U;
-        p_rec->length_reason = (uint8_t)((S5_OR_R_NONE == reason)
-                                             ? S5_OR_R_NO_SIDE_ECHO : reason);
+        p_rec->length_reason =
+            (uint8_t)((S5_OR_R_NONE == reason) ? S5_OR_R_NO_SIDE_ECHO : reason);
     }
     touch(p_rec);
 }
@@ -115,8 +115,9 @@ void s5_or_final(s5_obst_report_t * p_rec, s5_or_reason_t why_unresolved)
     {
         p_rec->length_status = (uint8_t)S5_OR_L_UNAVAILABLE;
         p_rec->length_mm     = 0U;
-        p_rec->length_reason = (uint8_t)((S5_OR_R_NONE == why_unresolved)
-                                             ? S5_OR_R_ABORTED : why_unresolved);
+        p_rec->length_reason =
+            (uint8_t)((S5_OR_R_NONE == why_unresolved) ? S5_OR_R_ABORTED
+                                                       : why_unresolved);
     }
     if (S5_OR_W_PENDING == p_rec->width_status)
     {
@@ -174,13 +175,14 @@ bool s5_or_decode(const uint8_t * p_in, int32_t len, s5_obst_report_t * p_rec)
     r.front_mm      = get16(&p_in[8]);
     r.width_mm      = get16(&p_in[10]);
     r.length_mm     = get16(&p_in[12]);
-    r.t0_ms = ((uint32_t)p_in[14] << 24) | ((uint32_t)p_in[15] << 16) |
+    r.t0_ms         = ((uint32_t)p_in[14] << 24) | ((uint32_t)p_in[15] << 16) |
               ((uint32_t)p_in[16] << 8) | (uint32_t)p_in[17];
     r.bypass_side = p_in[18];
     if ((0U == r.profile_id) || (r.stage > S5_OR_STAGE_MAX) ||
         (r.width_status > S5_OR_W_MAX) || (r.length_status > S5_OR_L_MAX) ||
         (r.length_reason > S5_OR_R_MAX) || (r.bypass_side > 2U) ||
-        (r.front_mm > S5_OR_FRONT_MAX_MM) || (r.width_mm > S5_OR_WIDTH_MAX_MM) ||
+        (r.front_mm > S5_OR_FRONT_MAX_MM) ||
+        (r.width_mm > S5_OR_WIDTH_MAX_MM) ||
         (r.length_mm > S5_OR_LENGTH_MAX_MM) || (0U != p_in[19]))
     {
         return false;
@@ -191,7 +193,8 @@ bool s5_or_decode(const uint8_t * p_in, int32_t len, s5_obst_report_t * p_rec)
 
 const char * s5_or_stage_name(uint8_t stage)
 {
-    static const char * const names[] = { "scanning", "front", "length", "final" };
+    static const char * const names[] = { "scanning", "front", "length",
+                                          "final" };
 
     return (stage <= S5_OR_STAGE_MAX) ? names[stage] : "?";
 }
@@ -214,12 +217,16 @@ const char * s5_or_length_name(uint8_t status)
 
 const char * s5_or_reason_name(uint8_t reason)
 {
-    static const char * const names[] = {
-        "-", "side look off in this build", "no bypass",
-        "no side echo during the pass", "rear edge not seen before turn-in",
-        "side sensor fault", "side look gave no reading", "aborted",
-        "bypass failed", "look angle unsuitable"
-    };
+    static const char * const names[] = { "-",
+                                          "side look off in this build",
+                                          "no bypass",
+                                          "no side echo during the pass",
+                                          "rear edge not seen before turn-in",
+                                          "side sensor fault",
+                                          "side look gave no reading",
+                                          "aborted",
+                                          "bypass failed",
+                                          "look angle unsuitable" };
 
     return (reason <= S5_OR_R_MAX) ? names[reason] : "?";
 }

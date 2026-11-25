@@ -26,7 +26,7 @@
 /* ---- S2 motion control -------------------------------------------- */
 
 /* One authorised movement command (called by vc_port_move) */
-extern ER vc_bridge_s2_move(vc_move_t move, int32_t value);
+extern ER   vc_bridge_s2_move(vc_move_t move, int32_t value);
 extern void vc_bridge_s2_set_obstacle_mode(bool active);
 
 /* Next S2 event (manoeuvre done, fault) as a VC event */

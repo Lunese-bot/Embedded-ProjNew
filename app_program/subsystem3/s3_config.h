@@ -16,7 +16,8 @@
 /* ---------------------------------------------------------------------
  *  Pins (Design Review section 2; claim them in TEAM.md section 2)
  * --------------------------------------------------------------------- */
-#define S3_PIN_IR_L 28 /* IR_L  GP28  barcode sensor (ADC2), moved from GP06 2026-11-05 */
+/* IR_L GP28 barcode sensor (ADC2), moved from GP06 2026-11-05 */
+#define S3_PIN_IR_L 28
 #define S3_PIN_IR_C 26 /* IR_C  GP26  line position (ADC0)  */
 #define S3_PIN_IR_R 27 /* IR_R  GP27  line position (ADC1)  */
 
@@ -44,7 +45,8 @@
  *         device/adc/sysdepend/rp2040/adc_cnf_sysdep.h (shared file: agree
  *         it with the team and record ADC ownership in TEAM.md section 3).
  * --------------------------------------------------------------------- */
-#define S3_IR_USE_ADC 1 /* 2026-11-05: C and R analogue (R alone felt smoother) */
+/* 2026-11-05: C and R analogue (R alone felt smoother) */
+#define S3_IR_USE_ADC 1
 
 /* Modes 1 and 2: R's raw ADC reading (0..4095, shown as "raw L C R" on the
    dashboard) over plain WHITE floor and over the middle of the BLACK line.
@@ -129,9 +131,9 @@
    S3_BC_EDGE_FLOOR: below this raw value L is always white, and L must be
      above it to count a bar (white paper read 140-260, up to ~360 at an
      edge).  Both can be changed live on the dashboard (Line test tab). */
-#define S3_BC_EDGE       1
-#define S3_BC_EDGE_SWING 300
-#define S3_BC_EDGE_FLOOR 400
+#define S3_BC_EDGE           1
+#define S3_BC_EDGE_SWING     300
+#define S3_BC_EDGE_FLOOR     400
 /* A bar only ends once L has fallen this share (percent) of the bar's
    height (its peak minus the white before it), and never less than
    S3_BC_EDGE_SWING.  2026-11-11: a wide bar's top wobbled 1794 -> 1425
@@ -145,7 +147,8 @@
 #define S3_BC_WEAK_SWING_MAX 50
 #define S3_BC_WEAK_HOLD      3
 #ifndef S3_BC_EDGE_FALL_PCT
-#define S3_BC_EDGE_FALL_PCT 35 /* 2026-11-12 MY: back to 35, matches the 2026-11-11 Z read */
+/* 2026-11-12 MY: back to 35, matches the 2026-11-11 Z read */
+#define S3_BC_EDGE_FALL_PCT 35
 #endif
 
 /* Adaptive edge finder (2026-11-24): the venue sheets read white ~145 and
@@ -160,22 +163,22 @@
    start rule, evaluated here as a candidate.  sd is never taken below
    S3_BC_NOISE_SD_MIN, so m is at least 3 x 1 + 8 = 11. */
 #ifndef S3_BC_NOISE_K
-#define S3_BC_NOISE_K       3
+#define S3_BC_NOISE_K 3
 #endif
 #ifndef S3_BC_NOISE_ADD
-#define S3_BC_NOISE_ADD     8
+#define S3_BC_NOISE_ADD 8
 #endif
-#define S3_BC_NOISE_SD_MIN  1
+#define S3_BC_NOISE_SD_MIN          1
 /* white is learned from this many samples (10 ms) in a row whose
    highest and lowest differ by at most INIT_SPREAD raw (white paper read
    with spreads up to ~100 on the 10 ms reads of 2026-11-05..12, before
    the 500 Hz front end; ~15 since) */
-#define S3_BC_WHITE_INIT_N      32u
-#define S3_BC_WHITE_INIT_SPREAD 128
+#define S3_BC_WHITE_INIT_N          32u
+#define S3_BC_WHITE_INIT_SPREAD     128
 /* white follows the white travel with weight 1 / 2^SHIFT per sample */
-#define S3_BC_WHITE_EMA_SHIFT   4
+#define S3_BC_WHITE_EMA_SHIFT       4
 /* a gap longer than this between two samples (us): learn white again */
-#define S3_BC_WHITE_STALE_US    50000u
+#define S3_BC_WHITE_STALE_US        50000u
 /* black this many samples in a row outside a read (longer than any bar,
    S3_BC_ELEMENT_MAX_MS): not a bar, learn white again */
 #define S3_BC_WHITE_RELEARN_SAMPLES 150u
@@ -185,11 +188,11 @@
    Outside a read the edge finder takes such a level as its new white at
    once, and barcode_task starts a read only on a first bar no wider than
    this (task_barcode.c on_run, bc_first_bar_ok). */
-#define S3_BC_FIRST_BAR_MAX_COUNTS 180u
+#define S3_BC_FIRST_BAR_MAX_COUNTS  180u
 /* samples in a row a change of level must last (1 = at once); the
    margin is already several noise sd */
 #ifndef S3_BC_ADAPT_HOLD
-#define S3_BC_ADAPT_HOLD    1u
+#define S3_BC_ADAPT_HOLD 1u
 #endif
 
 /* Digital level the module outputs over BLACK tape.  TUNE: most TCRT5000
@@ -263,7 +266,7 @@
 #define S3_STRADDLE_BAR_STRAIGHT 1
 /* L counts as black for this check at or above this RAW reading.  White
    paper reads up to ~260, thin bars 800-1300, thick bars 1100-4000. */
-#define S3_BAR_L_RAW 700
+#define S3_BAR_L_RAW             700
 
 /* Sensors that must all see black for a junction: C and R (the left sensor
    only reads barcodes). */
@@ -277,13 +280,13 @@
 #define S3_JUNCTION_THRESHOLD 950
 
 /* Position weight of each sensor, -1000 (far left) .. +1000 (far right) */
-#define S3_WEIGHT_L (-1000)
-#define S3_WEIGHT_C 0
+#define S3_WEIGHT_L    (-1000)
+#define S3_WEIGHT_C    0
 /* Centre weight when only C+R steer: C -1000 / R +1000 is symmetric, so
    both on black = 0, C only = -1000, R only = +1000 (error can be negative).
    With L+C+R the normal S3_WEIGHT_C is used. */
 #define S3_WEIGHT_C_CR (-1000)
-#define S3_WEIGHT_R 1000
+#define S3_WEIGHT_R    1000
 
 /* Position the controller holds the robot at.  With S3_LINE_MASK = C+R,
    0 means "line under C only".  TUNE on the track. */
@@ -299,10 +302,10 @@
    lost after both have been white this long: 150 samples = 1.5 s. */
 #define S3_LOST_SAMPLES 150
 #else
-#define S3_LOST_SAMPLES     5 /* 50 ms with no line -> LOST     */
+#define S3_LOST_SAMPLES 5 /* 50 ms with no line -> LOST     */
 #endif
-#define S3_FOUND_SAMPLES    2 /* 20 ms with line   -> FOLLOW    */
-#define S3_JUNCTION_SAMPLES 3 /* 30 ms all black   -> JUNCTION  */
+#define S3_FOUND_SAMPLES        2   /* 20 ms with line   -> FOLLOW    */
+#define S3_JUNCTION_SAMPLES     3   /* 30 ms all black   -> JUNCTION  */
 #define S3_REJOIN_CLEAR_SAMPLES 10u /* about 100 ms without C + R overlap */
 
 /* PD steering: steering = (KP*err + KD*(err - prev_err)) / GAIN_DEN,
@@ -352,7 +355,7 @@
    the gaps between them); 1-3 element "reads" are lines and junctions */
 #define S3_BC_GEOM_MIN_ELEMENTS 11u
 /* trace samples (10 ms) before the first bar that the shape read uses */
-#define S3_BC_GEOM_LEAD 50u
+#define S3_BC_GEOM_LEAD         50u
 /* Shape read: longest stretch (ms) it runs before sleeping one tick to
    let the tasks below S3_PRI_GEOM run (the S5 tasks, 20-21) */
 #ifndef S3_BC_GEOM_SLICE_MS
@@ -365,10 +368,11 @@
 /* A white gap longer than S3_BC_QUIET_FACTOR x the widest element seen
    so far ends the barcode (Code 39 quiet zone is >= 10 narrow). */
 #define S3_BC_QUIET_FACTOR   5
-#define S3_BC_QUIET_MIN_MS   800  /* never end sooner than this (was 150; 2026-11-05:
-                                     a slow, blurry pass had white gaps of 130-600 ms
-                                     inside one barcode and got split into pieces) */
-#define S3_BC_START_WHITE_MS 150  /* white needed before a bar can start a barcode */
+/* never end sooner than this (was 150; 2026-11-05: a slow, blurry pass had
+   white gaps of 130-600 ms inside one barcode and got split into pieces) */
+#define S3_BC_QUIET_MIN_MS   800
+/* white needed before a bar can start a barcode */
+#define S3_BC_START_WHITE_MS 150
 #define S3_BC_ELEMENT_MAX_MS 1500 /* longer black run = not a bar   */
 #define S3_BC_MIN_ELEMENTS   29u  /* "*A*" = 3 symbols x 10 - 1 */
 
@@ -378,16 +382,16 @@
    is; in distance it does not.  The decoder tries distance first and
    falls back to time when that fails or the wheels hardly moved (e.g. a
    barcode slid under the robot by hand).  0 = time only (old behaviour). */
-#define S3_BC_USE_DIST       1
+#define S3_BC_USE_DIST          1
 /* Which wheel measures the distance: 0 = both (L + R), 1 = left only,
    2 = right only.  2026-11-11: the barcode sensor sits ~5 mm from the
    LEFT tyre, so when the robot twists a little the sensor moves with the
    left wheel, not with the average of the two. */
-#define S3_BC_DIST_WHEEL     1
+#define S3_BC_DIST_WHEEL        1
 /* Whole read must cover at least this many counts (L + R) for distance to
    be tried.  One count ~0.15 mm of travel; "*A*" small print ~145 mm =
    ~980 counts, so 200 (~30 mm) only rules out "wheels not turning". */
-#define S3_BC_DIST_MIN       200u
+#define S3_BC_DIST_MIN          200u
 /* End of the barcode BY DISTANCE (used once the wheels are seen turning
    during a read): this much white after the last bar ends the read.
    300 counts ~44 mm: more than any gap inside a barcode, even with one
@@ -395,14 +399,14 @@
    (0.8 s, or 5 x the widest element) was 29 mm at 36 mm/s and stretched
    to 3.7 s after one merged gap.  If the robot stops on the white, the
    read ends after S3_BC_QUIET_STOP_MS instead. */
-#define S3_BC_QUIET_COUNTS   300u
+#define S3_BC_QUIET_COUNTS      300u
 /* After a read ends, keep treating C + R black as "a bar, not a junction"
    for this much more travel.  The read now ends right at the stop '*'
    (S3_BC_EARLY_END); if C and R are not exactly level with L they are
    still over the last bars then, and a wide bar under both would be
    reported as a JUNCTION.  270 counts ~40 mm.  0 = off. */
 #define S3_BC_AFTER_HOLD_COUNTS 270u
-#define S3_BC_QUIET_STOP_MS  3000
+#define S3_BC_QUIET_STOP_MS     3000
 
 /* Barcode lock (MY 2026-11-12): from the first bar until past the barcode,
    drive straight at the slow barcode speed (VC_SPEED_SLOW_MMS) instead of
@@ -437,7 +441,7 @@
    ends, instead of waiting S3_BC_QUIET_MIN_MS of white.  Junctions are
    not detected while a read is open, so this lets a junction right after
    the barcode be seen.  0 = always wait for the quiet zone. */
-#define S3_BC_EARLY_END      1
+#define S3_BC_EARLY_END 1
 
 /* Smallest accepted wide:narrow ratio, x10 (15 = 1.5).  Code 39 is
    printed at 2.0..3.0. */

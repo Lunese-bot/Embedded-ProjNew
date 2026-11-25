@@ -14,22 +14,27 @@
 #define VC_SM_H
 
 #include "vc_types.h"
-#include "../subsystem2/s2_config.h" /* track and tick size for VC_PIVOT_COUNTS */
+/* track and tick size for VC_PIVOT_COUNTS */
+#include "../subsystem2/s2_config.h"
 
 /* ---------------------------------------------------------------------
  *  Tuning.  Preliminary values: validate on the track (NFR2, NFR5,
  *  design review 8.3 "recovery limits ... need validation").
  * --------------------------------------------------------------------- */
-#define VC_SPEED_CRUISE_MMS 120 /* normal line following (tuned 2026-11-04: was 200 at 60%) */
-#define VC_SPEED_SLOW_MMS   60  /* barcode reading, humps and post-bypass follow */
-#define VC_REJOIN_STEER_SAMPLES 50 /* 500 ms of fresh steering before cruise */
+/* normal line following (tuned 2026-11-04: was 200 at 60%) */
+#define VC_SPEED_CRUISE_MMS     120
+/* barcode reading, humps and post-bypass follow */
+#define VC_SPEED_SLOW_MMS       60
+/* 500 ms of fresh steering before cruise */
+#define VC_REJOIN_STEER_SAMPLES 50
 /* Slow down in curves: forward speed is cut by up to this much (permille)
    at full steering, in proportion to how hard S3 steers.  400 = at a full
    turn the robot drives at 60 % of cruise; a small nudge barely slows it.
    Never below VC_CURVE_MIN_MMS.  TUNE (live on the dashboard). */
-#define VC_CURVE_SLOW_PERMILLE 600 /* tuned 2026-11-04: U-turn works at 60 % */
-#define VC_CURVE_MIN_MMS       60
-#define VC_TURN_DEG         90  /* barcode LEFT / RIGHT */
+/* tuned 2026-11-04: U-turn works at 60 % */
+#define VC_CURVE_SLOW_PERMILLE  600
+#define VC_CURVE_MIN_MMS        60
+#define VC_TURN_DEG             90 /* barcode LEFT / RIGHT */
 /* Junction turns end on the line (2026-11-12, idea from Group 7's code).
    The turn ignores the line until it has turned VC_TURN_GATE_DEG (U-turn:
    see the U-turn below), then ends on the first C or R black reading, so a
@@ -41,8 +46,8 @@
 #ifndef VC_TURN_END_ON_LINE
 #define VC_TURN_END_ON_LINE 1
 #endif
-#define VC_TURN_GATE_DEG  60  /* LEFT / RIGHT: line ignored before this */
-#define VC_TURN_MAX_DEG   135 /* LEFT / RIGHT: turn ends here if no line */
+#define VC_TURN_GATE_DEG 60  /* LEFT / RIGHT: line ignored before this */
+#define VC_TURN_MAX_DEG  135 /* LEFT / RIGHT: turn ends here if no line */
 #if VC_TURN_END_ON_LINE
 #define VC_TURN_CMD_DEG VC_TURN_MAX_DEG
 #else
@@ -50,8 +55,9 @@
 #endif
 /* L + R odometer counts for a pivot of `deg` degrees: the two wheels roll
    pi x S2_TRACK_MM x deg / 180 mm between them.  90 deg = ~692 counts. */
-#define VC_PIVOT_COUNTS(deg) \
-    ((uint32_t)((S2_PI * S2_TRACK_MM * (float)(deg)) / (180.0f * S2_MM_PER_TICK)))
+#define VC_PIVOT_COUNTS(deg)                           \
+    ((uint32_t)((S2_PI * S2_TRACK_MM * (float)(deg)) / \
+                (180.0f * S2_MM_PER_TICK)))
 
 /* U-turn (2026-11-25): stop at the junction, then
      1. a fast encoder pivot (S2 TURN) to VC_UTURN_FAST_DEG, short of the
@@ -74,71 +80,80 @@
    Angles here are S2 command degrees (what VC_PIVOT_COUNTS() converts),
    not body degrees: the owner's runs show the body turns more than S2
    counts.  TUNE on the track. */
-#define VC_UTURN_APPROACH_DEG 40  /* slow window before the expected heading */
-#define VC_UTURN_FAST_DEG     (VC_UTURN_CMD_DEG - VC_UTURN_APPROACH_DEG)
-#define VC_UTURN_SECTOR_DEG   15  /* search this far either side of it */
-#define VC_UTURN_CORRECT_DEG  10  /* a correction may go this far past the sighting */
-#define VC_UTURN_SLOW_MMS     60  /* slow pivot wheel speed (S2_MIN_SPEED_MM_S) */
-#define VC_UTURN_SIGHT_SAMPLES  2 /* 10 ms samples: black = sighting, white = left */
-#define VC_UTURN_VERIFY_SAMPLES 3 /* fresh samples after the stop, all agreeing */
-#define VC_UTURN_MAX_SWEEPS   3   /* slow sweeps after the approach */
-#define VC_UTURN_REFRESH_MS   100 /* re-send PIVOT (S2 stops a DRIVE after 500) */
-#define VC_UTURN_SETTLE_MS    1000 /* S2 must confirm the stop within this */
-#define VC_UTURN_VERIFY_MS    500 /* fresh samples must agree within this */
-#define VC_UTURN_MS           12000 /* the whole U-turn */
-_Static_assert(VC_UTURN_FAST_DEG >= 90,
-               "the fast pivot must pass the 90 deg arm before the line counts");
+#define VC_UTURN_APPROACH_DEG   40 /* slow window before the expected heading */
+#define VC_UTURN_FAST_DEG       (VC_UTURN_CMD_DEG - VC_UTURN_APPROACH_DEG)
+#define VC_UTURN_SECTOR_DEG     15 /* search this far either side of it */
+/* a correction may go this far past the sighting */
+#define VC_UTURN_CORRECT_DEG    10
+/* slow pivot wheel speed (S2_MIN_SPEED_MM_S) */
+#define VC_UTURN_SLOW_MMS       60
+/* 10 ms samples: black = sighting, white = left */
+#define VC_UTURN_SIGHT_SAMPLES  2
+/* fresh samples after the stop, all agreeing */
+#define VC_UTURN_VERIFY_SAMPLES 3
+#define VC_UTURN_MAX_SWEEPS     3 /* slow sweeps after the approach */
+/* re-send PIVOT (S2 stops a DRIVE after 500) */
+#define VC_UTURN_REFRESH_MS     100
+#define VC_UTURN_SETTLE_MS      1000  /* S2 must confirm the stop within this */
+#define VC_UTURN_VERIFY_MS      500   /* fresh samples must agree within this */
+#define VC_UTURN_MS             12000 /* the whole U-turn */
+_Static_assert(
+    VC_UTURN_FAST_DEG >= 90,
+    "the fast pivot must pass the 90 deg arm before the line counts");
 _Static_assert((VC_UTURN_SECTOR_DEG < VC_UTURN_APPROACH_DEG) &&
                    (VC_UTURN_CORRECT_DEG < VC_UTURN_APPROACH_DEG),
                "U-turn sweeps stay inside the watched window");
 _Static_assert((VC_UTURN_REFRESH_MS * 2) < 500,
                "PIVOT must be refreshed well within S2_CMD_TIMEOUT_MS");
 
-#define VC_SEARCH_TURN_DEG  30  /* LOST_LINE attempt 1 (attempt 2: x2) */
-#define VC_SEARCH_BACK_MM   50  /* LOST_LINE attempt 3: reverse */
+#define VC_SEARCH_TURN_DEG 30 /* LOST_LINE attempt 1 (attempt 2: x2) */
+#define VC_SEARCH_BACK_MM  50 /* LOST_LINE attempt 3: reverse */
 
-#define VC_SELF_CHECK_MS     2000  /* MISSION_START: wait for READY */
-#define VC_LINE_ATTEMPT_MS   1500  /* LOST_LINE: one search attempt */
-#define VC_LINE_MAX_ATTEMPTS 3     /* then FAULT (bounded recovery) */
+#define VC_SELF_CHECK_MS     2000 /* MISSION_START: wait for READY */
+#define VC_LINE_ATTEMPT_MS   1500 /* LOST_LINE: one search attempt */
+#define VC_LINE_MAX_ATTEMPTS 3    /* then FAULT (bounded recovery) */
 /* DECODE_BARCODE: one read.  Was 1500, but a whole read takes far longer:
    big-print *A* is ~291 mm long, so at 60 mm/s it takes ~4.9 s to cross,
    plus the end-of-barcode quiet zone (5 x widest bar = ~1.6 s).  After
    1500 ms the retry re-armed barcode_task, which threw away every bar read
    so far (2026-11-08: cause of "too few elements").  8000 covers big *A*
    at 60 mm/s with margin; S3 still ends a read itself on its quiet zone. */
-#define VC_DECODE_MS         12000 /* big print *A* is 291 mm = 8.1 s at 36 mm/s (60 % speed); was 8000 */
+/* big print *A* is 291 mm = 8.1 s at 36 mm/s (60 % speed); was 8000 */
+#define VC_DECODE_MS         12000
 /* Was 2.  A retry cannot work while driving forward: after a failed read the
    barcode is already behind the robot, so each "retry" only held the robot
    in DECODE_BARCODE (slow, junctions ignored) for another VC_DECODE_MS.
    0 = one read, then report it and keep following (review 2026-11-10). */
-#define VC_BARCODE_MAX_RETRY 0     /* then give up, keep following */
+#define VC_BARCODE_MAX_RETRY 0 /* then give up, keep following */
 /* EXECUTE_ACTION sub-steps (exec_phase) */
-#define VC_EXEC_TURN       0u /* the action's own move (or the only one) */
-#define VC_EXEC_ADVANCE    1u /* LEFT / RIGHT: axle onto the crossing first */
-#define VC_EXEC_UTURN      2u /* U-turn: fast encoder pivot (S2 TURN) */
-#define VC_EXEC_UT_SWEEP   3u /* U-turn: slow pivot, watching C / R */
-#define VC_EXEC_UT_BRAKE   4u /* U-turn: stop asked, waiting for S2 */
-#define VC_EXEC_UT_VERIFY  5u /* U-turn: standing, fresh samples decide */
-#define VC_EXECUTE_MS        6000  /* EXECUTE_ACTION: advance + turn (was 4000) */
-#define VC_JUNCTION_STOP_MS  2000  /* wait for S2 to confirm zero speed */
+#define VC_EXEC_TURN         0u /* the action's own move (or the only one) */
+#define VC_EXEC_ADVANCE      1u /* LEFT / RIGHT: axle onto the crossing first */
+#define VC_EXEC_UTURN        2u /* U-turn: fast encoder pivot (S2 TURN) */
+#define VC_EXEC_UT_SWEEP     3u /* U-turn: slow pivot, watching C / R */
+#define VC_EXEC_UT_BRAKE     4u /* U-turn: stop asked, waiting for S2 */
+#define VC_EXEC_UT_VERIFY    5u /* U-turn: standing, fresh samples decide */
+/* EXECUTE_ACTION: advance + turn (was 4000) */
+#define VC_EXECUTE_MS        6000
+#define VC_JUNCTION_STOP_MS  2000 /* wait for S2 to confirm zero speed */
 /* Stand still this long at a junction before the turn / drive-on, so the
    stop is a clear, visible pause (2026-11-11).  0 = act as soon as S2
    confirms zero speed. */
 #ifndef VC_JUNCTION_HOLD_MS
-#define VC_JUNCTION_HOLD_MS  1000
+#define VC_JUNCTION_HOLD_MS 1000
 #endif
-#define VC_JUNCTION_CLEAR_MM 60    /* straight distance to clear the crossing; TUNE */
+/* straight distance to clear the crossing; TUNE */
+#define VC_JUNCTION_CLEAR_MM 60
 /* LEFT / RIGHT at a junction: drive this far first, so the AXLE (not the
    sensors) is over the crossing when the robot pivots.  See
    ROBOT_IR_TO_AXLE_MM in robot_types.h.  0 = turn at once. */
 #ifndef VC_JUNCTION_ADVANCE_MM
 #define VC_JUNCTION_ADVANCE_MM ROBOT_IR_TO_AXLE_MM
 #endif
-#define VC_TERRAIN_MS        5000  /* TERRAIN_CHECK: hump must clear */
+#define VC_TERRAIN_MS 5000 /* TERRAIN_CHECK: hump must clear */
 /* Was 15000, shorter than a normal bypass: scan (up to ~5 s) + 4 turns +
    3 legs (~9 s) + up to 3 line recoveries (~9 s).  The controller faulted
    while S5 was still searching for the line (review 2026-11-10). */
-#define VC_AVOID_MS          90000 /* scan, slow bypass and bounded recovery */
+#define VC_AVOID_MS   90000 /* scan, slow bypass and bounded recovery */
 
 /* ---------------------------------------------------------------------
  *  Actions produced by the state machine
@@ -164,16 +179,16 @@ typedef enum
 typedef enum
 {
     VC_UT_START = 1, /* rsv = fast pivot angle asked of S2 (deg) */
-    VC_UT_EARLY,     /* line seen during the fast pivot, ignored; rsv = sensor */
+    VC_UT_EARLY, /* line seen during the fast pivot, ignored; rsv = sensor */
     VC_UT_FAST_DONE, /* S2 finished the fast pivot */
     VC_UT_SWEEP,     /* slow pivot starts; rsv = vc_ut_sweep_t x dir (+1 / -1),
                         p2 = its bound */
     VC_UT_SIGHT,     /* first credible sighting of the sweep; rsv = sensor */
     VC_UT_BRAKE,     /* stop asked; rsv = 1 sighting, 2 bound reached */
-    VC_UT_SETTLED,   /* S2: wheels stopped; rsv = counts after the stop request */
-    VC_UT_VERDICT,   /* rsv = vc_ut_verdict_t */
-    VC_UT_DONE,      /* aligned: slow line following takes over */
-    VC_UT_FAIL       /* rsv = 1 sweeps used up, 2 no stop, 3 verify, 4 time */
+    VC_UT_SETTLED, /* S2: wheels stopped; rsv = counts after the stop request */
+    VC_UT_VERDICT, /* rsv = vc_ut_verdict_t */
+    VC_UT_DONE,    /* aligned: slow line following takes over */
+    VC_UT_FAIL     /* rsv = 1 sweeps used up, 2 no stop, 3 verify, 4 time */
 } vc_ut_trace_t;
 
 typedef enum
@@ -195,25 +210,25 @@ typedef enum
 /* U-turn working data (EXECUTE_ACTION, VC_EXEC_UTURN .. VC_EXEC_UT_VERIFY) */
 typedef struct
 {
-    int32_t  heading;    /* counts turned since the U-turn began, + = left */
-    int32_t  bound;      /* this sweep stops here (counts) */
-    int32_t  sight_h;    /* heading of the sweep's first credible sighting */
-    int32_t  stop_h;     /* heading when the stop was asked */
-    uint32_t t0_ms;      /* U-turn start */
-    uint32_t phase_ms;   /* phase start: samples older than this are stale */
-    uint32_t cmd_ms;     /* last PIVOT sent */
-    int8_t   dir;        /* +1 left, -1 right: the way the wheels turn */
-    uint8_t  sweep;      /* vc_ut_sweep_t of the current sweep */
-    uint8_t  sweeps;     /* slow sweeps after the approach */
-    uint8_t  sight;      /* VC_LINE_C / VC_LINE_R of that sighting, 0 = none */
-    uint8_t  early;      /* fast pivot: a line was seen (traced once) */
+    int32_t  heading;  /* counts turned since the U-turn began, + = left */
+    int32_t  bound;    /* this sweep stops here (counts) */
+    int32_t  sight_h;  /* heading of the sweep's first credible sighting */
+    int32_t  stop_h;   /* heading when the stop was asked */
+    uint32_t t0_ms;    /* U-turn start */
+    uint32_t phase_ms; /* phase start: samples older than this are stale */
+    uint32_t cmd_ms;   /* last PIVOT sent */
+    int8_t   dir;      /* +1 left, -1 right: the way the wheels turn */
+    uint8_t  sweep;    /* vc_ut_sweep_t of the current sweep */
+    uint8_t  sweeps;   /* slow sweeps after the approach */
+    uint8_t  sight;    /* VC_LINE_C / VC_LINE_R of that sighting, 0 = none */
+    uint8_t  early;    /* fast pivot: a line was seen (traced once) */
     uint8_t  run_black[2]; /* [0] = C, [1] = R: black samples in a row */
     uint8_t  run_white[2];
-    uint8_t  seen[2];    /* sensor saw the line this sweep (debounced) */
-    uint8_t  left[2];    /* ... and then let it go (debounced) */
-    uint8_t  verdict;    /* VERIFY: verdict being confirmed */
-    uint8_t  verdict_n;  /* fresh samples agreeing on it */
-    bool     handover;   /* FOLLOW_LINE entered from a finished U-turn */
+    uint8_t  seen[2];   /* sensor saw the line this sweep (debounced) */
+    uint8_t  left[2];   /* ... and then let it go (debounced) */
+    uint8_t  verdict;   /* VERIFY: verdict being confirmed */
+    uint8_t  verdict_n; /* fresh samples agreeing on it */
+    bool     handover;  /* FOLLOW_LINE entered from a finished U-turn */
 } vc_uturn_t;
 
 /* Evidence for the dashboard's "Read B -> Left turn pending -> Left turn
@@ -250,24 +265,25 @@ typedef struct
 /* The whole controller state.  One instance lives in the task. */
 typedef struct
 {
-    vc_status_t          st;
-    uint32_t             ready_mask;       /* VC_READY_BIT()s seen */
-    uint32_t             attempt_since_ms; /* LOST_LINE / DECODE timer */
-    uint8_t              attempts;         /* LOST_LINE search attempts */
-    uint8_t              retries;          /* barcode read retries */
-    bool                 avoid_wait_stop; /* wheels must stop before scanning */
-    uint8_t              rejoin_steer_left; /* slow steering samples left after bypass */
-    uint32_t             junction_stop_ms; /* JUNCTION_STOP: when S2 confirmed the stop */
-    uint8_t              junction_stopped; /* JUNCTION_STOP: 1 = standing, holding */
-    uint8_t              exec_phase;       /* EXECUTE_ACTION: VC_EXEC_* */
-    bool                 pause_stopped;
-    uint32_t             pause_since_ms;
-    uint32_t             odo;              /* last S2 odometer (L + R counts) seen in an event */
-    uint32_t             turn_odo0;        /* odometer when the junction turn began */
-    uint32_t             turn_gate;        /* counts before the line may end the turn, 0 = not watching */
-    int8_t               lost_side;        /* -1 left, +1 right, 0 unknown */
-    vc_uturn_t           ut;               /* U-turn steps */
-    navigation_command_t pending_nav;      /* decoded action for next junction */
+    vc_status_t st;
+    uint32_t    ready_mask;        /* VC_READY_BIT()s seen */
+    uint32_t    attempt_since_ms;  /* LOST_LINE / DECODE timer */
+    uint8_t     attempts;          /* LOST_LINE search attempts */
+    uint8_t     retries;           /* barcode read retries */
+    bool        avoid_wait_stop;   /* wheels must stop before scanning */
+    uint8_t     rejoin_steer_left; /* slow steering samples left after bypass */
+    uint32_t   junction_stop_ms; /* JUNCTION_STOP: when S2 confirmed the stop */
+    uint8_t    junction_stopped; /* JUNCTION_STOP: 1 = standing, holding */
+    uint8_t    exec_phase;       /* EXECUTE_ACTION: VC_EXEC_* */
+    bool       pause_stopped;
+    uint32_t   pause_since_ms;
+    uint32_t   odo;       /* last S2 odometer (L + R counts) seen in an event */
+    uint32_t   turn_odo0; /* odometer when the junction turn began */
+    uint32_t   turn_gate; /* counts before the line may end the turn, 0 = not
+                             watching */
+    int8_t     lost_side; /* -1 left, +1 right, 0 unknown */
+    vc_uturn_t ut;        /* U-turn steps */
+    navigation_command_t pending_nav; /* decoded action for next junction */
     char                 pending_barcode[16]; /* full decoded barcode text */
 } vc_sm_t;
 

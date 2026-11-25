@@ -75,14 +75,15 @@ static void feed(vc_source_t src, vc_event_type_t type, int32_t param1,
     tally_add();
 }
 
-static void feed_barcode(const char *text)
+static void feed_barcode(const char * text)
 {
     vc_event_t event = { 0 };
-    size_t i;
+    size_t     i;
 
-    event.src = VC_SRC_LINE;
+    event.src  = VC_SRC_LINE;
     event.type = VC_EV_BARCODE_DECODED;
-    for (i = 0u; (i < sizeof(event.barcode_text) - 1u) && (text[i] != '\0'); i++)
+    for (i = 0u; (i < sizeof(event.barcode_text) - 1u) && (text[i] != '\0');
+         i++)
     {
         event.barcode_text[i] = text[i];
     }
@@ -155,8 +156,8 @@ static void test_startup(void)
     CHECK("S6-H01", (VC_ST_IDLE == g_sm.st.state) && (0 == g_actions.n),
           "IDLE ignores move requests");
     feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
-    CHECK("S6-SAFE01", (VC_ST_IDLE == g_sm.st.state) &&
-              has_move(VC_MOVE_RESET, 0, 0),
+    CHECK("S6-SAFE01",
+          (VC_ST_IDLE == g_sm.st.state) && has_move(VC_MOVE_RESET, 0, 0),
           "reset in IDLE is forwarded to motion control");
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
     CHECK("S6-H02",
@@ -194,8 +195,8 @@ static void test_startup(void)
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_READY, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_FAULT, VC_FAULT_CRITICAL, 0x2011);
-    CHECK("S6-SAFE02", (VC_ST_FAULT == g_sm.st.state) &&
-              has_move(VC_MOVE_SAFE_STOP, 0, 0),
+    CHECK("S6-SAFE02",
+          (VC_ST_FAULT == g_sm.st.state) && has_move(VC_MOVE_SAFE_STOP, 0, 0),
           "safe stop after motion READY faults the mission");
 }
 
@@ -223,10 +224,11 @@ static void test_arbitration(void)
 static void junction_advance(void)
 {
 #if VC_JUNCTION_ADVANCE_MM > 0
-    CHECK("S6-H45", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_ADVANCE_MM, 1) &&
-          !has_move(VC_MOVE_TURN_LEFT, VC_TURN_CMD_DEG, 1) &&
-          !has_move(VC_MOVE_TURN_RIGHT, VC_TURN_CMD_DEG, 1),
+    CHECK("S6-H45",
+          (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+              has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_ADVANCE_MM, 1) &&
+              !has_move(VC_MOVE_TURN_LEFT, VC_TURN_CMD_DEG, 1) &&
+              !has_move(VC_MOVE_TURN_RIGHT, VC_TURN_CMD_DEG, 1),
           "turn at a junction starts with the advance, no turn yet");
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
 #endif
@@ -264,37 +266,47 @@ static void test_barcode(void)
     CHECK("S6-H13b",
           (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
               has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1),
-          "after S2 confirms stopped, unknown barcode defaults to straight clear");
+          "after S2 confirms stopped, unknown barcode defaults to straight "
+          "clear");
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
-    CHECK("S6-H13a", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-          (NAV_NONE == g_sm.pending_nav) && ('\0' == g_sm.pending_barcode[0]),
+    CHECK("S6-H13a",
+          (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+              (NAV_NONE == g_sm.pending_nav) &&
+              ('\0' == g_sm.pending_barcode[0]),
           "junction action complete clears buffered barcode");
 
     /* Full-string rules are exercised with test-only mappings. */
     feed_barcode("TESTLEFT");
     CHECK("S6-H13c", NAV_LEFT == g_sm.pending_nav,
-          "full barcode string maps to LEFT; matching is not first-character based");
+          "full barcode string maps to LEFT; matching is not first-character "
+          "based");
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     junction_advance();
-    CHECK("S6-H13d", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          has_move(VC_MOVE_TURN_LEFT, VC_TURN_CMD_DEG, 1),
+    CHECK("S6-H13d",
+          (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+              has_move(VC_MOVE_TURN_LEFT, VC_TURN_CMD_DEG, 1),
           "configured full-string rule executes only after stop confirmation");
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
 
     /* Dashboard "At every junction: Right" (vc_bridge_s3.c): an action-only
        BARCODE_DECODED (p1 = nav, no text) just before the JUNCTION. */
     feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_RIGHT, 0);
-    CHECK("S6-H13e", (VC_ST_FOLLOW_LINE == g_sm.st.state) && (NAV_RIGHT == g_sm.pending_nav),
+    CHECK("S6-H13e",
+          (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+              (NAV_RIGHT == g_sm.pending_nav),
           "action-only event sets RIGHT and keeps following");
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     junction_advance();
-    CHECK("S6-H13f", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          has_move(VC_MOVE_TURN_RIGHT, VC_TURN_CMD_DEG, 1),
+    CHECK("S6-H13f",
+          (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+              has_move(VC_MOVE_TURN_RIGHT, VC_TURN_CMD_DEG, 1),
           "junction after it: stop, then turn RIGHT");
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
-    CHECK("S6-H13g", (VC_ST_FOLLOW_LINE == g_sm.st.state) && (NAV_NONE == g_sm.pending_nav),
+    CHECK("S6-H13g",
+          (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+              (NAV_NONE == g_sm.pending_nav),
           "after the turn: follow the line again, action cleared");
 
     /* A junction without any barcode follows the same safe straight path. */
@@ -302,8 +314,9 @@ static void test_barcode(void)
     CHECK("S6-H14", VC_ST_JUNCTION_STOP == g_sm.st.state,
           "junction without barcode still stops first");
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
-    CHECK("S6-H14a", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1),
+    CHECK("S6-H14a",
+          (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+              has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1),
           "no barcode -> move straight far enough to clear junction");
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
     CHECK("S6-H14b", (VC_ST_FOLLOW_LINE == g_sm.st.state),
@@ -312,8 +325,9 @@ static void test_barcode(void)
     /* A stop that never completes must fail safe rather than turning. */
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     advance(VC_JUNCTION_STOP_MS + 20);
-    CHECK("S6-H14c", (VC_ST_FAULT == g_sm.st.state) &&
-          (VC_FC_JUNCTION_STOP == g_sm.st.last_fault_code),
+    CHECK("S6-H14c",
+          (VC_ST_FAULT == g_sm.st.state) &&
+              (VC_FC_JUNCTION_STOP == g_sm.st.last_fault_code),
           "stop confirmation timeout -> critical safe stop");
 
     start_mission();
@@ -345,9 +359,10 @@ static void test_barcode(void)
     feed_barcode("UTURN");
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
-    CHECK("S6-H18", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          !has_move(VC_MOVE_U_TURN, 0, 0) &&
-          has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1),
+    CHECK("S6-H18",
+          (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+              !has_move(VC_MOVE_U_TURN, 0, 0) &&
+              has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1),
           "unconfigured UTURN text defaults to straight, not U-turn");
     advance(VC_EXECUTE_MS + 20);
     CHECK("S6-H18a", VC_ST_LOST_LINE == g_sm.st.state,
@@ -367,8 +382,9 @@ static void test_turn_on_line(void)
     const uint32_t odo0 = 100000u;
     const uint32_t gate = VC_PIVOT_COUNTS(VC_TURN_GATE_DEG);
 
-    CHECK("S6-H50", (gate > 400u) && (gate < 520u) &&
-          (VC_PIVOT_COUNTS(90) > 650u) && (VC_PIVOT_COUNTS(90) < 740u),
+    CHECK("S6-H50",
+          (gate > 400u) && (gate < 520u) && (VC_PIVOT_COUNTS(90) > 650u) &&
+              (VC_PIVOT_COUNTS(90) < 740u),
           "pivot counts: 60 deg ~461, 90 deg ~692 (track 130, 692 ticks/rev)");
 
     start_mission();
@@ -377,9 +393,10 @@ static void test_turn_on_line(void)
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     junction_advance();
-    CHECK("S6-H52", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          has_move(VC_MOVE_TURN_LEFT, VC_TURN_MAX_DEG, 1) &&
-          (gate == g_sm.turn_gate),
+    CHECK("S6-H52",
+          (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+              has_move(VC_MOVE_TURN_LEFT, VC_TURN_MAX_DEG, 1) &&
+              (gate == g_sm.turn_gate),
           "LEFT asks S2 for the max angle and watches for the line");
     line_at(odo0 + 10u); /* sensors still on the crossing as the turn starts */
     CHECK("S6-H51", VC_ST_EXECUTE_ACTION == g_sm.st.state,
@@ -388,9 +405,10 @@ static void test_turn_on_line(void)
     CHECK("S6-H53", VC_ST_EXECUTE_ACTION == g_sm.st.state,
           "line before the gate (the arm it came from) is ignored");
     line_at(g_sm.turn_odo0 + gate + 5u);
-    CHECK("S6-H54", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-          (NAV_NONE == g_sm.pending_nav) && (0u == g_sm.turn_gate) &&
-          has_move(VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS, 1),
+    CHECK("S6-H54",
+          (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+              (NAV_NONE == g_sm.pending_nav) && (0u == g_sm.turn_gate) &&
+              has_move(VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS, 1),
           "line after the gate ends the turn: follow the new arm");
 
     /* no line by the max angle: S2's MANOEUVRE_DONE ends it as before */
@@ -399,33 +417,38 @@ static void test_turn_on_line(void)
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     junction_advance();
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
-    CHECK("S6-H55", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-          (0u == g_sm.turn_gate),
+    CHECK("S6-H55",
+          (VC_ST_FOLLOW_LINE == g_sm.st.state) && (0u == g_sm.turn_gate),
           "no line seen: turn ends at the max angle, follow as before");
 
     /* U-turn: stop, then the fast pivot (the rest: test_uturn) */
     tally_clear();
     feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_U_TURN, 0);
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
-    CHECK("S6-H56", (VC_ST_JUNCTION_STOP == g_sm.st.state) &&
-          (0 == g_tally[VC_MOVE_U_TURN]),
+    CHECK("S6-H56",
+          (VC_ST_JUNCTION_STOP == g_sm.st.state) &&
+              (0 == g_tally[VC_MOVE_U_TURN]),
           "U-turn: the robot stops at the junction before it pivots");
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
-    CHECK("S6-H57", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          has_move(VC_MOVE_U_TURN, VC_UTURN_FAST_DEG, 1) &&
-          (1 == g_tally[VC_MOVE_U_TURN]) &&
-          (0 == g_tally[VC_MOVE_DRIVE_DIST]) && (0u == g_sm.turn_gate) &&
-          (VC_EXEC_UTURN == g_sm.exec_phase) &&
-          has_request(VC_SRC_LINE, VC_REQ_LINE_WATCH),
-          "U-turn: fast pivot in place to VC_UTURN_FAST_DEG (no advance), line watch on");
+    CHECK("S6-H57",
+          (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+              has_move(VC_MOVE_U_TURN, VC_UTURN_FAST_DEG, 1) &&
+              (1 == g_tally[VC_MOVE_U_TURN]) &&
+              (0 == g_tally[VC_MOVE_DRIVE_DIST]) && (0u == g_sm.turn_gate) &&
+              (VC_EXEC_UTURN == g_sm.exec_phase) &&
+              has_request(VC_SRC_LINE, VC_REQ_LINE_WATCH),
+          "U-turn: fast pivot in place to VC_UTURN_FAST_DEG (no advance), line "
+          "watch on");
     {
         uint32_t u0 = g_sm.odo; /* odometer as the pivot starts */
 
         line_at(u0 + VC_PIVOT_COUNTS(90));
         line_at(u0 + VC_PIVOT_COUNTS(170));
     }
-    CHECK("S6-H58", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          (VC_EXEC_UTURN == g_sm.exec_phase) && (NAV_U_TURN == g_sm.pending_nav),
+    CHECK("S6-H58",
+          (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+              (VC_EXEC_UTURN == g_sm.exec_phase) &&
+              (NAV_U_TURN == g_sm.pending_nav),
           "U-turn: LINE_FOUND at 90 and 170 deg does not end the pivot");
     feed(VC_SRC_COMMS, VC_EV_CMD_STOP, 0, 0);
     feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
@@ -436,8 +459,8 @@ static void test_turn_on_line(void)
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     line_at(g_sm.odo + 5000u);
-    CHECK("S6-H59", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          (0u == g_sm.turn_gate),
+    CHECK("S6-H59",
+          (VC_ST_EXECUTE_ACTION == g_sm.st.state) && (0u == g_sm.turn_gate),
           "STRAIGHT: line events do not end the clearing drive");
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
 #endif
@@ -448,8 +471,9 @@ static void test_junction_in_decode(void)
     start_mission();
     feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
-    CHECK("S6-H42", (VC_ST_JUNCTION_STOP == g_sm.st.state) &&
-          has_move(VC_MOVE_STOP_CONFIRM, 0, 1),
+    CHECK("S6-H42",
+          (VC_ST_JUNCTION_STOP == g_sm.st.state) &&
+              has_move(VC_MOVE_STOP_CONFIRM, 0, 1),
           "junction during DECODE_BARCODE is not dropped: stop first");
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
@@ -459,8 +483,8 @@ static void test_junction_in_decode(void)
     /* one failed read: no waiting for a retry that cannot happen */
     feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
     feed(VC_SRC_LINE, VC_EV_BARCODE_FAILED, 0, 0);
-    CHECK("S6-H44", (VC_BARCODE_MAX_RETRY > 0) ||
-          (VC_ST_FOLLOW_LINE == g_sm.st.state),
+    CHECK("S6-H44",
+          (VC_BARCODE_MAX_RETRY > 0) || (VC_ST_FOLLOW_LINE == g_sm.st.state),
           "failed read returns to FOLLOW_LINE at once (retry 0)");
 }
 
@@ -516,7 +540,8 @@ static void test_obstacle(void)
     CHECK("S6-OBS05", has_move(VC_MOVE_STOP_CONFIRM, 0, 1),
           "S5 stop for a line sighting waits for physical confirmation");
     feed(VC_SRC_OBST, VC_EV_AVOID_DONE, 0, 0);
-    CHECK("S6-H24", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+    CHECK("S6-H24",
+          (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
               has_move(VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS, 1) &&
               !has_move(VC_MOVE_FORWARD, 0, 0),
           "confirmed line reacquisition waits for steering at slow speed");
@@ -538,7 +563,8 @@ static void test_obstacle(void)
     }
     feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_STEER, 0);
     CHECK("S6-OBS09",
-          !b_early_cruise && has_move(VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS, 1),
+          !b_early_cruise &&
+              has_move(VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS, 1),
           "cruise resumes on the expected steering sample");
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
@@ -553,7 +579,8 @@ static void test_obstacle(void)
     start_mission();
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
     advance(VC_JUNCTION_STOP_MS);
-    CHECK("S6-OBS04", VC_ST_FAULT == g_sm.st.state && has_move(VC_MOVE_SAFE_STOP, 0, 1),
+    CHECK("S6-OBS04",
+          VC_ST_FAULT == g_sm.st.state && has_move(VC_MOVE_SAFE_STOP, 0, 1),
           "missing stop confirmation faults instead of moving");
     start_mission();
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
@@ -621,7 +648,6 @@ static void test_faults(void)
               has_move(VC_MOVE_STOP, 0, 0),
           "end of course -> MISSION_COMPLETE");
 }
-
 
 /* lift ends the run (professor's IMU change; collision detection removed) */
 #define LIFT_CODE 0x4005
@@ -691,7 +717,8 @@ static void test_lift(void)
               (LIFT_CODE == g_sm.st.last_fault_code) &&
               (VC_SRC_IMU == g_sm.st.last_fault_src) &&
               (VC_FAULT_NON_CRITICAL == g_sm.st.last_fault_sev),
-          "lift in FOLLOW_LINE -> MISSION_COMPLETE, stop all, cause IMU 0x4005 non-critical");
+          "lift in FOLLOW_LINE -> MISSION_COMPLETE, stop all, cause IMU 0x4005 "
+          "non-critical");
     CHECK("VC-L03", lift_ends_run_in(VC_ST_DECODE_BARCODE),
           "lift while reading a barcode ends the run");
     CHECK("VC-L04", lift_ends_run_in(VC_ST_JUNCTION_STOP),
@@ -707,7 +734,8 @@ static void test_lift(void)
     start_mission();
     feed_lift();
     feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_FORWARD, 100);
-    CHECK("VC-L08", !any_move(), "after lift: set-down line follow request refused");
+    CHECK("VC-L08", !any_move(),
+          "after lift: set-down line follow request refused");
     feed(VC_SRC_LINE, VC_EV_LINE_FOUND, 0, 0);
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
@@ -715,15 +743,18 @@ static void test_lift(void)
     feed(VC_SRC_IMU, VC_EV_HUMP_START, 0, 0);
     advance(5000u);
     CHECK("VC-L09", VC_ST_MISSION_COMPLETE == g_sm.st.state,
-          "after lift: line, junction, obstacle, hump events and time change nothing");
+          "after lift: line, junction, obstacle, hump events and time change "
+          "nothing");
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     CHECK("VC-L10", (VC_ST_MISSION_COMPLETE == g_sm.st.state) && !any_move(),
           "after lift: nothing but Start or Reset leaves MISSION_COMPLETE");
     feed_lift();
-    CHECK("VC-L11", (VC_ST_MISSION_COMPLETE == g_sm.st.state) && (0 == g_actions.n),
+    CHECK("VC-L11",
+          (VC_ST_MISSION_COMPLETE == g_sm.st.state) && (0 == g_actions.n),
           "second lift while complete: no change, no action");
     feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
-    CHECK("VC-L12", (VC_ST_IDLE == g_sm.st.state) && has_move(VC_MOVE_RESET, 0, 0),
+    CHECK("VC-L12",
+          (VC_ST_IDLE == g_sm.st.state) && has_move(VC_MOVE_RESET, 0, 0),
           "Reset after lift -> IDLE, motion latch cleared");
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
     CHECK("VC-L13", VC_ST_MISSION_START == g_sm.st.state,
@@ -746,8 +777,7 @@ static void test_lift(void)
           "lift then Start: mission runs again once subsystems are ready");
     feed_lift();
     feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
-    CHECK("VC-S03", VC_ST_IDLE == g_sm.st.state,
-          "lift then Reset still works");
+    CHECK("VC-S03", VC_ST_IDLE == g_sm.st.state, "lift then Reset still works");
     feed_lift();
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
     feed_lift();
@@ -765,7 +795,8 @@ static void test_lift(void)
         for (int32_t idx = 0; idx < g_actions.n; idx++)
         {
             if ((VC_ACT_MOVE == g_actions.a[idx].kind) &&
-                (g_actions.a[idx].p1 == (int32_t)VC_MOVE_RESET) && (reset_at < 0))
+                (g_actions.a[idx].p1 == (int32_t)VC_MOVE_RESET) &&
+                (reset_at < 0))
             {
                 reset_at = idx;
             }
@@ -792,7 +823,8 @@ static void test_lift(void)
     CHECK("VC-S08",
           (VC_ST_FAULT == g_sm.st.state) &&
               (VC_FC_SELF_CHECK == g_sm.st.last_fault_code),
-          "S2 still not ready after Start (robot still lifted): FAULT 0x0002 as before");
+          "S2 still not ready after Start (robot still lifted): FAULT 0x0002 "
+          "as before");
 
     /* overturn FAULT stays Reset-first */
     start_mission();
@@ -830,8 +862,8 @@ static void test_letter_config(void)
 #undef VC_EXPECT
     };
     int32_t all_match = 1;
-    int32_t not_none = 0;
-    char    text[2] = { 'A', '\0' };
+    int32_t not_none  = 0;
+    char    text[2]   = { 'A', '\0' };
 
     for (uint32_t i = 0u; i < VC_BARCODE_LETTER_COUNT; i++)
     {
@@ -906,7 +938,10 @@ static int32_t count_moves(vc_move_t move, int32_t value)
 static int32_t g_ut_log[64][2];
 static int32_t g_ut_log_n;
 
-static void ut_log_clear(void) { g_ut_log_n = 0; }
+static void ut_log_clear(void)
+{
+    g_ut_log_n = 0;
+}
 
 static void ut_log_add(void)
 {
@@ -947,11 +982,11 @@ static void ut_sample_now(int32_t mask)
 
     g_now_ms += 10u;
     g_ut_sample_ms = g_now_ms;
-    event.src     = VC_SRC_LINE;
-    event.type    = VC_EV_LINE_SAMPLE;
-    event.p1      = mask;
-    event.p2      = (int32_t)g_ut_odo;
-    event.time_ms = g_ut_sample_ms;
+    event.src      = VC_SRC_LINE;
+    event.type     = VC_EV_LINE_SAMPLE;
+    event.p1       = mask;
+    event.p2       = (int32_t)g_ut_odo;
+    event.time_ms  = g_ut_sample_ms;
     vc_sm_handle(&g_sm, &event, g_now_ms, &g_actions);
     tally_add();
     ut_log_add();
@@ -1022,10 +1057,10 @@ static void ut_fast(void)
 static void uturn_clean(void)
 {
     ut_fast();
-    ut_turn_seeing((uint32_t)UT_DEG(30), 8u, 0);      /* white, approaching */
-    ut_turn_seeing(16u, 8u, VC_LINE_C);                /* C on the tape */
-    ut_turn_seeing(24u, 8u, VC_LINE_C);                /* braking, still on C */
-    ut_turn_seeing(16u, 8u, 0);                        /* C lets it go */
+    ut_turn_seeing((uint32_t)UT_DEG(30), 8u, 0); /* white, approaching */
+    ut_turn_seeing(16u, 8u, VC_LINE_C);          /* C on the tape */
+    ut_turn_seeing(24u, 8u, VC_LINE_C);          /* braking, still on C */
+    ut_turn_seeing(16u, 8u, 0);                  /* C lets it go */
     ut_motion(VC_EV_MOTION_STOPPED);
     for (int32_t n = 0; n < VC_UTURN_VERIFY_SAMPLES; n++)
     {
@@ -1038,53 +1073,61 @@ static void test_uturn(void)
     int32_t h;
 
     /* settings */
-    CHECK("UT-01", (VC_UTURN_FAST_DEG >= 90) &&
-          (VC_UTURN_FAST_DEG < VC_UTURN_CMD_DEG) &&
-          (VC_UTURN_SLOW_MMS < 120) && (VC_TURN_GATE_DEG == 60) &&
-          (VC_TURN_MAX_DEG == 135) && (VC_TURN_CMD_DEG == 135),
+    CHECK("UT-01",
+          (VC_UTURN_FAST_DEG >= 90) && (VC_UTURN_FAST_DEG < VC_UTURN_CMD_DEG) &&
+              (VC_UTURN_SLOW_MMS < 120) && (VC_TURN_GATE_DEG == 60) &&
+              (VC_TURN_MAX_DEG == 135) && (VC_TURN_CMD_DEG == 135),
           "U-turn settings: fast part past 90 deg, short of the expected "
           "heading, slow pivot slower than the turn speed; LEFT/RIGHT "
           "tuning unchanged");
 
     /* 1. clean turn: no correction */
     ut_begin();
-    CHECK("UT-02", has_move(VC_MOVE_U_TURN, VC_UTURN_FAST_DEG, 1) &&
-          logged(VC_UT_START, VC_UTURN_FAST_DEG, 1),
+    CHECK("UT-02",
+          has_move(VC_MOVE_U_TURN, VC_UTURN_FAST_DEG, 1) &&
+              logged(VC_UT_START, VC_UTURN_FAST_DEG, 1),
           "start: fast pivot asked for VC_UTURN_FAST_DEG and logged");
     ut_fast();
-    CHECK("UT-03", (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
-          has_move(VC_MOVE_PIVOT, VC_UTURN_SLOW_MMS, 1) &&
-          logged(VC_UT_FAST_DONE, 0, 0) &&
-          logged(VC_UT_SWEEP, VC_UT_APPROACH, 1),
+    CHECK("UT-03",
+          (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
+              has_move(VC_MOVE_PIVOT, VC_UTURN_SLOW_MMS, 1) &&
+              logged(VC_UT_FAST_DONE, 0, 0) &&
+              logged(VC_UT_SWEEP, VC_UT_APPROACH, 1),
           "fast pivot done: slow pivot left at VC_UTURN_SLOW_MMS (approach)");
     tally_clear();
     for (int32_t n = 0; n < 10; n++)
     {
         ut_tick();
     }
-    CHECK("UT-04", (g_tally[VC_MOVE_PIVOT] >= 1) && (g_tally[VC_MOVE_PIVOT] <= 3) &&
-          (VC_EXEC_UT_SWEEP == g_sm.exec_phase),
-          "slow pivot is refreshed about every VC_UTURN_REFRESH_MS (S2 drive timeout)");
+    CHECK("UT-04",
+          (g_tally[VC_MOVE_PIVOT] >= 1) && (g_tally[VC_MOVE_PIVOT] <= 3) &&
+              (VC_EXEC_UT_SWEEP == g_sm.exec_phase),
+          "slow pivot is refreshed about every VC_UTURN_REFRESH_MS (S2 drive "
+          "timeout)");
     ut_turn_seeing((uint32_t)UT_DEG(25), 8u, 0);
     tally_clear();
     ut_log_clear();
     ut_turn_seeing(8u, 8u, VC_LINE_C);
-    CHECK("UT-05", (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
-          (0 == g_tally[VC_MOVE_STOP_CONFIRM]),
+    CHECK("UT-05",
+          (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
+              (0 == g_tally[VC_MOVE_STOP_CONFIRM]),
           "one black sample is not yet a sighting");
     h = g_sm.ut.heading + 8;
     ut_turn_seeing(8u, 8u, VC_LINE_C);
-    CHECK("UT-06", (VC_EXEC_UT_BRAKE == g_sm.exec_phase) &&
-          (1 == g_tally[VC_MOVE_STOP_CONFIRM]) &&
-          logged(VC_UT_SIGHT, VC_LINE_C, 1) && logged(VC_UT_BRAKE, 1, 1) &&
-          (VC_LINE_C == g_sm.ut.sight) && (h == g_sm.ut.sight_h),
-          "two black samples on C: sighting logged with its heading, stop asked");
+    CHECK(
+        "UT-06",
+        (VC_EXEC_UT_BRAKE == g_sm.exec_phase) &&
+            (1 == g_tally[VC_MOVE_STOP_CONFIRM]) &&
+            logged(VC_UT_SIGHT, VC_LINE_C, 1) && logged(VC_UT_BRAKE, 1, 1) &&
+            (VC_LINE_C == g_sm.ut.sight) && (h == g_sm.ut.sight_h),
+        "two black samples on C: sighting logged with its heading, stop asked");
     ut_turn_seeing(24u, 8u, VC_LINE_C);
     ut_turn_seeing(16u, 8u, 0);
     ut_log_clear();
     ut_motion(VC_EV_MOTION_STOPPED);
-    CHECK("UT-07", (VC_EXEC_UT_VERIFY == g_sm.exec_phase) &&
-          logged(VC_UT_SETTLED, 40, 1),
+    CHECK("UT-07",
+          (VC_EXEC_UT_VERIFY == g_sm.exec_phase) &&
+              logged(VC_UT_SETTLED, 40, 1),
           "S2 confirms the stop: settled counts after the request logged (40)");
     tally_clear();
     ut_sample_now(0);
@@ -1092,15 +1135,17 @@ static void test_uturn(void)
     CHECK("UT-08", VC_EXEC_UT_VERIFY == g_sm.exec_phase,
           "alignment needs VC_UTURN_VERIFY_SAMPLES fresh samples");
     ut_sample_now(0);
-    CHECK("UT-09", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-          logged(VC_UT_VERDICT, VC_UT_V_BETWEEN, 1) && logged(VC_UT_DONE, 0, 0) &&
-          (0 == g_tally[VC_MOVE_PIVOT]) && (0 == g_tally[VC_MOVE_DRIVE_DIST]) &&
-          has_move(VC_MOVE_FORWARD, VC_SPEED_SLOW_MMS, 1) &&
-          has_move(VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS, 1) &&
-          !has_move(VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS, 1) &&
-          (VC_REJOIN_STEER_SAMPLES == g_sm.rejoin_steer_left) &&
-          (NAV_NONE == g_sm.pending_nav) &&
-          has_request(VC_SRC_LINE, VC_REQ_LINE_FOLLOW),
+    CHECK("UT-09",
+          (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+              logged(VC_UT_VERDICT, VC_UT_V_BETWEEN, 1) &&
+              logged(VC_UT_DONE, 0, 0) && (0 == g_tally[VC_MOVE_PIVOT]) &&
+              (0 == g_tally[VC_MOVE_DRIVE_DIST]) &&
+              has_move(VC_MOVE_FORWARD, VC_SPEED_SLOW_MMS, 1) &&
+              has_move(VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS, 1) &&
+              !has_move(VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS, 1) &&
+              (VC_REJOIN_STEER_SAMPLES == g_sm.rejoin_steer_left) &&
+              (NAV_NONE == g_sm.pending_nav) &&
+              has_request(VC_SRC_LINE, VC_REQ_LINE_FOLLOW),
           "clean turn: C let the tape go, R never saw it = between C and R; "
           "no correction, no straight drive, slow line following");
     tally_clear();
@@ -1108,29 +1153,34 @@ static void test_uturn(void)
     {
         feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_STEER, 0);
     }
-    CHECK("UT-10", has_move(VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS, 1) &&
-          (0u == g_sm.rejoin_steer_left),
+    CHECK("UT-10",
+          has_move(VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS, 1) &&
+              (0u == g_sm.rejoin_steer_left),
           "after VC_REJOIN_STEER_SAMPLES fresh steering samples: cruise");
     tally_clear();
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
-    CHECK("UT-11", (0 == g_tally[VC_MOVE_U_TURN]) &&
-          has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1),
+    CHECK("UT-11",
+          (0 == g_tally[VC_MOVE_U_TURN]) &&
+              has_move(VC_MOVE_DRIVE_DIST, VC_JUNCTION_CLEAR_MM, 1),
           "the U-turn is used once: the next junction goes straight");
 
     /* 2. early sightings (the junction, its 90 deg side arm) are ignored */
     ut_begin();
     tally_clear();
-    ut_turn_seeing((uint32_t)UT_DEG(10), 8u, VC_LINE_C | VC_LINE_R); /* crossing */
+    ut_turn_seeing((uint32_t)UT_DEG(10), 8u, VC_LINE_C | VC_LINE_R); /* crossing
+                                                                      */
     ut_turn_seeing((uint32_t)UT_DEG(55), 8u, 0);
-    ut_turn_seeing((uint32_t)UT_DEG(20), 8u, VC_LINE_C);              /* side arm */
+    ut_turn_seeing((uint32_t)UT_DEG(20), 8u, VC_LINE_C); /* side arm */
     feed(VC_SRC_LINE, VC_EV_LINE_FOUND, 0, (int32_t)g_ut_odo);
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
-    CHECK("UT-12", (VC_EXEC_UTURN == g_sm.exec_phase) &&
-          (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-          (0 == g_tally[VC_MOVE_STOP_CONFIRM]) && (0 == g_tally[VC_MOVE_PIVOT]) &&
-          logged(VC_UT_EARLY, VC_LINE_C | VC_LINE_R, 1) &&
-          (0u == g_sm.ut.sight),
+    CHECK("UT-12",
+          (VC_EXEC_UTURN == g_sm.exec_phase) &&
+              (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+              (0 == g_tally[VC_MOVE_STOP_CONFIRM]) &&
+              (0 == g_tally[VC_MOVE_PIVOT]) &&
+              logged(VC_UT_EARLY, VC_LINE_C | VC_LINE_R, 1) &&
+              (0u == g_sm.ut.sight),
           "line on the crossing and on the 90 deg arm during the fast pivot: "
           "logged once, ignored, nothing stops or ends the U-turn");
 
@@ -1138,46 +1188,50 @@ static void test_uturn(void)
     ut_begin();
     ut_fast();
     ut_turn_seeing((uint32_t)UT_DEG(30), 8u, 0);
-    ut_turn_seeing(16u, 8u, VC_LINE_C);    /* sighting, stop asked */
+    ut_turn_seeing(16u, 8u, VC_LINE_C); /* sighting, stop asked */
     h = g_sm.ut.sight_h;
-    ut_turn_seeing(48u, 8u, 0);            /* between, still turning */
-    ut_turn_seeing(48u, 8u, VC_LINE_R);    /* under R */
-    ut_turn_seeing(40u, 8u, 0);            /* out past R */
+    ut_turn_seeing(48u, 8u, 0);         /* between, still turning */
+    ut_turn_seeing(48u, 8u, VC_LINE_R); /* under R */
+    ut_turn_seeing(40u, 8u, 0);         /* out past R */
     ut_motion(VC_EV_MOTION_STOPPED);
     tally_clear();
     ut_log_clear();
     ut_sample_now(0);
     ut_sample_now(0);
     ut_sample_now(0);
-    CHECK("UT-13", (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
-          logged(VC_UT_VERDICT, VC_UT_V_PASSED, 1) &&
-          logged(VC_UT_SWEEP, -(int32_t)VC_UT_CORRECT, 1) &&
-          has_move(VC_MOVE_PIVOT, -VC_UTURN_SLOW_MMS, 1) &&
-          (g_sm.ut.bound == h - UT_DEG(VC_UTURN_CORRECT_DEG)) &&
-          (VC_ST_EXECUTE_ACTION == g_sm.st.state),
+    CHECK("UT-13",
+          (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
+              logged(VC_UT_VERDICT, VC_UT_V_PASSED, 1) &&
+              logged(VC_UT_SWEEP, -(int32_t)VC_UT_CORRECT, 1) &&
+              has_move(VC_MOVE_PIVOT, -VC_UTURN_SLOW_MMS, 1) &&
+              (g_sm.ut.bound == h - UT_DEG(VC_UTURN_CORRECT_DEG)) &&
+              (VC_ST_EXECUTE_ACTION == g_sm.st.state),
           "overshoot: R let the line go = turned past it; pivot back slowly "
           "(right), bounded at the sighting minus VC_UTURN_CORRECT_DEG");
     tally_clear();
     ut_log_clear();
     ut_motion(VC_EV_MANOEUVRE_DONE); /* late completion of the fast pivot */
-    CHECK("UT-14", (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
-          (VC_ST_EXECUTE_ACTION == g_sm.st.state) && (0 == g_actions.n),
+    CHECK("UT-14",
+          (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
+              (VC_ST_EXECUTE_ACTION == g_sm.st.state) && (0 == g_actions.n),
           "a late MANOEUVRE_DONE does not finish the corrective pivot");
     ut_turn_seeing(40u, 8u, 0);
     tally_clear();
-    ut_turn_seeing(16u, 8u, VC_LINE_R);    /* the line comes back under R */
-    CHECK("UT-15", (VC_EXEC_UT_BRAKE == g_sm.exec_phase) &&
-          (1 == g_tally[VC_MOVE_STOP_CONFIRM]) && (VC_LINE_R == g_sm.ut.sight) &&
-          (g_sm.ut.heading > g_sm.ut.bound),
+    ut_turn_seeing(16u, 8u, VC_LINE_R); /* the line comes back under R */
+    CHECK("UT-15",
+          (VC_EXEC_UT_BRAKE == g_sm.exec_phase) &&
+              (1 == g_tally[VC_MOVE_STOP_CONFIRM]) &&
+              (VC_LINE_R == g_sm.ut.sight) && (g_sm.ut.heading > g_sm.ut.bound),
           "correction: R sees the line, stop asked, heading counted backwards");
     ut_motion(VC_EV_MOTION_STOPPED);
     tally_clear();
     ut_sample_now(VC_LINE_R);
     ut_sample_now(VC_LINE_R);
     ut_sample_now(VC_LINE_R);
-    CHECK("UT-16", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-          has_move(VC_MOVE_FORWARD, VC_SPEED_SLOW_MMS, 1) &&
-          (NAV_NONE == g_sm.pending_nav),
+    CHECK("UT-16",
+          (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+              has_move(VC_MOVE_FORWARD, VC_SPEED_SLOW_MMS, 1) &&
+              (NAV_NONE == g_sm.pending_nav),
           "R on the tape after the correction: aligned, slow line following");
 
     /* 4. undershoot: the fast pivot stops short; the approach finds the
@@ -1194,8 +1248,9 @@ static void test_uturn(void)
     ut_sample_now(VC_LINE_C);
     ut_sample_now(VC_LINE_C);
     ut_sample_now(VC_LINE_C);
-    CHECK("UT-18", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-          (0 == count_moves(VC_MOVE_PIVOT, -VC_UTURN_SLOW_MMS)),
+    CHECK("UT-18",
+          (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+              (0 == count_moves(VC_MOVE_PIVOT, -VC_UTURN_SLOW_MMS)),
           "undershoot: line found ahead under C, aligned, never pivoted back");
 
     /* 5. stale samples and brief noise do not confirm alignment */
@@ -1213,25 +1268,28 @@ static void test_uturn(void)
     ut_sample_now(VC_LINE_R);
     ut_turn(8u);
     ut_sample_now(0);
-    CHECK("UT-19", (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
-          (0 == g_tally[VC_MOVE_STOP_CONFIRM]) && (0u == g_sm.ut.sight),
-          "samples older than the sweep, and single black blips, are no sighting");
+    CHECK("UT-19",
+          (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
+              (0 == g_tally[VC_MOVE_STOP_CONFIRM]) && (0u == g_sm.ut.sight),
+          "samples older than the sweep, and single black blips, are no "
+          "sighting");
     ut_turn_seeing(16u, 8u, VC_LINE_C);
     ut_turn_seeing(16u, 8u, VC_LINE_C);
     ut_motion(VC_EV_MOTION_STOPPED);
     tally_clear();
-    ut_sample_old(VC_LINE_C, 30u);  /* taken before the wheels stopped */
+    ut_sample_old(VC_LINE_C, 30u); /* taken before the wheels stopped */
     ut_sample_old(VC_LINE_C, 20u);
     ut_sample_old(VC_LINE_C, 10u);
     CHECK("UT-20", VC_EXEC_UT_VERIFY == g_sm.exec_phase,
           "samples from before the stop confirmation do not confirm alignment");
     ut_sample_now(VC_LINE_C);
     ut_sample_now(VC_LINE_C);
-    ut_sample_now(0);          /* C goes white: still deciding (unsure) */
+    ut_sample_now(0); /* C goes white: still deciding (unsure) */
     ut_sample_now(VC_LINE_C);
     ut_sample_now(0);
-    CHECK("UT-21", (VC_EXEC_UT_VERIFY == g_sm.exec_phase) &&
-          (VC_ST_EXECUTE_ACTION == g_sm.st.state),
+    CHECK("UT-21",
+          (VC_EXEC_UT_VERIFY == g_sm.exec_phase) &&
+              (VC_ST_EXECUTE_ACTION == g_sm.st.state),
           "flickering fresh samples do not confirm alignment");
     ut_sample_now(VC_LINE_C);
     ut_sample_now(VC_LINE_C);
@@ -1244,21 +1302,24 @@ static void test_uturn(void)
     ut_begin();
     ut_fast();
     ut_log_clear();
-    ut_turn_seeing((uint32_t)UT_DEG(VC_UTURN_APPROACH_DEG + VC_UTURN_SECTOR_DEG) + 16u,
-                   8u, 0);
-    CHECK("UT-23", (VC_EXEC_UT_BRAKE == g_sm.exec_phase) &&
-          logged(VC_UT_BRAKE, 2, 1),
+    ut_turn_seeing(
+        (uint32_t)UT_DEG(VC_UTURN_APPROACH_DEG + VC_UTURN_SECTOR_DEG) + 16u, 8u,
+        0);
+    CHECK("UT-23",
+          (VC_EXEC_UT_BRAKE == g_sm.exec_phase) && logged(VC_UT_BRAKE, 2, 1),
           "no line by VC_UTURN_CMD_DEG + VC_UTURN_SECTOR_DEG: stop (bound)");
     ut_motion(VC_EV_MOTION_STOPPED);
     tally_clear();
     ut_sample_now(0);
     ut_sample_now(0);
     ut_sample_now(0);
-    CHECK("UT-24", (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
-          has_move(VC_MOVE_PIVOT, -VC_UTURN_SLOW_MMS, 1) &&
-          logged(VC_UT_VERDICT, VC_UT_V_NONE, 1) &&
-          logged(VC_UT_SWEEP, -(int32_t)VC_UT_SEARCH, 1) &&
-          (g_sm.ut.bound == UT_DEG(VC_UTURN_CMD_DEG) - UT_DEG(VC_UTURN_SECTOR_DEG)),
+    CHECK("UT-24",
+          (VC_EXEC_UT_SWEEP == g_sm.exec_phase) &&
+              has_move(VC_MOVE_PIVOT, -VC_UTURN_SLOW_MMS, 1) &&
+              logged(VC_UT_VERDICT, VC_UT_V_NONE, 1) &&
+              logged(VC_UT_SWEEP, -(int32_t)VC_UT_SEARCH, 1) &&
+              (g_sm.ut.bound ==
+               UT_DEG(VC_UTURN_CMD_DEG) - UT_DEG(VC_UTURN_SECTOR_DEG)),
           "then search back across the expected heading to its other side");
     {
         int32_t guard = 0;
@@ -1282,19 +1343,20 @@ static void test_uturn(void)
             }
         }
     }
-    CHECK("UT-25", (VC_ST_FAULT == g_sm.st.state) &&
-          (VC_FC_LINE_RECOVERY == g_sm.st.last_fault_code) &&
-          (VC_UTURN_MAX_SWEEPS == g_sm.ut.sweeps) &&
-          has_move(VC_MOVE_SAFE_STOP, 0, 0) && logged(VC_UT_FAIL, 1, 1) &&
-          (NAV_NONE == g_sm.pending_nav),
-          "missing tape: bounded sweeps, then FAULT line recovery 0x0003, motors stopped");
+    CHECK("UT-25",
+          (VC_ST_FAULT == g_sm.st.state) &&
+              (VC_FC_LINE_RECOVERY == g_sm.st.last_fault_code) &&
+              (VC_UTURN_MAX_SWEEPS == g_sm.ut.sweeps) &&
+              has_move(VC_MOVE_SAFE_STOP, 0, 0) && logged(VC_UT_FAIL, 1, 1) &&
+              (NAV_NONE == g_sm.pending_nav),
+          "missing tape: bounded sweeps, then FAULT line recovery 0x0003, "
+          "motors stopped");
     tally_clear();
     for (int32_t n = 0; n < 20; n++)
     {
         ut_tick();
     }
-    CHECK("UT-26", 0 == g_tally[VC_MOVE_PIVOT],
-          "no pivot after the failure");
+    CHECK("UT-26", 0 == g_tally[VC_MOVE_PIVOT], "no pivot after the failure");
 
     /* 7. time bound: S2 never finishes the fast pivot */
     ut_begin();
@@ -1303,9 +1365,12 @@ static void test_uturn(void)
     {
         ut_tick();
     }
-    CHECK("UT-27", (VC_ST_FAULT == g_sm.st.state) &&
-          (VC_FC_LINE_RECOVERY == g_sm.st.last_fault_code) && logged(VC_UT_FAIL, 4, 1),
-          "a U-turn that never ends stops at VC_UTURN_MS with line recovery failure");
+    CHECK("UT-27",
+          (VC_ST_FAULT == g_sm.st.state) &&
+              (VC_FC_LINE_RECOVERY == g_sm.st.last_fault_code) &&
+              logged(VC_UT_FAIL, 4, 1),
+          "a U-turn that never ends stops at VC_UTURN_MS with line recovery "
+          "failure");
 
     /* 8. S2 never confirms the stop */
     ut_begin();
@@ -1317,21 +1382,24 @@ static void test_uturn(void)
         ut_tick();
     }
     CHECK("UT-28", (VC_ST_FAULT == g_sm.st.state) && logged(VC_UT_FAIL, 2, 1),
-          "no stop confirmation within VC_UTURN_SETTLE_MS: FAULT, not a drive-off");
+          "no stop confirmation within VC_UTURN_SETTLE_MS: FAULT, not a "
+          "drive-off");
 
     /* 9. Stop, lift and obstacle interrupt the recovery */
     ut_begin();
     ut_fast();
     tally_clear();
     feed(VC_SRC_COMMS, VC_EV_CMD_STOP, 0, 0);
-    CHECK("UT-29", (VC_ST_FAULT == g_sm.st.state) &&
-          (VC_FC_OPERATOR_STOP == g_sm.st.last_fault_code) &&
-          has_move(VC_MOVE_SAFE_STOP, 0, 0),
+    CHECK("UT-29",
+          (VC_ST_FAULT == g_sm.st.state) &&
+              (VC_FC_OPERATOR_STOP == g_sm.st.last_fault_code) &&
+              has_move(VC_MOVE_SAFE_STOP, 0, 0),
           "Stop during the slow approach: FAULT operator stop, safe stop");
     tally_clear();
     ut_tick();
     ut_turn_seeing(16u, 8u, VC_LINE_C);
-    CHECK("UT-30", (0 == g_tally[VC_MOVE_PIVOT]) && (0 == g_tally[VC_MOVE_STOP_CONFIRM]),
+    CHECK("UT-30",
+          (0 == g_tally[VC_MOVE_PIVOT]) && (0 == g_tally[VC_MOVE_STOP_CONFIRM]),
           "after Stop: no pivot refresh, line samples do nothing");
 
     ut_begin();
@@ -1346,8 +1414,9 @@ static void test_uturn(void)
     ut_sample_now(0); /* correcting now */
     tally_clear();
     feed(VC_SRC_IMU, VC_EV_LIFTED, 1, VC_FC_IMU_SAFETY);
-    CHECK("UT-31", (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
-          has_move(VC_MOVE_STOP, 0, 0),
+    CHECK("UT-31",
+          (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
+              has_move(VC_MOVE_STOP, 0, 0),
           "lift during the correction: MISSION_COMPLETE, motors stopped");
     tally_clear();
     ut_tick();
@@ -1363,8 +1432,10 @@ static void test_uturn(void)
     ut_fast();
     tally_clear();
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
-    CHECK("UT-33", (VC_ST_AVOID_OBSTACLE == g_sm.st.state) &&
-          has_move(VC_MOVE_STOP_CONFIRM, 0, 0) && (NAV_NONE == g_sm.pending_nav),
+    CHECK("UT-33",
+          (VC_ST_AVOID_OBSTACLE == g_sm.st.state) &&
+              has_move(VC_MOVE_STOP_CONFIRM, 0, 0) &&
+              (NAV_NONE == g_sm.pending_nav),
           "obstacle during the U-turn: avoidance takes over, U-turn dropped");
     tally_clear();
     ut_tick();
@@ -1380,10 +1451,11 @@ static void test_uturn(void)
 
         feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_STEER, 500);
         feed(VC_SRC_OBST, VC_EV_MOVE_REQUEST, VC_MOVE_PIVOT, 60);
-        CHECK("UT-35", (0 == g_tally[VC_MOVE_STEER]) &&
-              (0 == g_tally[VC_MOVE_PIVOT]) &&
-              (rejected + 2u == g_sm.st.moves_rejected),
-              "steering or pivot requests from S3 / S5 are refused during the U-turn");
+        CHECK("UT-35",
+              (0 == g_tally[VC_MOVE_STEER]) && (0 == g_tally[VC_MOVE_PIVOT]) &&
+                  (rejected + 2u == g_sm.st.moves_rejected),
+              "steering or pivot requests from S3 / S5 are refused during the "
+              "U-turn");
     }
 
     /* 11. LEFT / RIGHT are unchanged: no line watch, no slow pivot */
@@ -1391,22 +1463,27 @@ static void test_uturn(void)
     tally_clear();
     feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_LEFT, 0);
     junction_to_execute();
-    CHECK("UT-36", has_move(VC_MOVE_TURN_LEFT, VC_TURN_CMD_DEG, 1) &&
-          !has_request(VC_SRC_LINE, VC_REQ_LINE_WATCH) &&
-          (0 == g_tally[VC_MOVE_PIVOT]) && (0 == g_tally[VC_MOVE_U_TURN]),
+    CHECK("UT-36",
+          has_move(VC_MOVE_TURN_LEFT, VC_TURN_CMD_DEG, 1) &&
+              !has_request(VC_SRC_LINE, VC_REQ_LINE_WATCH) &&
+              (0 == g_tally[VC_MOVE_PIVOT]) && (0 == g_tally[VC_MOVE_U_TURN]),
           "LEFT: same turn request as before, no U-turn watch or pivot");
-    CHECK("UT-37", (0 == strcmp("LINE_SAMPLE", vc_event_name(VC_EV_LINE_SAMPLE))) &&
-          (0 == strcmp("CMD_CONFIG", vc_event_name(VC_EV_CMD_CONFIG))),
-          "event names cover the new LINE_SAMPLE (tables size-checked at compile time)");
+    CHECK("UT-37",
+          (0 == strcmp("LINE_SAMPLE", vc_event_name(VC_EV_LINE_SAMPLE))) &&
+              (0 == strcmp("CMD_CONFIG", vc_event_name(VC_EV_CMD_CONFIG))),
+          "event names cover the new LINE_SAMPLE (tables size-checked at "
+          "compile time)");
     start_mission();
     {
         uint32_t rejected = g_sm.st.moves_rejected;
 
         tally_clear();
         feed(VC_SRC_LINE, VC_EV_MOVE_REQUEST, VC_MOVE_PIVOT, 60);
-        CHECK("UT-38", (0 == g_tally[VC_MOVE_PIVOT]) &&
-              (rejected + 1u == g_sm.st.moves_rejected),
-              "PIVOT is the controller's own: refused even from the motion owner");
+        CHECK("UT-38",
+              (0 == g_tally[VC_MOVE_PIVOT]) &&
+                  (rejected + 1u == g_sm.st.moves_rejected),
+              "PIVOT is the controller's own: refused even from the motion "
+              "owner");
     }
     CHECK("UT-39", 0 == g_overflows,
           "no action list overflowed in any test (VC_MAX_ACTIONS)");
@@ -1433,46 +1510,50 @@ static int32_t turns_issued(void)
 /* One decoded letter, then one junction.  The letter alone must start no
    motion; the junction issues `move` exactly once; S2's completion clears the
    instruction; a second junction without a new barcode does not repeat it. */
-static void check_letter_maneuver(const char *id, const char *letter,
+static void check_letter_maneuver(const char * id, const char * letter,
                                   navigation_command_t nav, vc_move_t move,
-                                  const char *what)
+                                  const char * what)
 {
     char name[16];
     char desc[112];
 
-#define NAV_CHECK(sfx, cond, text)                                     \
-    do                                                                 \
-    {                                                                  \
-        snprintf(name, sizeof(name), "%s%s", id, sfx);                 \
-        snprintf(desc, sizeof(desc), "%s: %s", what, text);            \
-        CHECK(name, cond, desc);                                       \
+#define NAV_CHECK(sfx, cond, text)                          \
+    do                                                      \
+    {                                                       \
+        snprintf(name, sizeof(name), "%s%s", id, sfx);      \
+        snprintf(desc, sizeof(desc), "%s: %s", what, text); \
+        CHECK(name, cond, desc);                            \
     } while (0)
 
     start_mission();
     tally_clear();
     feed_barcode(letter);
-    NAV_CHECK("a", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-                       (nav == g_sm.pending_nav) && (0 == turns_issued()) &&
-                       (0 == g_tally[VC_MOVE_DRIVE_DIST]) &&
-                       (0 == g_tally[VC_MOVE_STOP_CONFIRM]),
+    NAV_CHECK("a",
+              (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                  (nav == g_sm.pending_nav) && (0 == turns_issued()) &&
+                  (0 == g_tally[VC_MOVE_DRIVE_DIST]) &&
+                  (0 == g_tally[VC_MOVE_STOP_CONFIRM]),
               "decoding alone stores the instruction and starts no motion");
 
     tally_clear();
     junction_to_execute();
-    NAV_CHECK("b", (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
-                       (1 == g_tally[VC_MOVE_STOP_CONFIRM]) &&
-                       (1 == g_tally[move]) &&
-                       ((VC_MOVE_DRIVE_DIST == move) ? (0 == turns_issued())
-                                                     : (1 == turns_issued())),
+    NAV_CHECK("b",
+              (VC_ST_EXECUTE_ACTION == g_sm.st.state) &&
+                  (1 == g_tally[VC_MOVE_STOP_CONFIRM]) &&
+                  (1 == g_tally[move]) &&
+                  ((VC_MOVE_DRIVE_DIST == move) ? (0 == turns_issued())
+                                                : (1 == turns_issued())),
               "stops at the junction, then issues the maneuver exactly once");
     if (VC_MOVE_U_TURN == move)
     {
-        NAV_CHECK("c", has_move(VC_MOVE_U_TURN, VC_UTURN_FAST_DEG, 1) &&
-                           (0u == g_sm.turn_gate),
+        NAV_CHECK("c",
+                  has_move(VC_MOVE_U_TURN, VC_UTURN_FAST_DEG, 1) &&
+                      (0u == g_sm.turn_gate),
                   "U-turn request is VC_MOVE_U_TURN, fast part (S6-U01)");
         uturn_clean(); /* aligned on the return line, slow follow */
-        NAV_CHECK("u", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-                           (0 == g_tally[VC_MOVE_DRIVE_DIST]),
+        NAV_CHECK("u",
+                  (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                      (0 == g_tally[VC_MOVE_DRIVE_DIST]),
                   "then the line, not a straight drive, ends it");
     }
     else if (VC_MOVE_DRIVE_DIST == move)
@@ -1490,15 +1571,17 @@ static void check_letter_maneuver(const char *id, const char *letter,
     {
         feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
     }
-    NAV_CHECK("d", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-                       (NAV_NONE == g_sm.pending_nav) &&
-                       ('\0' == g_sm.pending_barcode[0]),
+    NAV_CHECK("d",
+              (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                  (NAV_NONE == g_sm.pending_nav) &&
+                  ('\0' == g_sm.pending_barcode[0]),
               "completion clears the instruction and resumes line following");
 
     tally_clear();
     junction_to_execute();
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
-    NAV_CHECK("e", (VC_ST_FOLLOW_LINE == g_sm.st.state) && (0 == turns_issued()),
+    NAV_CHECK("e",
+              (VC_ST_FOLLOW_LINE == g_sm.st.state) && (0 == turns_issued()),
               "second junction without a new barcode makes no turn");
 #undef NAV_CHECK
 }
@@ -1507,9 +1590,12 @@ static void test_letter_navigation(void)
 {
     /* Z is the production default (right). Left, U-turn and straight use the
        test-only mappings so the team's production table stays as set. */
-    check_letter_maneuver("NAV-01", "TESTLEFT", NAV_LEFT, VC_MOVE_TURN_LEFT, "LEFT");
-    check_letter_maneuver("NAV-02", "Z", NAV_RIGHT, VC_MOVE_TURN_RIGHT, "Z = RIGHT");
-    check_letter_maneuver("NAV-03", "TESTUTURN", NAV_U_TURN, VC_MOVE_U_TURN, "U_TURN");
+    check_letter_maneuver("NAV-01", "TESTLEFT", NAV_LEFT, VC_MOVE_TURN_LEFT,
+                          "LEFT");
+    check_letter_maneuver("NAV-02", "Z", NAV_RIGHT, VC_MOVE_TURN_RIGHT,
+                          "Z = RIGHT");
+    check_letter_maneuver("NAV-03", "TESTUTURN", NAV_U_TURN, VC_MOVE_U_TURN,
+                          "U_TURN");
     check_letter_maneuver("NAV-04", "TESTSTRAIGHT", NAV_STRAIGHT,
                           VC_MOVE_DRIVE_DIST, "STRAIGHT");
 
@@ -1517,36 +1603,40 @@ static void test_letter_navigation(void)
     start_mission();
     tally_clear();
     feed_barcode("A");
-    CHECK("NAV-05a", (1u == g_sm.st.barcodes_read) &&
-                         (0 == strcmp("A", g_sm.st.last_barcode)) &&
-                         (NAV_STRAIGHT == g_sm.pending_nav),
+    CHECK("NAV-05a",
+          (1u == g_sm.st.barcodes_read) &&
+              (0 == strcmp("A", g_sm.st.last_barcode)) &&
+              (NAV_STRAIGHT == g_sm.pending_nav),
           "A is recorded as a successful decode (count 1, last = A) and "
           "its assigned action is STRAIGHT");
     junction_to_execute();
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
-    CHECK("NAV-05b", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-                         (0 == turns_issued()) && (1 == g_tally[VC_MOVE_DRIVE_DIST]) &&
-                         (0 == strcmp("A", g_sm.st.last_barcode)),
+    CHECK("NAV-05b",
+          (VC_ST_FOLLOW_LINE == g_sm.st.state) && (0 == turns_issued()) &&
+              (1 == g_tally[VC_MOVE_DRIVE_DIST]) &&
+              (0 == strcmp("A", g_sm.st.last_barcode)),
           "A drives straight over the junction, no turn, still recorded as A");
 
     /* a missed read and a wrong letter are distinguishable from A */
     start_mission();
     feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
     feed(VC_SRC_LINE, VC_EV_BARCODE_FAILED, 0, 0);
-    CHECK("NAV-06a", (0u == g_sm.st.barcodes_read) &&
-                         ('\0' == g_sm.st.last_barcode[0]) &&
-                         (NAV_NONE == g_sm.pending_nav) &&
-                         (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-                         (VC_FC_BARCODE == g_sm.st.last_fault_code) &&
-                         (VC_FAULT_NON_CRITICAL == g_sm.st.last_fault_sev),
-          "a missed read records no letter (count 0) and reports VC_FC_BARCODE, "
-          "non-critical; the run goes on");
+    CHECK(
+        "NAV-06a",
+        (0u == g_sm.st.barcodes_read) && ('\0' == g_sm.st.last_barcode[0]) &&
+            (NAV_NONE == g_sm.pending_nav) &&
+            (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+            (VC_FC_BARCODE == g_sm.st.last_fault_code) &&
+            (VC_FAULT_NON_CRITICAL == g_sm.st.last_fault_sev),
+        "a missed read records no letter (count 0) and reports VC_FC_BARCODE, "
+        "non-critical; the run goes on");
     start_mission();
     feed_barcode("T"); /* T is what a backwards Z looks like */
-    CHECK("NAV-06b", (1u == g_sm.st.barcodes_read) &&
-                         (0 == strcmp("T", g_sm.st.last_barcode)) &&
-                         (0 != strcmp("A", g_sm.st.last_barcode)) &&
-                         (0 != strcmp("Z", g_sm.st.last_barcode)),
+    CHECK("NAV-06b",
+          (1u == g_sm.st.barcodes_read) &&
+              (0 == strcmp("T", g_sm.st.last_barcode)) &&
+              (0 != strcmp("A", g_sm.st.last_barcode)) &&
+              (0 != strcmp("Z", g_sm.st.last_barcode)),
           "a wrong letter (T) is recorded as T, not as A or Z");
 
     /* Z followed by two junctions: only the first turns */
@@ -1557,18 +1647,20 @@ static void test_letter_navigation(void)
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
     junction_to_execute();
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
-    CHECK("NAV-07", (1 == g_tally[VC_MOVE_TURN_RIGHT]) && (1 == turns_issued()) &&
-                        (VC_ST_FOLLOW_LINE == g_sm.st.state),
-          "Z then two junctions: exactly one right turn, the second goes straight");
+    CHECK("NAV-07",
+          (1 == g_tally[VC_MOVE_TURN_RIGHT]) && (1 == turns_issued()) &&
+              (VC_ST_FOLLOW_LINE == g_sm.st.state),
+          "Z then two junctions: exactly one right turn, the second goes "
+          "straight");
 
     /* Z, then an operator stop (FAULT), Reset, Start: no stale right turn */
     start_mission();
     feed_barcode("Z");
     feed(VC_SRC_COMMS, VC_EV_CMD_STOP, 0, 0);
     feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
-    CHECK("NAV-08a", (VC_ST_IDLE == g_sm.st.state) &&
-                         (NAV_NONE == g_sm.pending_nav) &&
-                         ('\0' == g_sm.pending_barcode[0]),
+    CHECK("NAV-08a",
+          (VC_ST_IDLE == g_sm.st.state) && (NAV_NONE == g_sm.pending_nav) &&
+              ('\0' == g_sm.pending_barcode[0]),
           "Z then stop then Reset: pending instruction cleared");
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_READY, 0, 0);
@@ -1578,7 +1670,8 @@ static void test_letter_navigation(void)
     tally_clear();
     junction_to_execute();
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
-    CHECK("NAV-08b", (VC_ST_FOLLOW_LINE == g_sm.st.state) && (0 == turns_issued()),
+    CHECK("NAV-08b",
+          (VC_ST_FOLLOW_LINE == g_sm.st.state) && (0 == turns_issued()),
           "after Reset and Start the first junction goes straight");
 
     /* Z, then overturn (critical fault), Reset: same */
@@ -1586,15 +1679,17 @@ static void test_letter_navigation(void)
     feed_barcode("Z");
     feed(VC_SRC_IMU, VC_EV_FAULT, VC_FAULT_CRITICAL, 0x4005);
     feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
-    CHECK("NAV-09", (VC_ST_IDLE == g_sm.st.state) && (NAV_NONE == g_sm.pending_nav),
+    CHECK("NAV-09",
+          (VC_ST_IDLE == g_sm.st.state) && (NAV_NONE == g_sm.pending_nav),
           "Z then overturn fault then Reset: pending instruction cleared");
 
     /* Z, then lift (end of run): no turn, instruction cleared */
     start_mission();
     feed_barcode("Z");
     feed_lift();
-    CHECK("NAV-10", (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
-                        (NAV_NONE == g_sm.pending_nav),
+    CHECK("NAV-10",
+          (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
+              (NAV_NONE == g_sm.pending_nav),
           "Z then lift: run ends, pending instruction cleared");
 
     /* lift at the junction wins over the pending turn, no turn issued */
@@ -1604,8 +1699,8 @@ static void test_letter_navigation(void)
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     feed_lift();
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
-    CHECK("NAV-11", (VC_ST_MISSION_COMPLETE == g_sm.st.state) &&
-                        (0 == turns_issued()),
+    CHECK("NAV-11",
+          (VC_ST_MISSION_COMPLETE == g_sm.st.state) && (0 == turns_issued()),
           "lift between junction and turn: stop wins, no turn is issued");
 
     /* Z, lift (run ends), then Start without Reset: Start goes via IDLE,
@@ -1621,9 +1716,9 @@ static void test_letter_navigation(void)
     tally_clear();
     junction_to_execute();
     feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
-    CHECK("NAV-12", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-                        (0 == turns_issued()) &&
-                        (1 == g_tally[VC_MOVE_DRIVE_DIST]),
+    CHECK("NAV-12",
+          (VC_ST_FOLLOW_LINE == g_sm.st.state) && (0 == turns_issued()) &&
+              (1 == g_tally[VC_MOVE_DRIVE_DIST]),
           "Z, lift, Start: the first junction of the new run goes straight");
 
     /* Reset while the run is still going is ignored (Reset only acts in
@@ -1631,8 +1726,9 @@ static void test_letter_navigation(void)
     start_mission();
     feed_barcode("Z");
     feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
-    CHECK("NAV-13", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-                        (NAV_RIGHT == g_sm.pending_nav),
+    CHECK("NAV-13",
+          (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+              (NAV_RIGHT == g_sm.pending_nav),
           "Reset during a running mission changes nothing (existing rule)");
 
     /* The letter decides, not S3's legacy nav byte (S3_BC_CHAR_* are all
@@ -1641,13 +1737,14 @@ static void test_letter_navigation(void)
         vc_event_t event = { 0 };
 
         start_mission();
-        event.src  = VC_SRC_LINE;
-        event.type = VC_EV_BARCODE_DECODED;
-        event.p1   = (int32_t)NAV_LEFT;
+        event.src             = VC_SRC_LINE;
+        event.type            = VC_EV_BARCODE_DECODED;
+        event.p1              = (int32_t)NAV_LEFT;
         event.barcode_text[0] = 'Z';
         vc_sm_handle(&g_sm, &event, g_now_ms, &g_actions);
-        CHECK("NAV-14", (NAV_RIGHT == g_sm.pending_nav) &&
-                            (0 == strcmp("Z", g_sm.st.last_barcode)),
+        CHECK("NAV-14",
+              (NAV_RIGHT == g_sm.pending_nav) &&
+                  (0 == strcmp("Z", g_sm.st.last_barcode)),
               "decoded text Z with legacy p1 = LEFT: the table (RIGHT) wins");
     }
 
@@ -1664,19 +1761,20 @@ static void test_letter_navigation(void)
         tally_clear();
         junction_to_execute();
         line_at(g_sm.turn_odo0 + g_sm.turn_gate + 5u);
-        CHECK("NAV-15a", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-                             (NAV_NONE == g_sm.pending_nav) &&
-                             (1 == g_tally[VC_MOVE_TURN_RIGHT]),
+        CHECK("NAV-15a",
+              (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                  (NAV_NONE == g_sm.pending_nav) &&
+                  (1 == g_tally[VC_MOVE_TURN_RIGHT]),
               "Z turn ended on the line: instruction cleared, following");
         tally_clear();
         feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
-        CHECK("NAV-15b", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-                             (0 == g_actions.n),
+        CHECK("NAV-15b",
+              (VC_ST_FOLLOW_LINE == g_sm.st.state) && (0 == g_actions.n),
               "late S2 MANOEUVRE_DONE after a line-ended turn does nothing");
         junction_to_execute();
         feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
-        CHECK("NAV-15c", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
-                             (0 == turns_issued()),
+        CHECK("NAV-15c",
+              (VC_ST_FOLLOW_LINE == g_sm.st.state) && (0 == turns_issued()),
               "next junction after a line-ended Z goes straight");
     }
 #endif
@@ -1726,22 +1824,25 @@ static void test_pause_resume(void)
     start_mission();
     feed(VC_SRC_LINE, VC_EV_LINE_LOST, 1, 0);
     feed(VC_SRC_COMMS, VC_EV_CMD_PAUSE, 0, 0);
-    CHECK("S6-PA05", !g_sm.st.paused && (VC_ST_LOST_LINE == g_sm.st.state) &&
-          (0 == g_actions.n), "pause rejected during line recovery");
+    CHECK("S6-PA05",
+          !g_sm.st.paused && (VC_ST_LOST_LINE == g_sm.st.state) &&
+              (0 == g_actions.n),
+          "pause rejected during line recovery");
 
     start_mission();
     feed(VC_SRC_COMMS, VC_EV_CMD_PAUSE, 0, 0);
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 100, 0);
-    CHECK("S6-PA06", (VC_ST_FAULT == g_sm.st.state) && !g_sm.st.paused &&
-          has_move(VC_MOVE_SAFE_STOP, 0, 0),
+    CHECK("S6-PA06",
+          (VC_ST_FAULT == g_sm.st.state) && !g_sm.st.paused &&
+              has_move(VC_MOVE_SAFE_STOP, 0, 0),
           "obstacle while paused enters safe fault without avoidance movement");
 
     start_mission();
     feed(VC_SRC_COMMS, VC_EV_CMD_PAUSE, 0, 0);
     g_now_ms += VC_JUNCTION_STOP_MS;
     feed(VC_SRC_VC, VC_EV_TICK, 0, 0);
-    CHECK("S6-PA07", (VC_ST_FAULT == g_sm.st.state) &&
-          has_move(VC_MOVE_SAFE_STOP, 0, 0),
+    CHECK("S6-PA07",
+          (VC_ST_FAULT == g_sm.st.state) && has_move(VC_MOVE_SAFE_STOP, 0, 0),
           "missing stop confirmation enters safe fault");
 
     start_mission();
@@ -1762,12 +1863,11 @@ static void test_pause_resume(void)
     feed(VC_SRC_COMMS, VC_EV_CMD_RESUME, 0, 0);
     CHECK("S6-PA09",
           !g_sm.st.paused && (0u != g_sm.rejoin_steer_left) &&
-          has_move(VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS, 1) &&
-          !has_move(VC_MOVE_FORWARD, 0, 0) &&
-          !has_move(VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS, 1),
+              has_move(VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS, 1) &&
+              !has_move(VC_MOVE_FORWARD, 0, 0) &&
+              !has_move(VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS, 1),
           "resume during post-bypass handoff waits for slow fresh steering");
 }
-
 
 /* ------------------------------------------------------------------ */
 /*  Stop cause: lift / overturn / S2 safe stop in either order          */
@@ -1820,8 +1920,7 @@ static int32_t has_report(vc_source_t src, vc_fault_severity_t sev,
     return found;
 }
 
-static int32_t cause_is(vc_source_t src, vc_fault_severity_t sev,
-                        uint32_t code)
+static int32_t cause_is(vc_source_t src, vc_fault_severity_t sev, uint32_t code)
 {
     return (code == g_sm.st.last_fault_code) &&
            ((uint8_t)src == g_sm.st.last_fault_src) &&
@@ -1850,11 +1949,13 @@ static void test_stop_cause(void)
           ended_as_lift() && has_move(VC_MOVE_STOP, 0, 0) &&
               has_request(VC_SRC_NONE, VC_REQ_STOP_ALL) &&
               has_report(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE),
-          "lift: S2 0x2011 first -> MISSION_COMPLETE at once, motors stopped, 0x2011 still reported");
+          "lift: S2 0x2011 first -> MISSION_COMPLETE at once, motors stopped, "
+          "0x2011 still reported");
     feed_lift();
     CHECK("VC-C11", ended_as_lift() && (0 == g_actions.n),
           "lift: S4 LIFTED after S2's report changes nothing");
-    CHECK("VC-C12", (0 == g_tally[VC_MOVE_FORWARD]) && (0 == g_tally[VC_MOVE_STEER]) &&
+    CHECK("VC-C12",
+          (0 == g_tally[VC_MOVE_FORWARD]) && (0 == g_tally[VC_MOVE_STEER]) &&
               (0 == g_tally[VC_MOVE_RESET]),
           "lift (S2 first): no drive or latch reset issued");
 
@@ -1870,9 +1971,11 @@ static void test_stop_cause(void)
     feed_lift();
     feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
     CHECK("VC-C14",
-          ended_as_lift() && has_report(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE) &&
+          ended_as_lift() &&
+              has_report(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE) &&
               (1u <= g_sm.st.reports_after_end),
-          "lift: LIFTED then S2 0x2011 -> MISSION_COMPLETE, cause stays IMU 0x4005, 0x2011 counted");
+          "lift: LIFTED then S2 0x2011 -> MISSION_COMPLETE, cause stays IMU "
+          "0x4005, 0x2011 counted");
     feed_s2_safe_stop(VC_CAUSE_NONE);
     CHECK("VC-C15", ended_as_lift() && !any_move(),
           "lift: a later plain 0x2011 does not replace the lift cause");
@@ -1885,7 +1988,8 @@ static void test_stop_cause(void)
           "overturn: S4 0x4005 -> FAULT, safe stop");
     feed_s2_safe_stop(VC_CAUSE_IMU_OVERTURN);
     CHECK("VC-C17",
-          ended_as_overturn() && has_report(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE),
+          ended_as_overturn() &&
+              has_report(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE),
           "overturn: later S2 0x2011 reported but cause stays IMU 0x4005");
     feed_s2_safe_stop(VC_CAUSE_NONE);
     CHECK("VC-C18", ended_as_overturn(),
@@ -1895,7 +1999,8 @@ static void test_stop_cause(void)
     start_mission();
     tally_clear();
     feed_s2_safe_stop(VC_CAUSE_IMU_OVERTURN);
-    CHECK("VC-C19", ended_as_overturn() && (1 == g_tally[VC_MOVE_SAFE_STOP]) &&
+    CHECK("VC-C19",
+          ended_as_overturn() && (1 == g_tally[VC_MOVE_SAFE_STOP]) &&
               has_report(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE),
           "overturn: S2 0x2011 first -> FAULT IMU 0x4005 at once, safe stop");
     feed_overturn();
@@ -1903,11 +2008,13 @@ static void test_stop_cause(void)
           "overturn: S4 0x4005 after S2's report: still FAULT IMU 0x4005");
     feed_lift();
     CHECK("VC-C21", ended_as_overturn(),
-          "overturn: a lift report after the overturn never completes the mission");
+          "overturn: a lift report after the overturn never completes the "
+          "mission");
     start_mission();
     feed_s2_safe_stop(VC_CAUSE_IMU_UNKNOWN);
     CHECK("VC-C22", ended_as_overturn(),
-          "IMU interlock of unknown kind -> FAULT IMU 0x4005 (fail safe, not a lift)");
+          "IMU interlock of unknown kind -> FAULT IMU 0x4005 (fail safe, not a "
+          "lift)");
 
     /* 4. genuine S2 safe stop: no IMU cause */
     start_mission();
@@ -1935,10 +2042,11 @@ static void test_stop_cause(void)
     feed(VC_SRC_LINE, VC_EV_FAULT, VC_FAULT_CRITICAL, 0x3001);
     feed_lift();
     feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
-    CHECK("VC-C26",
-          (VC_ST_FAULT == g_sm.st.state) &&
-              cause_is(VC_SRC_LINE, VC_FAULT_CRITICAL, 0x3001),
-          "critical S3 fault, then lift + 0x2011: stays FAULT with the S3 cause");
+    CHECK(
+        "VC-C26",
+        (VC_ST_FAULT == g_sm.st.state) &&
+            cause_is(VC_SRC_LINE, VC_FAULT_CRITICAL, 0x3001),
+        "critical S3 fault, then lift + 0x2011: stays FAULT with the S3 cause");
 
     /* 6. a non-critical warning never becomes the run-ending cause */
     start_mission();
@@ -1971,30 +2079,35 @@ static void test_stop_cause(void)
     feed_s2_safe_stop(VC_CAUSE_IMU_OVERTURN);
     feed_s2_safe_stop(VC_CAUSE_NONE);
     CHECK("VC-C31", ended_as_overturn() && (3u <= g_sm.st.reports_after_end),
-          "three more safe-stop reports after an overturn: cause unchanged, all counted");
+          "three more safe-stop reports after an overturn: cause unchanged, "
+          "all counted");
 
     /* 8. Reset then a new run: the next stop gets its own cause */
     feed(VC_SRC_COMMS, VC_EV_CMD_RESET, 0, 0);
-    CHECK("VC-C32", (VC_ST_IDLE == g_sm.st.state) && has_move(VC_MOVE_RESET, 0, 0),
+    CHECK("VC-C32",
+          (VC_ST_IDLE == g_sm.st.state) && has_move(VC_MOVE_RESET, 0, 0),
           "Reset after an overturn -> IDLE, S2 latch reset");
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_READY, 0, 0);
     feed(VC_SRC_LINE, VC_EV_READY, 0, 0);
     feed(VC_SRC_IMU, VC_EV_READY, 0, 0);
     feed(VC_SRC_OBST, VC_EV_READY, 0, 0);
-    CHECK("VC-C33", (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+    CHECK("VC-C33",
+          (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
               (0u == g_sm.st.reports_after_end),
           "new run after Reset: following the line, after-end count cleared");
     feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
     CHECK("VC-C34", ended_as_lift(),
-          "new run: a lift now ends it as MISSION_COMPLETE (old overturn cause gone)");
+          "new run: a lift now ends it as MISSION_COMPLETE (old overturn cause "
+          "gone)");
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_READY, 0, 0);
     feed(VC_SRC_LINE, VC_EV_READY, 0, 0);
     feed(VC_SRC_IMU, VC_EV_READY, 0, 0);
     feed(VC_SRC_OBST, VC_EV_READY, 0, 0);
     feed_s2_safe_stop(VC_CAUSE_NONE);
-    CHECK("VC-C35", (VC_ST_FAULT == g_sm.st.state) &&
+    CHECK("VC-C35",
+          (VC_ST_FAULT == g_sm.st.state) &&
               cause_is(VC_SRC_MOTION, VC_FAULT_CRITICAL, SAFE_STOP_CODE),
           "Start after a lift, then a genuine 0x2011 -> FAULT 0x2011");
 
@@ -2002,22 +2115,25 @@ static void test_stop_cause(void)
     g_now_ms = 0u;
     vc_sm_init(&g_sm, g_now_ms);
     feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
-    CHECK("VC-C36",
-          (VC_ST_IDLE == g_sm.st.state) && !any_move() &&
-              cause_is(VC_SRC_IMU, VC_FAULT_CRITICAL, LIFT_CODE),
-          "lift interlock in IDLE: critical IMU 0x4005 reported, nothing moves");
+    CHECK(
+        "VC-C36",
+        (VC_ST_IDLE == g_sm.st.state) && !any_move() &&
+            cause_is(VC_SRC_IMU, VC_FAULT_CRITICAL, LIFT_CODE),
+        "lift interlock in IDLE: critical IMU 0x4005 reported, nothing moves");
     feed(VC_SRC_COMMS, VC_EV_CMD_START, 0, 0);
     feed_s2_safe_stop(VC_CAUSE_IMU_LIFT);
     CHECK("VC-C37",
           (VC_ST_FAULT == g_sm.st.state) &&
               cause_is(VC_SRC_IMU, VC_FAULT_CRITICAL, LIFT_CODE),
-          "lift interlock during self check -> FAULT IMU 0x4005 (as LIFTED there)");
+          "lift interlock during self check -> FAULT IMU 0x4005 (as LIFTED "
+          "there)");
 
     /* 10. the cause belongs to S2's safe stop only */
     start_mission();
     feed_cause(VC_SRC_MOTION, VC_EV_FAULT, VC_FAULT_CRITICAL, 0x2010,
                VC_CAUSE_IMU_LIFT);
-    CHECK("VC-C38", (VC_ST_FAULT == g_sm.st.state) &&
+    CHECK("VC-C38",
+          (VC_ST_FAULT == g_sm.st.state) &&
               cause_is(VC_SRC_MOTION, VC_FAULT_CRITICAL, 0x2010),
           "a cause on another S2 code (0x2010) is ignored: FAULT 0x2010");
 
@@ -2048,8 +2164,8 @@ int main(void)
     test_stop_cause();
     test_uturn();
 
-    printf("[TEST] vehicle_controller host SUMMARY %d passed, %d failed\n", g_passed,
-           g_failed);
+    printf("[TEST] vehicle_controller host SUMMARY %d passed, %d failed\n",
+           g_passed, g_failed);
     return (0 != g_failed) ? 1 : 0;
 }
 

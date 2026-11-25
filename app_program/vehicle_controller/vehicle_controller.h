@@ -3,7 +3,8 @@
  *      Vehicle Controller -- mission control.
  *      Owner: whole team (shared).
  *
- *      Public interface of the Vehicle Controller.  Other subsystems include it as
+ *      Public interface of the Vehicle Controller.  Other subsystems include it
+ * as
  *      "../vehicle_controller/vehicle_controller.h".
  *
  *      The Vehicle Controller owns the mission state (design review 5, 6.1)
@@ -39,7 +40,8 @@
    PROPOSED -- agree it in TEAM.md section 4. */
 #define VC_PRI_VC 10
 
-#define VC_TICK_MS         10 /* loop period when idle: S3 steering rate (NFR2) */
+/* loop period when idle: S3 steering rate (NFR2) */
+#define VC_TICK_MS         10
 #define VC_TELEMETRY_MS    200 /* status to S1 (NFR2 MQTT period) */
 #define VC_EVENT_QUEUE_LEN 16  /* events buffered in g_mbf_vc_events */
 

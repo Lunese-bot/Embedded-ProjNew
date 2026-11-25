@@ -37,31 +37,33 @@
 #define VC_BARCODE_LETTER_COUNT 26u
 
 #define VC_BARCODE_LETTER_TABLE(X) \
-    X(A, NAV_NONE) \
-    X(B, NAV_NONE) \
-    X(C, NAV_NONE) \
-    X(D, NAV_NONE) \
-    X(E, NAV_NONE) \
-    X(F, NAV_NONE) \
-    X(G, NAV_NONE) \
-    X(H, NAV_LEFT) \
-    X(I, NAV_NONE) \
-    X(J, NAV_NONE) \
-    X(K, NAV_NONE) \
-    X(L, NAV_NONE) \
-    X(M, NAV_NONE) \
-    X(N, NAV_NONE) \
-    X(O, NAV_NONE) \
-    X(P, NAV_NONE) \
-    X(Q, NAV_NONE) \
-    X(R, NAV_NONE) \
-    X(S, NAV_NONE) \
-    X(T, NAV_NONE) \
-    X(U, NAV_NONE) \
-    X(V, NAV_NONE) \
-    X(W, NAV_NONE) \
-    X(X, NAV_NONE) \
-    X(Y, NAV_NONE) \
+    X(A, NAV_NONE)                 \
+    X(B, NAV_NONE)                 \
+    X(C, NAV_NONE)                 \
+    X(D, NAV_NONE)                 \
+    X(E, NAV_NONE)                 \
+    X(F, NAV_NONE)                 \
+    X(G, NAV_NONE)                 \
+    X(H, NAV_LEFT)                 \
+    X(I, NAV_NONE)                 \
+    X(J, NAV_NONE)                 \
+    X(K, NAV_NONE)                 \
+    X(L, NAV_NONE)                 \
+    X(M, NAV_NONE)                 \
+    X(N, NAV_NONE)                 \
+    X(O, NAV_NONE)                 \
+    X(P, NAV_NONE)                 \
+    X(Q, NAV_NONE)                 \
+    X(R, NAV_NONE)                 \
+    X(S, NAV_NONE)                 \
+    X(T, NAV_NONE)                 \
+    X(U, NAV_NONE)                 \
+    X(V, NAV_NONE)                 \
+    X(W, NAV_NONE)                 \
+    X(X, NAV_NONE)                 \
+    X(Y, NAV_NONE)                 \
     X(Z, NAV_RIGHT)
 
 #endif /* VC_BARCODE_CONFIG_H */
+
+/*** end of file ***/

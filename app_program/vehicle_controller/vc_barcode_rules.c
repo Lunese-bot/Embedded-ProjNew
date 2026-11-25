@@ -12,10 +12,9 @@
 #include "vc_barcode_config.h"
 #include "vc_barcode_map.h"
 
-
 typedef struct
 {
-    const char *text;
+    const char *         text;
     navigation_command_t nav;
 } vc_barcode_rule_t;
 
@@ -27,27 +26,30 @@ static const vc_barcode_rule_t g_rules[] = {
     { "TESTUTURN", NAV_U_TURN },
     { "TESTSTRAIGHT", NAV_STRAIGHT },
 #endif
-    /* One line per letter, generated from vc_barcode_config.h */
+/* One line per letter, generated from vc_barcode_config.h */
 #define VC_RULE_LINE(letter, nav) { #letter, nav },
     VC_BARCODE_LETTER_TABLE(VC_RULE_LINE)
 #undef VC_RULE_LINE
-    { 0, NAV_NONE }     /* sentinel: end of the table */
+        { 0, NAV_NONE } /* sentinel: end of the table */
 };
 
 /* Compile-time checks on vc_barcode_config.h: every line must hold one of
    the four actions (or NAV_NONE), and there must be exactly 26 lines.
    A bad value stops the build here instead of misdriving the robot. */
 #define VC_RULE_VALID(letter, nav) \
-    && ((int)(nav) >= (int)NAV_NONE) && ((int)(nav) <= (int)NAV_U_TURN)
-#define VC_RULE_COUNT(letter, nav) + 1
+    &&((int)(nav) >= (int)NAV_NONE) && ((int)(nav) <= (int)NAV_U_TURN)
+#define VC_RULE_COUNT(letter, nav) +1
 typedef char vc_cfg_every_entry_is_a_valid_action
     [(1 VC_BARCODE_LETTER_TABLE(VC_RULE_VALID)) ? 1 : -1];
-typedef char vc_cfg_table_has_26_letters
-    [((0 VC_BARCODE_LETTER_TABLE(VC_RULE_COUNT)) == (int)VC_BARCODE_LETTER_COUNT) ? 1 : -1];
+typedef char
+    vc_cfg_table_has_26_letters[((0 VC_BARCODE_LETTER_TABLE(VC_RULE_COUNT)) ==
+                                 (int)VC_BARCODE_LETTER_COUNT)
+                                    ? 1
+                                    : -1];
 #undef VC_RULE_VALID
 #undef VC_RULE_COUNT
 
-navigation_command_t vc_barcode_lookup(const char *text)
+navigation_command_t vc_barcode_lookup(const char * text)
 {
     uint32_t i;
 
@@ -62,7 +64,8 @@ navigation_command_t vc_barcode_lookup(const char *text)
     }
 
     for (i = 0u; (i < (uint32_t)(sizeof(g_rules) / sizeof(g_rules[0]))) &&
-                 (0 != g_rules[i].text); i++)
+                 (0 != g_rules[i].text);
+         i++)
     {
         uint32_t j = 0u;
         while ((text[j] != '\0') && (g_rules[i].text[j] != '\0') &&
@@ -78,3 +81,5 @@ navigation_command_t vc_barcode_lookup(const char *text)
 
     return NAV_NONE;
 }
+
+/*** end of file ***/

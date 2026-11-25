@@ -217,9 +217,8 @@ int32_t s1_stats_format(const S1_STATS * p_stats, char * p_buf, int32_t size)
     return text.len;
 }
 
-void s1_latch_resolve(S1_LATCH * p_out, uint32_t stop_before,
-                      int32_t status_ok, uint32_t safety_stop,
-                      uint32_t stop_after)
+void s1_latch_resolve(S1_LATCH * p_out, uint32_t stop_before, int32_t status_ok,
+                      uint32_t safety_stop, uint32_t stop_after)
 {
     if (p_out == NULL)
     {

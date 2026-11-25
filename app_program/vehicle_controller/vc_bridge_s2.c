@@ -48,16 +48,17 @@
 
 #ifdef S2_PRI_MOTION /* S2's real interface is present */
 
-#define VC_TURN_SPEED_MMS   120 /* wheel speed for pivot turns */
-#define S2_FC_TIMEOUT       0x2010
-#define S2_FC_SAFE_STOP     0x2011
+#define VC_TURN_SPEED_MMS 120 /* wheel speed for pivot turns */
+#define S2_FC_TIMEOUT     0x2010
+#define S2_FC_SAFE_STOP   0x2011
 _Static_assert(S2_FC_SAFE_STOP == VC_FC_S2_SAFE_STOP,
                "vc_sm.c recognises S2's safe stop as VC_FC_S2_SAFE_STOP");
 #define S2_FC_FAULT_BASE    0x2000U /* | motion_fault_t in the low byte */
 #define S2_FC_FAULT_MASK    0xFFU
 #define VC_STEER_FULL_SCALE 1000 /* S3 steering request -1000..+1000 */
 
-#define S2_EVENT_BITS (MFLG_CMD_DONE | MFLG_STOPPED | MFLG_FAULT | MFLG_CMD_TIMEOUT)
+#define S2_EVENT_BITS \
+    (MFLG_CMD_DONE | MFLG_STOPPED | MFLG_FAULT | MFLG_CMD_TIMEOUT)
 
 /* The safe-stop cause is passed through unchanged (vc_event_t.cause). */
 _Static_assert((S2_IMU_CAUSE_NONE == VC_CAUSE_NONE) &&
@@ -66,7 +67,7 @@ _Static_assert((S2_IMU_CAUSE_NONE == VC_CAUSE_NONE) &&
                    (S2_IMU_CAUSE_UNKNOWN == VC_CAUSE_IMU_UNKNOWN),
                "S2_IMU_CAUSE_* must equal VC_CAUSE_*");
 
-static int32_t  g_speed     = 0;     /* current forward speed, mm/s */
+static int32_t g_speed = 0; /* current forward speed, mm/s */
 
 /* Speed actually sent to S2.  Normally g_speed; with the dashboard's live
    tuning on, scaled by g_lt_speed_pct so the mission speed can be tried
@@ -94,12 +95,18 @@ static int32_t sent_speed(void)
    can turn smoothly. */
 #define VC_TURN_MIN_MMS 60
 static bool g_obstacle_mode;
-void vc_bridge_s2_set_obstacle_mode(bool active) { g_obstacle_mode = active; }
+void        vc_bridge_s2_set_obstacle_mode(bool active)
+{
+    g_obstacle_mode = active;
+}
 
 static int32_t sent_turn_speed(void)
 {
     /* Only obstacle turns have a fixed slow cap. Normal turns are unchanged. */
-    if (g_obstacle_mode) { return VC_TURN_MIN_MMS; }
+    if (g_obstacle_mode)
+    {
+        return VC_TURN_MIN_MMS;
+    }
 #if S2_WEBDEBUG
     int32_t v = (VC_TURN_SPEED_MMS * g_lt_speed_pct) / 100;
     return (v < VC_TURN_MIN_MMS) ? VC_TURN_MIN_MMS : v;
@@ -136,17 +143,17 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
             (void)tk_clr_flg(g_flg_motion, ~MFLG_STOPPED);
             g_got &= ~MFLG_STOPPED;
             g_b_waiting_stop = true;
-            ercd = s2_cmd_stop();
+            ercd             = s2_cmd_stop();
             if (ercd < E_OK)
             {
                 ercd = s2_emergency_stop(); /* fail safe; timeout escalates */
             }
             break;
         case VC_MOVE_FORWARD:
-            g_speed     = value;
-            g_steer     = 0;
-            g_b_driving = true;
-            ercd        = s2_cmd_drive(sent_speed(), 0);
+            g_speed           = value;
+            g_steer           = 0;
+            g_b_driving       = true;
+            ercd              = s2_cmd_drive(sent_speed(), 0);
             g_s3_bc_speed_now = (int16_t)sent_speed(); /* Cast: mm/s */
             break;
         case VC_MOVE_STEER:
@@ -165,7 +172,7 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
 #if S2_WEBDEBUG
                 int32_t slow = g_lt_curve;
 #else
-                int32_t slow = VC_CURVE_SLOW_PERMILLE;
+            int32_t slow = VC_CURVE_SLOW_PERMILLE;
 #endif
 #if S3_BC_LOCK
                 if (g_b_s3_bc_lock)
@@ -179,10 +186,11 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
                 {
                     fwd = VC_CURVE_MIN_MMS;
                 }
-                g_steer     = -((value * fwd) / VC_STEER_FULL_SCALE);
-                g_b_driving = true;
-                ercd        = s2_cmd_drive(fwd, g_steer);
-                g_s3_bc_speed_now = (int16_t)fwd; /* barcode record; Cast: mm/s */
+                g_steer           = -((value * fwd) / VC_STEER_FULL_SCALE);
+                g_b_driving       = true;
+                ercd              = s2_cmd_drive(fwd, g_steer);
+                g_s3_bc_speed_now = (int16_t)fwd; /* barcode record; Cast: mm/s
+                                                   */
             }
             break;
         case VC_MOVE_SET_SPEED:
@@ -204,7 +212,7 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
         case VC_MOVE_U_TURN:
             g_b_driving = false;
             ercd        = s2_cmd_turn(sent_turn_speed(),
-                                      (value > 0) ? value : VC_UTURN_CMD_DEG);
+                               (value > 0) ? value : VC_UTURN_CMD_DEG);
             break;
         case VC_MOVE_PIVOT:
             /* Speed 0, steer v: S2 drives the left wheel at -v and the
@@ -235,14 +243,14 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
             ercd        = s2_cmd_drive_dist(g_speed, -value);
             break;
         case VC_MOVE_SAFE_STOP:
-            g_b_driving = false;
+            g_b_driving       = false;
             g_b_ready_pending = false;
-            ercd        = s2_emergency_stop();
+            ercd              = s2_emergency_stop();
             break;
         case VC_MOVE_RESET:
-            g_b_driving = false;
+            g_b_driving       = false;
             g_b_ready_pending = false;
-            ercd        = s2_cmd_reset();
+            ercd              = s2_cmd_reset();
             break;
         default:
             ercd = E_PAR;
@@ -254,12 +262,12 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
 static void make(vc_event_t * p_event, vc_event_type_t type, int32_t param1,
                  int32_t param2)
 {
-    p_event->src     = VC_SRC_MOTION;
-    p_event->type    = (uint8_t)type; /* Cast: enum fits 8 bits */
-    p_event->cause   = 0;
-    p_event->p1      = param1;
-    p_event->p2      = param2;
-    p_event->time_ms = 0;
+    p_event->src             = VC_SRC_MOTION;
+    p_event->type            = (uint8_t)type; /* Cast: enum fits 8 bits */
+    p_event->cause           = 0;
+    p_event->p1              = param1;
+    p_event->p2              = param2;
+    p_event->time_ms         = 0;
     p_event->barcode_text[0] = '\0';
 }
 
@@ -282,7 +290,7 @@ bool vc_bridge_s2_next(vc_event_t * p_event)
          (motion_st.stop_epoch != g_reported_stop_epoch)))
     {
         g_b_safe_stop_reported = true;
-        g_reported_stop_epoch = motion_st.stop_epoch;
+        g_reported_stop_epoch  = motion_st.stop_epoch;
         make(p_event, VC_EV_FAULT, VC_FAULT_CRITICAL, S2_FC_SAFE_STOP);
         /* Was it S4's lift / overturn interlock?  The controller then ends
            the run as that IMU stop, whichever of the two reports comes
@@ -363,7 +371,10 @@ ER vc_bridge_s2_request(vc_request_t req, int32_t arg)
 
 #else /* only the S2 example: log the command, S2 not bound yet */
 
-void vc_bridge_s2_set_obstacle_mode(bool active) { (void)active; }
+void vc_bridge_s2_set_obstacle_mode(bool active)
+{
+    (void)active;
+}
 
 ER vc_bridge_s2_move(vc_move_t move, int32_t value)
 {

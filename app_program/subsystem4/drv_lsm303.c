@@ -14,8 +14,8 @@
 #include <tk/device.h>  /* tk_opn_dev, T_I2C_EXEC, TDN_I2C_EXEC */
 
 #if !DEVCNF_USE_IIC
-#error \
-    "Subsystem 4 needs the I2C driver: set DEVCNF_USE_IIC to 1 in config/config_device.h"
+/* Set DEVCNF_USE_IIC to 1 in config/config_device.h */
+#error "Subsystem 4 needs the I2C driver (DEVCNF_USE_IIC)"
 #endif
 
 /* Accelerometer registers */

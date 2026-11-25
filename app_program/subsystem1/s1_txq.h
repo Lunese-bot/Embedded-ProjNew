@@ -72,7 +72,7 @@ typedef struct
     int32_t     evt_claimed;
     int32_t     evt_waiting; /* events in the buffer, not staged */
     int32_t     connected;
-    uint32_t    gen;         /* connection generation */
+    uint32_t    gen; /* connection generation */
 } S1_TXQ;
 
 /* A claimed item, copied out so mqtt_publish() runs without the lock. */

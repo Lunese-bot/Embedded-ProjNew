@@ -31,25 +31,25 @@ static int16_t clamp16(int32_t value, int16_t limit)
 
 void line_params_default(line_params_t * p_params)
 {
-    p_params->line_mask        = (uint8_t)S3_LINE_MASK;
-    p_params->junction_mask    = (uint8_t)S3_JUNCTION_MASK;
-    p_params->weight[S3_IR_L]  = S3_WEIGHT_L;
+    p_params->line_mask       = (uint8_t)S3_LINE_MASK;
+    p_params->junction_mask   = (uint8_t)S3_JUNCTION_MASK;
+    p_params->weight[S3_IR_L] = S3_WEIGHT_L;
 #if (S3_LINE_MASK) == (S3_MASK_L | S3_MASK_C | S3_MASK_R)
-    p_params->weight[S3_IR_C]  = S3_WEIGHT_C;
+    p_params->weight[S3_IR_C] = S3_WEIGHT_C;
 #else
-    p_params->weight[S3_IR_C]  = S3_WEIGHT_C_CR;
+    p_params->weight[S3_IR_C] = S3_WEIGHT_C_CR;
 #endif
-    p_params->weight[S3_IR_R]  = S3_WEIGHT_R;
-    p_params->setpoint         = S3_LINE_SETPOINT;
-    p_params->black_threshold  = S3_BLACK_THRESHOLD;
-    p_params->lost_samples     = S3_LOST_SAMPLES;
-    p_params->found_samples    = S3_FOUND_SAMPLES;
-    p_params->junction_samples = S3_JUNCTION_SAMPLES;
-    p_params->kp_num           = S3_KP_NUM;
-    p_params->kd_num           = S3_KD_NUM;
-    p_params->gain_den         = S3_GAIN_DEN;
+    p_params->weight[S3_IR_R]    = S3_WEIGHT_R;
+    p_params->setpoint           = S3_LINE_SETPOINT;
+    p_params->black_threshold    = S3_BLACK_THRESHOLD;
+    p_params->lost_samples       = S3_LOST_SAMPLES;
+    p_params->found_samples      = S3_FOUND_SAMPLES;
+    p_params->junction_samples   = S3_JUNCTION_SAMPLES;
+    p_params->kp_num             = S3_KP_NUM;
+    p_params->kd_num             = S3_KD_NUM;
+    p_params->gain_den           = S3_GAIN_DEN;
     p_params->junction_threshold = S3_JUNCTION_THRESHOLD;
-    p_params->straddle         = (0 != S3_STRADDLE);
+    p_params->straddle           = (0 != S3_STRADDLE);
 }
 
 void line_cal_reset(line_cal_t * p_cal)
@@ -135,12 +135,16 @@ void line_normalise(line_cal_t const * p_cal, uint8_t analog_mask,
             {
                 /* not calibrated: use the sensor's measured white / black
                    readings from s3_config.h (either order) */
-                uint32_t w = (S3_IR_R == idx) ? (uint32_t)S3_R_ADC_WHITE
-                           : ((S3_IR_C == idx) ? (uint32_t)S3_C_ADC_WHITE
-                                               : (uint32_t)S3_L_ADC_WHITE);
-                uint32_t k = (S3_IR_R == idx) ? (uint32_t)S3_R_ADC_BLACK
-                           : ((S3_IR_C == idx) ? (uint32_t)S3_C_ADC_BLACK
-                                               : (uint32_t)S3_L_ADC_BLACK);
+                uint32_t w =
+                    (S3_IR_R == idx)
+                        ? (uint32_t)S3_R_ADC_WHITE
+                        : ((S3_IR_C == idx) ? (uint32_t)S3_C_ADC_WHITE
+                                            : (uint32_t)S3_L_ADC_WHITE);
+                uint32_t k =
+                    (S3_IR_R == idx)
+                        ? (uint32_t)S3_R_ADC_BLACK
+                        : ((S3_IR_C == idx) ? (uint32_t)S3_C_ADC_BLACK
+                                            : (uint32_t)S3_L_ADC_BLACK);
                 low  = (w < k) ? w : k;
                 high = (w < k) ? k : w;
                 b_hi = (k >= w);
@@ -170,25 +174,25 @@ void line_normalise(line_cal_t const * p_cal, uint8_t analog_mask,
 
 void line_tracker_reset(line_tracker_t * p_trk)
 {
-    p_trk->state          = LINE_STATE_SEARCH;
-    p_trk->position       = 0;
-    p_trk->error          = 0;
-    p_trk->steering       = 0;
-    p_trk->last_side      = 0;
-    p_trk->black_mask     = 0u;
-    p_trk->l_raw          = 0u;
-    p_trk->lost_count     = 0u;
-    p_trk->found_count    = 0u;
-    p_trk->junction_count = 0u;
+    p_trk->state             = LINE_STATE_SEARCH;
+    p_trk->position          = 0;
+    p_trk->error             = 0;
+    p_trk->steering          = 0;
+    p_trk->last_side         = 0;
+    p_trk->black_mask        = 0u;
+    p_trk->l_raw             = 0u;
+    p_trk->lost_count        = 0u;
+    p_trk->found_count       = 0u;
+    p_trk->junction_count    = 0u;
     p_trk->rejoin_clear_left = 0u;
-    p_trk->prev_error     = 0;
-    p_trk->corr_side      = 0;
-    p_trk->corr_count     = 0u;
-    p_trk->corr_mag       = 0;
-    p_trk->hold_count     = 0u;
-    p_trk->b_hold         = false;
-    p_trk->b_reentry      = false;
-    p_trk->mem_side       = 0;
+    p_trk->prev_error        = 0;
+    p_trk->corr_side         = 0;
+    p_trk->corr_count        = 0u;
+    p_trk->corr_mag          = 0;
+    p_trk->hold_count        = 0u;
+    p_trk->b_hold            = false;
+    p_trk->b_reentry         = false;
+    p_trk->mem_side          = 0;
 }
 
 /* Step 4 of line_tracker_step(): the line state machine */
@@ -256,7 +260,7 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
     int32_t sum_n = 0;
     int32_t steer;
     uint8_t idx;
-    uint8_t mask = 0u;
+    uint8_t mask  = 0u;
     uint8_t jmask = 0u; /* sensors above the (stricter) junction threshold */
     bool    b_line_seen;
     bool    b_found;
@@ -366,9 +370,9 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
         /* L black while a left turn is going on (or remembered): the line
            is further left than C */
         bool    b_far = (0 != S3_STRADDLE_L_ASSIST) &&
-                        (0u != (mask & S3_MASK_L)) && (!b_r) &&
-                        ((p_trk->corr_side < 0) ||
-                         ((p_trk->mem_side < 0) && (p_trk->corr_count > 0u)));
+                     (0u != (mask & S3_MASK_L)) && (!b_r) &&
+                     ((p_trk->corr_side < 0) ||
+                      ((p_trk->mem_side < 0) && (p_trk->corr_count > 0u)));
 
         /* Barcode bar across the line: L, C and R all black at once (L
            judged on its RAW reading, since its cut-off is set low for
@@ -376,9 +380,9 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
            a barcode is being read or the car is rejoining after a bypass.
            Drive straight and forget the turn so a patch of black cannot
            build up a strong steering correction. */
-        bool    b_bar = (0 != S3_STRADDLE_BAR_STRAIGHT) && b_c && b_r &&
-                        ((p_trk->l_raw >= (uint16_t)S3_BAR_L_RAW) ||
-                         b_junction_inhibit);
+        bool b_bar =
+            (0 != S3_STRADDLE_BAR_STRAIGHT) && b_c && b_r &&
+            ((p_trk->l_raw >= (uint16_t)S3_BAR_L_RAW) || b_junction_inhibit);
 
         if (b_c && b_r && !b_bar)
         {
@@ -484,14 +488,15 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
                 p_trk->corr_count++; /* same side: carry on growing */
             }
             p_trk->mem_side = side;
-            mag = ((int32_t)p_params->kp_num * S3_STRADDLE_BASE) +
+            mag             = ((int32_t)p_params->kp_num * S3_STRADDLE_BASE) +
                   ((int32_t)p_params->kd_num * (int32_t)p_trk->corr_count);
             if (b_far && (side < 0))
             {
                 mag = LINE_STEER_MAX; /* L and C black: line far left */
             }
-            mag   = (mag > LINE_STEER_MAX) ? LINE_STEER_MAX : ((mag < 0) ? 0 : mag);
-            steer = (int32_t)side * mag;
+            mag =
+                (mag > LINE_STEER_MAX) ? LINE_STEER_MAX : ((mag < 0) ? 0 : mag);
+            steer            = (int32_t)side * mag;
             p_trk->corr_mag  = (int16_t)mag;
             p_trk->last_side = side;
         }
@@ -500,8 +505,9 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
     else
     {
         /* PD steering on the error */
-        steer = ((int32_t)p_params->kp_num * p_trk->error) +
-                ((int32_t)p_params->kd_num * (p_trk->error - p_trk->prev_error));
+        steer =
+            ((int32_t)p_params->kp_num * p_trk->error) +
+            ((int32_t)p_params->kd_num * (p_trk->error - p_trk->prev_error));
         if (p_params->gain_den != 0)
         {
             steer /= p_params->gain_den;
@@ -511,12 +517,14 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
     p_trk->prev_error = p_trk->error;
 
     /* 3. Debounce counters */
-    p_trk->lost_count  = b_line_seen ? 0u : (uint16_t)(p_trk->lost_count + 1u);
+    p_trk->lost_count = b_line_seen ? 0u : (uint16_t)(p_trk->lost_count + 1u);
+
     /* Straddle: both white is a valid "on the line" reading while searching,
        but to leave LOST a sensor must see black again. */
     b_found = p_params->straddle
                   ? (b_line_seen || (LINE_STATE_SEARCH == p_trk->state))
                   : b_line_seen;
+
     p_trk->found_count = b_found ? (uint16_t)(p_trk->found_count + 1u) : 0u;
     p_trk->junction_count =
         b_junction ? (uint16_t)(p_trk->junction_count + 1u) : 0u;
@@ -529,30 +537,30 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
 void bc_edge_reset_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
                        uint32_t pos)
 {
-    p_e->level    = 0U;
-    p_e->ext      = raw;
-    p_e->prev     = raw;
-    p_e->b_prev   = 0U;
-    p_e->mid_t_us = t_us;
-    p_e->mid_pos  = pos;
-    p_e->bar_t_us  = t_us;
-    p_e->bar_pos   = pos;
-    p_e->last_raw  = raw;
-    p_e->last_t_us = t_us;
-    p_e->last_pos  = pos;
-    p_e->hold      = 0U; /* the caller sets it again if it wants a hold */
-    p_e->hold_cnt  = 0U;
-    p_e->w_valid   = 0U; /* adaptive path: learn white again */
-    p_e->w_relearn = 0U;
-    p_e->w_n       = 0U;
-    p_e->w_min     = raw;
-    p_e->w_max     = raw;
-    p_e->w_sum     = 0;
-    p_e->w_x16     = 0;
-    p_e->w_sd_x16  = 0;
-    p_e->w_high    = 0U;
-    p_e->w_dsum    = 0;
-    p_e->h_prev    = raw;
+    p_e->level        = 0U;
+    p_e->ext          = raw;
+    p_e->prev         = raw;
+    p_e->b_prev       = 0U;
+    p_e->mid_t_us     = t_us;
+    p_e->mid_pos      = pos;
+    p_e->bar_t_us     = t_us;
+    p_e->bar_pos      = pos;
+    p_e->last_raw     = raw;
+    p_e->last_t_us    = t_us;
+    p_e->last_pos     = pos;
+    p_e->hold         = 0U; /* the caller sets it again if it wants a hold */
+    p_e->hold_cnt     = 0U;
+    p_e->w_valid      = 0U; /* adaptive path: learn white again */
+    p_e->w_relearn    = 0U;
+    p_e->w_n          = 0U;
+    p_e->w_min        = raw;
+    p_e->w_max        = raw;
+    p_e->w_sum        = 0;
+    p_e->w_x16        = 0;
+    p_e->w_sd_x16     = 0;
+    p_e->w_high       = 0U;
+    p_e->w_dsum       = 0;
+    p_e->h_prev       = raw;
     p_e->h_prev_white = 0U;
 }
 
@@ -561,8 +569,8 @@ void bc_edge_reset(bc_edge_t * p_e, int32_t raw, uint32_t t_us)
     bc_edge_reset_pos(p_e, raw, t_us, 0U);
 }
 
-uint8_t bc_edge_step(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
-                     int32_t swing, int32_t floor, uint32_t * p_edge_us)
+uint8_t bc_edge_step(bc_edge_t * p_e, int32_t raw, uint32_t t_us, int32_t swing,
+                     int32_t floor, uint32_t * p_edge_us)
 {
     uint32_t edge_pos = 0U;
 
@@ -585,9 +593,16 @@ static uint8_t bc_edge_core(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
        on this side of halfway" stays correct */
     if (0U != p_e->level)
     {
-        if (raw > p_e->ext) { p_e->ext = raw; }
+        if (raw > p_e->ext)
+        {
+            p_e->ext = raw;
+        }
         mid = (p_e->ext + p_e->prev) / 2;
-        if (raw >= mid) { p_e->mid_t_us = t_us; p_e->mid_pos = pos; }
+        if (raw >= mid)
+        {
+            p_e->mid_t_us = t_us;
+            p_e->mid_pos  = pos;
+        }
         if ((raw >= p_e->ext) && (p_e->last_raw < mid))
         {
             /* still rising: the sample before this one was the last one
@@ -599,17 +614,33 @@ static uint8_t bc_edge_core(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
             /* the fall that ends a bar grows with the bar's height, so a
                wobble on top of a dark bar does not end it */
             int32_t need = ((p_e->ext - p_e->prev) * S3_BC_EDGE_FALL_PCT) / 100;
-            if (need < swing) { need = swing; }
-            if ((raw < (p_e->ext - need)) || (raw < leave)) { next = 0U; }
+            if (need < swing)
+            {
+                need = swing;
+            }
+            if ((raw < (p_e->ext - need)) || (raw < leave))
+            {
+                next = 0U;
+            }
         }
     }
     else
     {
-        if (raw < p_e->ext) { p_e->ext = raw; }
+        if (raw < p_e->ext)
+        {
+            p_e->ext = raw;
+        }
         mid = (0U != p_e->b_prev) ? ((p_e->ext + p_e->prev) / 2)
                                   : (p_e->ext + (swing / 2));
-        if (raw <= mid) { p_e->mid_t_us = t_us; p_e->mid_pos = pos; }
-        if ((raw > (p_e->ext + swing)) && (raw > enter)) { next = 1U; }
+        if (raw <= mid)
+        {
+            p_e->mid_t_us = t_us;
+            p_e->mid_pos  = pos;
+        }
+        if ((raw > (p_e->ext + swing)) && (raw > enter))
+        {
+            next = 1U;
+        }
     }
 
     if (next == p_e->level)
@@ -637,8 +668,8 @@ static uint8_t bc_edge_core(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
         p_e->last_pos  = pos;
         return 0U;
     }
-    *p_edge_us    = p_e->mid_t_us;
-    *p_edge_pos   = p_e->mid_pos;
+    *p_edge_us  = p_e->mid_t_us;
+    *p_edge_pos = p_e->mid_pos;
     if (0U != next)
     {
         /* a bar begins: it starts at the edge just found, or at the
@@ -652,13 +683,13 @@ static uint8_t bc_edge_core(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
             p_e->bar_pos  = p_e->last_pos;
         }
     }
-    p_e->hold_cnt = 0U;
-    p_e->level    = next;
-    p_e->prev     = p_e->ext;
-    p_e->b_prev   = 1U;
-    p_e->ext      = raw;
-    p_e->mid_t_us = t_us;
-    p_e->mid_pos  = pos;
+    p_e->hold_cnt  = 0U;
+    p_e->level     = next;
+    p_e->prev      = p_e->ext;
+    p_e->b_prev    = 1U;
+    p_e->ext       = raw;
+    p_e->mid_t_us  = t_us;
+    p_e->mid_pos   = pos;
     p_e->last_raw  = raw;
     p_e->last_t_us = t_us;
     p_e->last_pos  = pos;
@@ -696,10 +727,10 @@ int32_t bc_edge_margin(bc_edge_t const * p_e)
 /* start (or restart) the learning window at this sample */
 static void bc_white_window(bc_edge_t * p_e, int32_t raw)
 {
-    p_e->w_n   = 1U;
-    p_e->w_min = raw;
-    p_e->w_max = raw;
-    p_e->w_sum = raw;
+    p_e->w_n    = 1U;
+    p_e->w_min  = raw;
+    p_e->w_max  = raw;
+    p_e->w_sum  = raw;
     p_e->w_dsum = 0;
 }
 
@@ -771,17 +802,17 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
         if (p_e->w_n >= S3_BC_WHITE_INIT_N)
         {
             /* Casts: w_n is at most S3_BC_WHITE_INIT_N */
-            p_e->w_x16    = (p_e->w_sum * 16) / (int32_t)p_e->w_n;
+            p_e->w_x16 = (p_e->w_sum * 16) / (int32_t)p_e->w_n;
             /* noise from the steps between samples, not from the spread,
                so a level that drifts or a window over faint ink cannot
                pass as noise: sd = 0.886 x mean |step| for a normal noise
                (casts: w_n - 1 >= 1 here) */
-            p_e->w_sd_x16 = (p_e->w_dsum * 16 * 886) /
-                            (1000 * ((int32_t)p_e->w_n - 1));
-            p_e->w_valid  = 1U;
-            p_e->w_high   = 0U;
-            p_e->ext      = raw;
-            p_e->b_prev   = 0U;
+            p_e->w_sd_x16 =
+                (p_e->w_dsum * 16 * 886) / (1000 * ((int32_t)p_e->w_n - 1));
+            p_e->w_valid = 1U;
+            p_e->w_high  = 0U;
+            p_e->ext     = raw;
+            p_e->b_prev  = 0U;
         }
         p_e->mid_t_us  = t_us;
         p_e->mid_pos   = pos;
@@ -905,7 +936,7 @@ uint8_t bc_start_step(bc_start_t * p_s, bool b_black, uint32_t width_us,
         p_s->b_pend = p_s->b_after_wide ||
                       (width_us >= ((uint32_t)S3_BC_START_WHITE_MS * 1000U));
         p_s->b_after_wide = false;
-        out = p_s->b_pend ? BC_START_ARMED : BC_START_NONE;
+        out               = p_s->b_pend ? BC_START_ARMED : BC_START_NONE;
     }
     else
     {
@@ -973,7 +1004,7 @@ bool bc_lock_step(bc_lock_t * p_l, bool b_scan, bool b_bars, uint32_t pos,
             if (!b_bars && !p_l->b_confirmed &&
                 ((uint32_t)(pos - p_l->read_pos) >= first_max))
             {
-                b_free = true; /* one long black: not a barcode */
+                b_free        = true; /* one long black: not a barcode */
                 p_l->free_why = BC_LOCK_FREE_FIRST;
             }
         }
@@ -984,17 +1015,16 @@ bool bc_lock_step(bc_lock_t * p_l, bool b_scan, bool b_bars, uint32_t pos,
                 p_l->b_after = true;
                 p_l->end_pos = pos;
             }
-            if (!p_l->b_confirmed ||
-                ((uint32_t)(pos - p_l->end_pos) >= after))
+            if (!p_l->b_confirmed || ((uint32_t)(pos - p_l->end_pos) >= after))
             {
                 b_free = true;
-                p_l->free_why = p_l->b_confirmed ? BC_LOCK_FREE_AFTER
-                                                 : BC_LOCK_FREE_UNCONF;
+                p_l->free_why =
+                    p_l->b_confirmed ? BC_LOCK_FREE_AFTER : BC_LOCK_FREE_UNCONF;
             }
         }
         if ((uint32_t)(pos - p_l->start_pos) >= max_counts)
         {
-            b_free = true;
+            b_free        = true;
             p_l->free_why = BC_LOCK_FREE_MAX;
         }
         if (b_free)
@@ -1026,8 +1056,7 @@ void bc_lock_steer_reset(bc_lock_steer_t * p_s)
 }
 
 int16_t bc_lock_steer(bc_lock_steer_t * p_s, uint8_t black_mask, uint32_t pos,
-                      int16_t steering, uint32_t side_counts,
-                      int16_t max_steer)
+                      int16_t steering, uint32_t side_counts, int16_t max_steer)
 {
     bool   b_c  = (0u != (black_mask & S3_MASK_C));
     bool   b_r  = (0u != (black_mask & S3_MASK_R));
@@ -1064,9 +1093,9 @@ bool bc_lock_apply(bc_lock_ctl_t * p_c, bc_lock_cfg_t const * p_cfg,
                    line_tracker_t * p_trk, bool b_scan, bool b_bars,
                    uint32_t pos)
 {
-    bool b_lock = bc_lock_step(&p_c->lock, b_scan, b_bars, pos,
-                               p_cfg->first_max, p_cfg->after,
-                               p_cfg->max_counts);
+    bool b_lock =
+        bc_lock_step(&p_c->lock, b_scan, b_bars, pos, p_cfg->first_max,
+                     p_cfg->after, p_cfg->max_counts);
 
     if ((!b_lock) || (!p_c->lock.b_confirmed) || p_trk->b_hold)
     {
@@ -1077,9 +1106,9 @@ bool bc_lock_apply(bc_lock_ctl_t * p_c, bc_lock_cfg_t const * p_cfg,
     }
     else
     {
-        int16_t st = bc_lock_steer(&p_c->steer, p_trk->black_mask, pos,
-                                   p_trk->steering, p_cfg->side_counts,
-                                   p_cfg->max_steer);
+        int16_t st =
+            bc_lock_steer(&p_c->steer, p_trk->black_mask, pos, p_trk->steering,
+                          p_cfg->side_counts, p_cfg->max_steer);
         if (0 == st)
         {
             /* not holding a curve (checked above), so this only drops a
@@ -1100,11 +1129,11 @@ bool bc_lock_apply(bc_lock_ctl_t * p_c, bc_lock_cfg_t const * p_cfg,
 
 void l_fast_reset(l_fast_t * p_f, l_fast_rd_t * p_rd)
 {
-    p_f->seq  = 0u;
-    p_f->sum  = 0u;
-    p_f->n    = 0u;
-    p_f->c    = 0u;
-    p_f->r    = 0u;
+    p_f->seq   = 0u;
+    p_f->sum   = 0u;
+    p_f->n     = 0u;
+    p_f->c     = 0u;
+    p_f->r     = 0u;
     p_rd->sum  = 0u;
     p_rd->n    = 0u;
     p_rd->last = 0u;

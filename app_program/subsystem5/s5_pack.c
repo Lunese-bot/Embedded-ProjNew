@@ -36,11 +36,13 @@ void s5_unpack_status(uint16_t word, uint16_t * p_distance_mm,
     }
     if (NULL != p_state)
     {
-        *p_state = (uint8_t)((word >> S5_PACK_STATE_SHIFT) &
-                             S5_PACK_STATE_MASK);
+        *p_state =
+            (uint8_t)((word >> S5_PACK_STATE_SHIFT) & S5_PACK_STATE_MASK);
     }
     if (NULL != p_detected)
     {
         *p_detected = (0U != ((word >> S5_PACK_DET_SHIFT) & 1U));
     }
 }
+
+/*** end of file ***/

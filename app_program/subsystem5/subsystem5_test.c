@@ -99,13 +99,14 @@ void subsystem5_test(void)
                "plan: short first leg and shallow return search");
 
     count = s5_plan_straight_recovery(S5_RETURN_TURN_DEG, plan, S5_PLAN_MAX);
-    TEST_CHECK("S5-U09",
-               (2 == count) && (S5_MOVE_TURN == plan[0].m.kind) &&
-                   (-S5_RETURN_TURN_DEG == plan[0].m.angle_deg) &&
-                   (S5_MOVE_FORWARD == plan[1].m.kind) &&
-                   (0U != plan[1].search_line) &&
-                   (S5_RECOVERY_STRAIGHT_MM == plan[1].m.distance_mm),
-               "recovery: one pivot to approach heading and one straight search");
+    TEST_CHECK(
+        "S5-U09",
+        (2 == count) && (S5_MOVE_TURN == plan[0].m.kind) &&
+            (-S5_RETURN_TURN_DEG == plan[0].m.angle_deg) &&
+            (S5_MOVE_FORWARD == plan[1].m.kind) &&
+            (0U != plan[1].search_line) &&
+            (S5_RECOVERY_STRAIGHT_MM == plan[1].m.distance_mm),
+        "recovery: one pivot to approach heading and one straight search");
 
     tk_dly_tsk(300); /* let the scan task run a few periods */
     TEST_CHECK("S5-U10",
@@ -142,14 +143,13 @@ void subsystem5_test(void)
 
         TEST_CHECK("S5-U19",
                    ((uint8_t)S5_ST_ERROR < (1U << S5_PACK_STATE_BITS)) &&
-                       (2000U <= S5_PACK_DIST_MAX_MM) &&
-                       (sizeof(word) == 2U),
+                       (2000U <= S5_PACK_DIST_MAX_MM) && (sizeof(word) == 2U),
                    "every state fits 4 bits, 2000 mm fits 11 bits, 2 bytes");
 
         TEST_CHECK("S5-U20",
                    (E_OK == s5_get_status_packed(&word)) &&
-                       (((word >> S5_PACK_STATE_SHIFT) & S5_PACK_STATE_MASK)
-                        <= (uint16_t)S5_ST_ERROR),
+                       (((word >> S5_PACK_STATE_SHIFT) & S5_PACK_STATE_MASK) <=
+                        (uint16_t)S5_ST_ERROR),
                    "s5_get_status_packed() returns a valid live state");
         tm_printf((uint8_t *)"[TEST] S5-U20 info: packed word 0x%04x\n",
                   (uint32_t)word);
@@ -157,33 +157,34 @@ void subsystem5_test(void)
 
     /* ---- latched stop path (Version C): full queue -> stop ---- */
     {
-        T_CMBF       cm       = { 0 };
-        s5_evt_t     evt      = { 0 };
-        s5_stop_fn_t real_fn  = g_s5_stop_fn;
-        uint32_t     before   = g_s5_estops;
+        T_CMBF       cm      = { 0 };
+        s5_evt_t     evt     = { 0 };
+        s5_stop_fn_t real_fn = g_s5_stop_fn;
+        uint32_t     before  = g_s5_estops;
         ID           mbf_test;
         ER           first;
         ER           second;
 
         /* private buffer that holds exactly one event, so the second
            send finds it full, like a VC queue that is not being read */
-        cm.mbfatr  = TA_TFIFO;
-        cm.maxmsz  = sizeof(s5_evt_t);
-        cm.bufsz   = sizeof(s5_evt_t) + S5_MBF_MSG_OVERHEAD;
-        mbf_test   = tk_cre_mbf(&cm);
+        cm.mbfatr    = TA_TFIFO;
+        cm.maxmsz    = sizeof(s5_evt_t);
+        cm.bufsz     = sizeof(s5_evt_t) + S5_MBF_MSG_OVERHEAD;
+        mbf_test     = tk_cre_mbf(&cm);
         g_s5_stop_fn = test_fake_stop; /* do not latch the real motors */
         g_test_stops = 0;
 
         evt.type        = S5_EVT_OBSTACLE_DETECTED;
         evt.distance_mm = 200U;
-        first  = s5_send_critical_to(mbf_test, &evt);
-        second = s5_send_critical_to(mbf_test, &evt);
+        first           = s5_send_critical_to(mbf_test, &evt);
+        second          = s5_send_critical_to(mbf_test, &evt);
 
         g_s5_stop_fn = real_fn;
-        TEST_CHECK("S5-U21",
-                   (mbf_test > 0) && (E_OK == first) && (E_OK != second) &&
-                       (1 == g_test_stops) && ((before + 1U) == g_s5_estops),
-                   "queue full: obstacle event lost -> emergency stop called once");
+        TEST_CHECK(
+            "S5-U21",
+            (mbf_test > 0) && (E_OK == first) && (E_OK != second) &&
+                (1 == g_test_stops) && ((before + 1U) == g_s5_estops),
+            "queue full: obstacle event lost -> emergency stop called once");
         if (mbf_test > 0)
         {
             tk_del_mbf(mbf_test);
@@ -193,7 +194,7 @@ void subsystem5_test(void)
     TEST_CHECK("S5-U23", S5_DETECT_MM >= S5_STOP_NEEDED_MM,
                "detect distance covers reaction + braking + margin");
     tm_printf((uint8_t *)"[TEST] S5-U23 info: latency %d ms, reaction %d mm, "
-              "needed %d mm, detect %d mm\n",
+                         "needed %d mm, detect %d mm\n",
               (int32_t)S5_LATENCY_MS, (int32_t)S5_REACTION_MM,
               (int32_t)S5_STOP_NEEDED_MM, (int32_t)S5_DETECT_MM);
 

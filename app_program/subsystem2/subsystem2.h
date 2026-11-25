@@ -106,12 +106,12 @@ extern uint32_t s2_stop_epoch(void);
 #define S2_IMU_CAUSE_LIFT     1U
 #define S2_IMU_CAUSE_OVERTURN 2U
 #define S2_IMU_CAUSE_UNKNOWN  3U /* any other value given to the latch */
-extern void s2_latch_imu_stop(uint32_t cause);
-extern void s2_clear_imu_stop(void);
+extern void              s2_latch_imu_stop(uint32_t cause);
+extern void              s2_clear_imu_stop(void);
 /* Which IMU interlock explains the safe stop of generation stop_epoch
    (motion_status_t.stop_epoch): the interlock still set, or else the one
    that raised exactly that stop.  S2_IMU_CAUSE_NONE = not the IMU. */
-extern uint32_t s2_imu_stop_cause(uint32_t stop_epoch);
+extern uint32_t          s2_imu_stop_cause(uint32_t stop_epoch);
 extern volatile uint32_t g_s2_imu_stop; /* S2_IMU_CAUSE_*, 0 = not set */
 
 /* ---------------------------------------------------------------------
@@ -180,7 +180,8 @@ extern volatile uint32_t g_s2_ticks_r;
  *  so each event is consumed by the task that handles it.
  * --------------------------------------------------------------------- */
 #define MFLG_CMD_DONE     (1U << 0) /* DRIVE_DIST / TURN finished */
-#define MFLG_STOPPED      (1U << 1) /* MOTION_STOP reached 0 speed; VC junction handshake */
+/* MOTION_STOP reached 0 speed; VC junction handshake */
+#define MFLG_STOPPED      (1U << 1)
 #define MFLG_SAFE_STOPPED (1U << 2) /* entered MSTATE_SAFE_STOP */
 #define MFLG_FAULT        (1U << 3) /* entered MSTATE_FAULT */
 #define MFLG_CMD_TIMEOUT  (1U << 4) /* DRIVE had no fresh command */

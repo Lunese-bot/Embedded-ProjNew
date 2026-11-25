@@ -1,6 +1,7 @@
 /*
  *      vc_bridge_s5.c
- *      Vehicle Controller -- adapter to subsystem 5's g_mbf_s5_cmd / g_mbf_s5_evt.
+ *      Vehicle Controller -- adapter to subsystem 5's g_mbf_s5_cmd /
+ * g_mbf_s5_evt.
  *
  *      S5 -> controller
  *        OBSTACLE_DETECTED  -> VC_EV_OBSTACLE (p1 = distance mm)
@@ -46,7 +47,7 @@
 static vc_event_t g_pending[PENDING_MAX]; /* converted, not yet handed out */
 static int32_t    g_pending_n;
 static vc_event_type_t g_wait_event; /* completion expected for g_wait_seq */
-static uint16_t   g_wait_seq;
+static uint16_t        g_wait_seq;
 
 static void push(vc_event_type_t type, int32_t param1, int32_t param2,
                  uint32_t time_ms)
@@ -57,12 +58,12 @@ static void push(vc_event_type_t type, int32_t param1, int32_t param2,
     {
         p_event = &g_pending[g_pending_n];
         g_pending_n++;
-        p_event->src     = VC_SRC_OBST;
-        p_event->type    = (uint8_t)type; /* Cast: enum fits 8 bits */
-        p_event->cause   = 0;
-        p_event->p1      = param1;
-        p_event->p2      = param2;
-        p_event->time_ms = time_ms;
+        p_event->src             = VC_SRC_OBST;
+        p_event->type            = (uint8_t)type; /* Cast: enum fits 8 bits */
+        p_event->cause           = 0;
+        p_event->p1              = param1;
+        p_event->p2              = param2;
+        p_event->time_ms         = time_ms;
         p_event->barcode_text[0] = '\0';
     }
 }
@@ -220,7 +221,8 @@ void vc_bridge_s5_motion_event(const vc_event_t * p_event)
     if ((VC_EV_NONE != g_wait_event) && (g_wait_event == p_event->type))
     {
         /* A distance move may finish just as S5 asks to stop for the line. */
-        bool b_ok = (VC_EV_MOTION_STOPPED == p_event->type) || (0 != p_event->p1);
+        bool b_ok =
+            (VC_EV_MOTION_STOPPED == p_event->type) || (0 != p_event->p1);
         g_wait_event = VC_EV_NONE;
         send_cmd(S5_CMD_MOTION_DONE, b_ok ? 1 : 0, g_wait_seq);
     }

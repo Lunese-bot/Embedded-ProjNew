@@ -68,16 +68,18 @@ typedef struct
     uint16_t     lost_count;
     uint16_t     found_count;
     uint16_t     junction_count;
-    uint16_t     rejoin_clear_left; /* clear samples before rearming junctions */
-    int16_t      prev_error;
-    int8_t       corr_side;  /* straddle: side being corrected, 0 = none */
-    uint16_t     corr_count; /* straddle: samples that side has been black */
-    int16_t      corr_mag;   /* straddle: last correction strength        */
-    uint16_t     hold_count; /* straddle: samples of curve memory so far   */
-    bool         b_hold;     /* straddle: line passed outside, keep turning */
-    bool         b_reentry;  /* straddle: line came back in after a hold    */
-    int8_t       mem_side;   /* straddle: side corr_count belongs to (kept over short white gaps) */
-    uint16_t     l_raw;      /* L raw reading, set by the caller before each step (barcode-bar check) */
+    uint16_t rejoin_clear_left; /* clear samples before rearming junctions */
+    int16_t  prev_error;
+    int8_t   corr_side;  /* straddle: side being corrected, 0 = none */
+    uint16_t corr_count; /* straddle: samples that side has been black */
+    int16_t  corr_mag;   /* straddle: last correction strength        */
+    uint16_t hold_count; /* straddle: samples of curve memory so far   */
+    bool     b_hold;     /* straddle: line passed outside, keep turning */
+    bool     b_reentry;  /* straddle: line came back in after a hold    */
+    int8_t   mem_side; /* straddle: side corr_count belongs to (kept over short
+                          white gaps) */
+    uint16_t l_raw;    /* L raw reading, set by the caller before each step
+                          (barcode-bar check) */
 } line_tracker_t;
 
 /* Default parameters from s3_config.h */
@@ -104,7 +106,6 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
                              line_params_t const * p_params,
                              uint16_t const        p_norm[S3_IR_COUNT],
                              bool                  b_junction_inhibit);
-
 
 /*
  * Barcode edge finder (S3_BC_EDGE = 1).  Works on L's RAW reading and
@@ -150,11 +151,11 @@ typedef struct
     int32_t  w_min;     /* learning window: lowest, highest, sum        */
     int32_t  w_max;
     int32_t  w_sum;
-    int32_t  w_x16;     /* white level x 16                              */
-    int32_t  w_sd_x16;  /* white noise (standard deviation) x 16         */
-    uint16_t w_high;    /* samples black in a row outside a read         */
-    int32_t  w_dsum;    /* learning window: sum of |step| between samples */
-    int32_t  h_prev;    /* adaptive path: the previous sample, raw       */
+    int32_t  w_x16;        /* white level x 16                              */
+    int32_t  w_sd_x16;     /* white noise (standard deviation) x 16         */
+    uint16_t w_high;       /* samples black in a row outside a read         */
+    int32_t  w_dsum;       /* learning window: sum of |step| between samples */
+    int32_t  h_prev;       /* adaptive path: the previous sample, raw       */
     uint8_t  h_prev_white; /* 1 = it was white (level 0)                 */
 } bc_edge_t;
 
@@ -163,8 +164,8 @@ void bc_edge_reset_pos(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
                        uint32_t pos);
 
 /* Returns 1 when the level changed; *p_edge_us = when the edge happened. */
-uint8_t bc_edge_step(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
-                     int32_t swing, int32_t floor, uint32_t * p_edge_us);
+uint8_t bc_edge_step(bc_edge_t * p_e, int32_t raw, uint32_t t_us, int32_t swing,
+                     int32_t floor, uint32_t * p_edge_us);
 
 /* Same, also tracking the wheel position `pos` (any unit that counts up
    with distance, e.g. encoder counts): *p_edge_pos = where the edge was,
@@ -195,7 +196,7 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
                            uint32_t pos, bool b_freeze, uint32_t * p_edge_us,
                            uint32_t * p_edge_pos);
 /* learn white again from the next sample (e.g. after a barcode rearm) */
-void bc_edge_relearn(bc_edge_t * p_e);
+void    bc_edge_relearn(bc_edge_t * p_e);
 /* m above (raw); 0 while white is not learned */
 int32_t bc_edge_margin(bc_edge_t const * p_e);
 
@@ -241,16 +242,16 @@ typedef struct
     bool     b_lock;      /* drive straight and slow now               */
     bool     b_confirmed; /* a read in this lock saw bar + space        */
     bool     b_was_scan;
-    bool     b_after;     /* read over, counting `after`                */
-    uint32_t start_pos;   /* where this lock began                      */
-    uint32_t read_pos;    /* where the current read began               */
-    uint32_t end_pos;     /* where the last read ended                  */
-    uint8_t  free_why;    /* why it last let go (BC_LOCK_FREE_*)        */
+    bool     b_after;   /* read over, counting `after`                */
+    uint32_t start_pos; /* where this lock began                      */
+    uint32_t read_pos;  /* where the current read began               */
+    uint32_t end_pos;   /* where the last read ended                  */
+    uint8_t  free_why;  /* why it last let go (BC_LOCK_FREE_*)        */
 } bc_lock_t;
-#define BC_LOCK_FREE_FIRST 1U /* no bar + space within first_max     */
+#define BC_LOCK_FREE_FIRST  1U /* no bar + space within first_max     */
 #define BC_LOCK_FREE_UNCONF 2U /* read ended before bar + space       */
-#define BC_LOCK_FREE_AFTER 3U /* `after` counts past a confirmed read */
-#define BC_LOCK_FREE_MAX   4U /* max_counts in one go                 */
+#define BC_LOCK_FREE_AFTER  3U /* `after` counts past a confirmed read */
+#define BC_LOCK_FREE_MAX    4U /* max_counts in one go                 */
 
 void bc_lock_reset(bc_lock_t * p_l);
 /* One 10 ms step; returns p_l->b_lock */
@@ -322,17 +323,17 @@ typedef struct
 
 typedef struct
 {
-    uint32_t sum;  /* totals at the last record */
+    uint32_t sum; /* totals at the last record */
     uint32_t n;
     uint16_t last; /* last L record             */
 } l_fast_rd_t;
 
-void l_fast_reset(l_fast_t * p_f, l_fast_rd_t * p_rd);
+void     l_fast_reset(l_fast_t * p_f, l_fast_rd_t * p_rd);
 /* interrupt side: one 2 ms sample */
-void l_fast_put(l_fast_t * p_f, uint16_t l, uint16_t c, uint16_t r);
+void     l_fast_put(l_fast_t * p_f, uint16_t l, uint16_t c, uint16_t r);
 /* task side: a consistent copy; false if no stable copy in a few tries */
-bool l_fast_get(const l_fast_t * p_f, uint32_t * p_sum, uint32_t * p_n,
-                uint16_t * p_c, uint16_t * p_r);
+bool     l_fast_get(const l_fast_t * p_f, uint32_t * p_sum, uint32_t * p_n,
+                    uint16_t * p_c, uint16_t * p_r);
 /* task side: the 10 ms L record = mean of the samples since the last
    record.  *p_used = how many (0: none came, the last record is kept). */
 uint16_t l_fast_record(l_fast_rd_t * p_rd, uint32_t sum, uint32_t n,

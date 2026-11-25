@@ -11,12 +11,13 @@
  *          BARCODE_START    -> VC_EV_BARCODE_START
  *          BARCODE_DECODED  -> VC_EV_BARCODE_DECODED, p1 = legacy nav,
  *                              barcode_text = complete decoded A-Z string,
- *                              p2 = 1 if read backwards BARCODE_FAILED   -> VC_EV_BARCODE_FAILED, p1 = reason, p2 = S3
- * retries CAL_FAILED       -> non-critical fault 0x3002 (old calibration kept)
- *        s3_get_line_status() (IF-31): while S3 owns motion (FOLLOW_LINE,
- *          DECODE_BARCODE, TERRAIN_CHECK), each NEW sample's PD steering
- *          becomes a VC_EV_MOVE_REQUEST STEER.  S3 publishes it, it does not
- *          send it, so the controller reads it every tick (10 ms, NFR2).
+ *                              p2 = 1 if read backwards BARCODE_FAILED   ->
+ * VC_EV_BARCODE_FAILED, p1 = reason, p2 = S3 retries CAL_FAILED       ->
+ * non-critical fault 0x3002 (old calibration kept) s3_get_line_status()
+ * (IF-31): while S3 owns motion (FOLLOW_LINE, DECODE_BARCODE, TERRAIN_CHECK),
+ * each NEW sample's PD steering becomes a VC_EV_MOVE_REQUEST STEER.  S3
+ * publishes it, it does not send it, so the controller reads it every tick (10
+ * ms, NFR2).
  *
  *      controller -> S3 (s3_request, IF-33)
  *        SELF_CHECK     -> VC_EV_READY if S3 answers (and is calibrated in
@@ -66,22 +67,22 @@ static vc_event_t g_junction_held;
    start, decode or fail events, and S3 is kept from scanning), so the line
    follower can be tested on its own. */
 #if S2_WEBDEBUG
-#define BC_OFF (0 == g_lt_bc_en)
+#define BC_OFF   (0 == g_lt_bc_en)
 #define LOST_OFF (0 == g_lt_lost_en)
 #else
-#define BC_OFF 0
+#define BC_OFF   0
 #define LOST_OFF 0
 #endif
 
 static void make(vc_event_t * p_event, vc_event_type_t type, int32_t param1,
                  int32_t param2, uint32_t time_ms)
 {
-    p_event->src     = VC_SRC_LINE;
-    p_event->type    = (uint8_t)type; /* Cast: enum fits 8 bits */
-    p_event->cause   = 0;
-    p_event->p1      = param1;
-    p_event->p2      = param2;
-    p_event->time_ms = time_ms;
+    p_event->src             = VC_SRC_LINE;
+    p_event->type            = (uint8_t)type; /* Cast: enum fits 8 bits */
+    p_event->cause           = 0;
+    p_event->p1              = param1;
+    p_event->p2              = param2;
+    p_event->time_ms         = time_ms;
     p_event->barcode_text[0] = '\0';
 }
 
@@ -98,7 +99,8 @@ static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
     {
         uint32_t idx;
         for (idx = 0u; (idx < (sizeof(g_lt_bc_text) - 1u)) &&
-                       (idx < (sizeof(p_s3->text) - 1u)); idx++)
+                       (idx < (sizeof(p_s3->text) - 1u));
+             idx++)
         {
             char ch = (char)p_s3->text[idx];
             if ((ch < 'A') || (ch > 'Z'))
@@ -193,14 +195,15 @@ static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
             /* Cast: arg is 0 or 1 (read backwards). */
             make(p_event, VC_EV_BARCODE_DECODED, p_s3->nav, (int32_t)p_s3->arg,
                  p_s3->time_ms);
-            /* Carry the complete text through the Vehicle Controller; action rules match the
-               whole barcode rather than only S3's legacy first-letter nav. */
+            /* Carry the complete text through the Vehicle Controller; action
+               rules match the whole barcode rather than only S3's legacy
+               first-letter nav. */
             {
                 uint32_t idx;
-                for (idx = 0u;
-                     (idx < (sizeof(p_event->barcode_text) - 1u)) &&
-                     (idx < (sizeof(p_s3->text) - 1u)) &&
-                     ('\0' != (char)p_s3->text[idx]); idx++)
+                for (idx = 0u; (idx < (sizeof(p_event->barcode_text) - 1u)) &&
+                               (idx < (sizeof(p_s3->text) - 1u)) &&
+                               ('\0' != (char)p_s3->text[idx]);
+                     idx++)
                 {
                     p_event->barcode_text[idx] = (char)p_s3->text[idx];
                 }

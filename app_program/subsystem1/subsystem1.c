@@ -19,7 +19,7 @@ ID g_mbf_s1_test;
 static void capture_test_message(const uint8_t * p_line, int32_t len)
 {
     uint8_t old[S1_LINE_MAX];
-    ER ercd = tk_snd_mbf(g_mbf_s1_test, p_line, len, TMO_POL);
+    ER      ercd = tk_snd_mbf(g_mbf_s1_test, p_line, len, TMO_POL);
 
     if (E_TMOUT == ercd)
     {
@@ -52,17 +52,17 @@ ER subsystem1_init(void)
     {
         return ercd;
     }
-    cmbf.mbfatr = TA_TFIFO;
+    cmbf.mbfatr     = TA_TFIFO;
     /* events only, at most S1_EVT_QUEUE_MAX, so size for the longest */
-    cmbf.bufsz  = S1_EVT_QUEUE_MAX * (S1_LINE_MAX + 4);
-    cmbf.maxmsz = S1_LINE_MAX;
+    cmbf.bufsz      = S1_EVT_QUEUE_MAX * (S1_LINE_MAX + 4);
+    cmbf.maxmsz     = S1_LINE_MAX;
     g_mbf_telemetry = tk_cre_mbf(&cmbf);
     if (g_mbf_telemetry < E_OK)
     {
         return g_mbf_telemetry;
     }
 #if APP_TEST
-    cmbf.bufsz = S1_QUEUE_LINES * (S1_LINE_MAX + sizeof(int32_t));
+    cmbf.bufsz    = S1_QUEUE_LINES * (S1_LINE_MAX + sizeof(int32_t));
     g_mbf_s1_test = tk_cre_mbf(&cmbf);
     if (g_mbf_s1_test < E_OK)
     {
@@ -129,20 +129,19 @@ static ER post_event(const uint8_t * p_line, int32_t len, int32_t kind)
 /* IF-T1 */
 ER s1_post(const char * p_topic, const void * p_data, int32_t data_len)
 {
-    uint8_t line[S1_LINE_MAX];
-    const uint8_t * data = (const uint8_t *)p_data;
-    int32_t topic_len = 0;
-    int32_t len;
-    int32_t idx;
-    int32_t kind;
-    ER      ercd;
+    uint8_t         line[S1_LINE_MAX];
+    const uint8_t * data      = (const uint8_t *)p_data;
+    int32_t         topic_len = 0;
+    int32_t         len;
+    int32_t         idx;
+    int32_t         kind;
+    ER              ercd;
 
     if ((p_topic == NULL) || (data_len < 1) || (p_data == NULL))
     {
         return E_PAR;
     }
-    while ((p_topic[topic_len] != '\0') &&
-           (topic_len < S1_BRIDGE_TOPIC_MAX))
+    while ((p_topic[topic_len] != '\0') && (topic_len < S1_BRIDGE_TOPIC_MAX))
     {
         topic_len++;
     }

@@ -32,10 +32,10 @@ typedef enum
 
 typedef struct
 {
-    int8_t   deg;                 /* servo angle, + = left              */
-    uint8_t  src;                 /* s5_src_t                           */
-    uint16_t raw[S5_TRIP_READS];  /* each ping in order, 0 = no echo    */
-    uint16_t used;                /* median used for the profile        */
+    int8_t   deg;                /* servo angle, + = left              */
+    uint8_t  src;                /* s5_src_t                           */
+    uint16_t raw[S5_TRIP_READS]; /* each ping in order, 0 = no echo    */
+    uint16_t used;               /* median used for the profile        */
 } s5_trip_t;
 
 /* Median of the n (1..5) readings, ignoring no-echo (0) ones; 0 when all
@@ -50,8 +50,8 @@ extern void s5_trips_to_samples(const s5_trip_t * p_trips, int32_t n,
 /* Same order and rule as s5_merge_samples: sorted by angle, the fine trip
    replaces the coarse one at the same angle (its pings come with it). */
 extern int32_t s5_merge_trips(const s5_trip_t * a, int32_t na,
-                              const s5_trip_t * b, int32_t nb,
-                              s5_trip_t * out, int32_t max);
+                              const s5_trip_t * b, int32_t nb, s5_trip_t * out,
+                              int32_t max);
 
 /* Trips [first, first + n) as " C-60:0/0/0=0 F-45:0/212/0=212" (source
    C or F, the pings, = the median used).  Whole items only, always NUL
@@ -90,22 +90,22 @@ extern int32_t s5_format_trips(char * p_buf, int32_t size,
 
 typedef enum
 {
-    S5_WE_OK = 0,      /* both supported edges found, left of right      */
-    S5_WE_NO_PROFILE,  /* the trips give no obstacle                     */
-    S5_WE_CLIPPED,     /* a raw edge is the first or last sample: the
-                          side beyond it was never observed              */
-    S5_WE_NO_SUPPORT,  /* no sample of the cluster has enough support    */
-    S5_WE_COLLAPSED    /* the supported edges meet or cross: too narrow
-                          for two supported endpoints                    */
+    S5_WE_OK = 0,     /* both supported edges found, left of right      */
+    S5_WE_NO_PROFILE, /* the trips give no obstacle                     */
+    S5_WE_CLIPPED,    /* a raw edge is the first or last sample: the
+                         side beyond it was never observed              */
+    S5_WE_NO_SUPPORT, /* no sample of the cluster has enough support    */
+    S5_WE_COLLAPSED   /* the supported edges meet or cross: too narrow
+                         for two supported endpoints                    */
 } s5_we_status_t;
 
 typedef struct
 {
-    uint8_t  status;       /* s5_we_status_t                              */
+    uint8_t  status; /* s5_we_status_t                              */
     /* raw (the profile's own numbers) */
     int8_t   raw_r_deg;
     int8_t   raw_l_deg;
-    uint16_t raw_r_range;  /* median used at the edge                    */
+    uint16_t raw_r_range; /* median used at the edge                    */
     uint16_t raw_l_range;
     int16_t  raw_right_mm;
     int16_t  raw_left_mm;
@@ -133,3 +133,5 @@ extern s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t n,
 extern const char * s5_we_name(uint8_t status);
 
 #endif /* S5_SCAN_DIAG_H */
+
+/*** end of file ***/

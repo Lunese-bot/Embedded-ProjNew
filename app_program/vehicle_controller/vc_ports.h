@@ -1,7 +1,7 @@
 /*
  *      vc_ports.h
- *      Vehicle Controller -- outbound connections from the Vehicle Controller to
- *      the other subsystems.  Called ONLY from vehicle_ctrl_task.
+ *      Vehicle Controller -- outbound connections from the Vehicle Controller
+ * to the other subsystems.  Called ONLY from vehicle_ctrl_task.
  *
  *      Each function is the single place where VC talks to the other
  *      subsystems.  They log what they do, record it in g_vc_port_log (for

@@ -24,3 +24,5 @@
 const vc_bcmap_store_t * vc_bcmap_flash_store(void);
 
 #endif /* VC_BCMAP_FLASH_H */
+
+/*** end of file ***/

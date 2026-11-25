@@ -12,7 +12,8 @@
 
 #include "subsystem5.h"
 
-#define SERVO_MAX_DEG 60 /* limit we allow (was 80: too far, sensor flew off) */
+/* limit we allow (was 80: too far, sensor flew off) */
+#define SERVO_MAX_DEG 60
 
 /* Calibration (NF9): pulse width at straight ahead and per degree.
    Typical SG90: 1500 us centre, ~11 us/deg.  Measure yours and record

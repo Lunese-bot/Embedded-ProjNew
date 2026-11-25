@@ -60,7 +60,7 @@
    c39g_decode() uses this; c39g_decode_hump() takes it from the caller
    (2026-11-24: the read's own noise margin on low-contrast print, whose
    ink reads only 35-100 above white). */
-#define C39G_MIN_HUMP 250
+#define C39G_MIN_HUMP      250
 /* With a noise margin m from the edge finder (bc_edge_margin, raw), a
    hump must rise C39G_HUMP_NOISE_K x m instead (c39g_min_hump): twice
    what starts a bar, so only clear bumps count.  Replay 2026-11-24: the
@@ -86,32 +86,32 @@
 typedef enum
 {
     C39G_OK = 0,
-    C39G_FEW,     /* fewer than 6 humps above C39G_MIN_HUMP           */
-    C39G_FEW2,    /* fewer than 6 at half height                       */
-    C39G_MANY,    /* more than 24 humps: not one letter                */
-    C39G_NOFIT,   /* no letter could be laid on the humps              */
-    C39G_ERR,     /* best fit worse than C39G_ERR_MAX_X100             */
-    C39G_TIE,     /* two letters fit about as well: refused            */
-    C39G_WEAK,    /* best letter explains too little of the trace      */
-    C39G_ARG      /* bad arguments                                     */
+    C39G_FEW,   /* fewer than 6 humps above C39G_MIN_HUMP           */
+    C39G_FEW2,  /* fewer than 6 at half height                       */
+    C39G_MANY,  /* more than 24 humps: not one letter                */
+    C39G_NOFIT, /* no letter could be laid on the humps              */
+    C39G_ERR,   /* best fit worse than C39G_ERR_MAX_X100             */
+    C39G_TIE,   /* two letters fit about as well: refused            */
+    C39G_WEAK,  /* best letter explains too little of the trace      */
+    C39G_ARG    /* bad arguments                                     */
 } c39g_result_t;
 
 typedef struct
 {
-    char     letter;     /* 'A'..'Z', 0 when refused                     */
-    char     best;       /* best letter even when refused as a tie       */
-    char     runner;     /* best other letter, '-' if none                */
-    bool     b_reversed; /* read backwards                                */
-    uint8_t  n_humps;    /* humps at half height                          */
-    uint16_t err_x100;   /* worst wide-bar centre error, 1/100 module     */
-    uint16_t margin_x100;/* model error of runner-up / best - 1, percent  */
-    uint16_t module_x10; /* module size, trace units x 10                 */
-    uint16_t ratio_x100; /* wide:narrow ratio used, x 100                 */
-    uint8_t  fit_x100;   /* share of the trace the model explains, %     */
-    uint8_t  try_n;      /* which try gave this result: 1 half height,
-                            2 near the top (C39G_HI_PERMILLE), 0 none  */
-    uint8_t  first_res;  /* c39g_result_t of the first try              */
-    char     first_best; /* first try's best letter (also when refused) */
+    char     letter;      /* 'A'..'Z', 0 when refused                     */
+    char     best;        /* best letter even when refused as a tie       */
+    char     runner;      /* best other letter, '-' if none                */
+    bool     b_reversed;  /* read backwards                                */
+    uint8_t  n_humps;     /* humps at half height                          */
+    uint16_t err_x100;    /* worst wide-bar centre error, 1/100 module     */
+    uint16_t margin_x100; /* model error of runner-up / best - 1, percent  */
+    uint16_t module_x10;  /* module size, trace units x 10                 */
+    uint16_t ratio_x100;  /* wide:narrow ratio used, x 100                 */
+    uint8_t  fit_x100;    /* share of the trace the model explains, %     */
+    uint8_t  try_n;       /* which try gave this result: 1 half height,
+                             2 near the top (C39G_HI_PERMILLE), 0 none  */
+    uint8_t  first_res;   /* c39g_result_t of the first try              */
+    char     first_best;  /* first try's best letter (also when refused) */
 } c39g_info_t;
 
 /* Decode one-letter "*X*" from a trace (oldest sample first).
@@ -133,7 +133,9 @@ int32_t c39g_min_hump(int32_t noise_margin);
    alike.  min_hump below 1 gives C39G_ARG. */
 c39g_result_t c39g_decode_hump(const uint16_t * p_l, const uint8_t * p_fwd,
                                const int8_t * p_yaw, uint32_t n,
-                               bool b_use_dist, int32_t min_hump,
+                               bool b_use_dist, int32_t             min_hump,
                                void (*p_yield)(void), c39g_info_t * p_info);
 
 #endif /* CODE39_GEOM_H */
+
+/*** end of file ***/

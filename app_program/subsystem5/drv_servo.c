@@ -13,9 +13,8 @@
 
 #include "drv_servo.h"
 
-#define SERVO_SLICE                                                    \
-    (((uint32_t)S5_PIN_SERVO >> 1U) & 0x07U)           /* 2 pins/slice \
-                                                        */
+/* 2 pins/slice */
+#define SERVO_SLICE        (((uint32_t)S5_PIN_SERVO >> 1U) & 0x07U)
 #define SERVO_DIV_INT      (CLK_PERI_FREQ / 1000000UL) /* 125 */
 #define SERVO_WRAP         19999                       /* 20 ms at 1 MHz */
 #define SERVO_MIN_US       500

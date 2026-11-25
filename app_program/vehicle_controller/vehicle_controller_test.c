@@ -1,7 +1,8 @@
 /*
  *      vehicle_controller_test.c
- *      On-target tests for the Vehicle Controller.  Built only with: make TEST=1
- *      Record results in testing/vehicle_controller/TEST_LOG.md.  IDs: VC-U01, ...
+ *      On-target tests for the Vehicle Controller.  Built only with: make
+ * TEST=1 Record results in testing/vehicle_controller/TEST_LOG.md.  IDs:
+ * VC-U01, ...
  *
  *      The state-machine tests drive a PRIVATE vc_sm_t, so the live
  *      controller and the motors are not touched.  The same scenarios run

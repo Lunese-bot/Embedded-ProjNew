@@ -36,8 +36,8 @@ void subsystem1_test(void)
     SYSTIM         started;
     SYSTIM         now;
     int32_t        idx;
-    int32_t        len     = 0;
-    bool           b_found = false;
+    int32_t        len       = 0;
+    bool           b_found   = false;
     bool           b_drained = false;
 
     TEST_INIT();
@@ -49,24 +49,27 @@ void subsystem1_test(void)
                "s1_post queues a binary payload");
     for (idx = 0; (idx < S1_CAPTURE_SCAN_LIMIT) && (!b_found); idx++)
     {
-        len     = s1_test_bridge_pop(topic, sizeof(topic), payload, sizeof(payload));
+        len =
+            s1_test_bridge_pop(topic, sizeof(topic), payload, sizeof(payload));
         if (len <= 0)
         {
             break;
         }
         b_found = (len > 0) && (str_eq(topic, S1_TOPIC_ROOT "selftest"));
     }
-    TEST_CHECK("S1-U01b", b_found &&
-               (len == (int32_t)sizeof(binary_sample)) &&
-               (payload[0] == binary_sample[0]) &&
-               (payload[1] == binary_sample[1]) &&
-               (payload[2] == binary_sample[2]),
+    TEST_CHECK("S1-U01b",
+               b_found && (len == (int32_t)sizeof(binary_sample)) &&
+                   (payload[0] == binary_sample[0]) &&
+                   (payload[1] == binary_sample[1]) &&
+                   (payload[2] == binary_sample[2]),
                "bridge preserves payload bytes and exact length");
 
-    /* Discard old copies, then observe a fresh frame without consuming MQTT's queue. */
+    /* Discard old copies, then observe a fresh frame without consuming MQTT's
+     * queue. */
     for (idx = 0; idx < S1_CAPTURE_SCAN_LIMIT; idx++)
     {
-        len = s1_test_bridge_pop(topic, sizeof(topic), payload, sizeof(payload));
+        len =
+            s1_test_bridge_pop(topic, sizeof(topic), payload, sizeof(payload));
         if (len <= 0)
         {
             b_drained = (0 == len);
@@ -79,7 +82,8 @@ void subsystem1_test(void)
         tk_get_tim(&started);
         do
         {
-            len = s1_test_bridge_pop(topic, sizeof(topic), payload, sizeof(payload));
+            len     = s1_test_bridge_pop(topic, sizeof(topic), payload,
+                                         sizeof(payload));
             b_found = (len == S1_TLM_BYTES) &&
                       str_eq(topic, S1_TOPIC_ROOT S1_TOPIC_TLM) &&
                       (s1_tlm_decode(payload, len, &tlm) == 0);
@@ -92,10 +96,10 @@ void subsystem1_test(void)
     }
     else
     {
-        tm_printf((uint8_t *)"[TEST] S1-U02 info: capture queue did not drain\n");
+        tm_printf(
+            (uint8_t *)"[TEST] S1-U02 info: capture queue did not drain\n");
     }
-    TEST_CHECK("S1-U02", b_found,
-               "14-byte versioned telemetry frame queued");
+    TEST_CHECK("S1-U02", b_found, "14-byte versioned telemetry frame queued");
 
     /* S1-U03: reserved command code is counted and rejected. */
     s1_get_status(&comms);

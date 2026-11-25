@@ -95,9 +95,9 @@ static void run_actions(const vc_actions_t * p_acts)
                    USB too.  letter '-' = no single-letter barcode. */
                 static const char * const k_note[] = { "?", "assigned",
                                                        "completed", "dropped" };
-                const uint32_t kind   = (uint32_t)p_action->p1;
-                const uint8_t  letter = (uint8_t)((uint32_t)p_action->p2 >> 8);
-                const uint8_t  code   = (uint8_t)((uint32_t)p_action->p2 & 3u);
+                const uint32_t            kind     = (uint32_t)p_action->p1;
+                const uint8_t letter = (uint8_t)((uint32_t)p_action->p2 >> 8);
+                const uint8_t code   = (uint8_t)((uint32_t)p_action->p2 & 3u);
 
                 tm_printf((uint8_t *)"vc: jx %s %c %u\n",
                           k_note[(kind <= 3u) ? kind : 0u],
@@ -112,8 +112,10 @@ static void run_actions(const vc_actions_t * p_acts)
                    since the U-turn began (+ = left), deg = the same in S2
                    command degrees, x = detail (vc_sm.h vc_ut_trace_t) */
                 static const char * const k_what[] = {
-                    "?", "start", "early-line-ignored", "fast-done", "sweep",
-                    "sight", "brake", "settled", "verdict", "done", "FAIL"
+                    "?",         "start",   "early-line-ignored",
+                    "fast-done", "sweep",   "sight",
+                    "brake",     "settled", "verdict",
+                    "done",      "FAIL"
                 };
                 static const char * const k_verdict[] = {
                     "unsure", "on-line", "between-C-R", "turned-past", "no-line"
@@ -132,11 +134,11 @@ static void run_actions(const vc_actions_t * p_acts)
                 else if (((uint32_t)VC_UT_SIGHT == what) ||
                          ((uint32_t)VC_UT_EARLY == what))
                 {
-                    tm_printf((uint8_t *)"vc: ut %s %s h=%d (%d deg)\n",
-                              k_what[what],
-                              (VC_LINE_C == x) ? "C"
-                              : ((VC_LINE_R == x) ? "R" : "C+R"),
-                              h, deg);
+                    tm_printf(
+                        (uint8_t *)"vc: ut %s %s h=%d (%d deg)\n", k_what[what],
+                        (VC_LINE_C == x) ? "C"
+                                         : ((VC_LINE_R == x) ? "R" : "C+R"),
+                        h, deg);
                 }
                 else
                 {
@@ -185,8 +187,8 @@ static void publish_status(bool b_state_changed)
 /* One event through the state machine, then out to the ports */
 static void handle(const vc_event_t * p_event, uint32_t now, bool b_from_s5)
 {
-    vc_state_t before   = g_vc_sm.st.state;
-    uint32_t   rejected = g_vc_sm.st.moves_rejected;
+    vc_state_t before     = g_vc_sm.st.state;
+    uint32_t   rejected   = g_vc_sm.st.moves_rejected;
     bool       was_paused = g_vc_sm.st.paused;
     bool       b_avoiding;
 
@@ -199,13 +201,12 @@ static void handle(const vc_event_t * p_event, uint32_t now, bool b_from_s5)
     }
     run_actions(&g_vc_actions);
 
-    if ((VC_SRC_COMMS == p_event->src) &&
-        ((VC_EV_CMD_PAUSE == p_event->type) ||
-         (VC_EV_CMD_RESUME == p_event->type)))
+    if ((VC_SRC_COMMS == p_event->src) && ((VC_EV_CMD_PAUSE == p_event->type) ||
+                                           (VC_EV_CMD_RESUME == p_event->type)))
     {
-        bool accepted = (VC_EV_CMD_PAUSE == p_event->type) ?
-                        (!was_paused && g_vc_sm.st.paused) :
-                        (was_paused && !g_vc_sm.st.paused);
+        bool accepted = (VC_EV_CMD_PAUSE == p_event->type)
+                            ? (!was_paused && g_vc_sm.st.paused)
+                            : (was_paused && !g_vc_sm.st.paused);
         s1_bridge_command_result((uint8_t)p_event->p1, accepted);
     }
     if (b_from_s5)

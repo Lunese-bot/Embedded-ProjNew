@@ -64,11 +64,12 @@ typedef enum
    other event bits keep their values. */
 #define IMU_EV_TILT_LIMIT    0x0080u /* pitch or roll beyond safe limit */
 #define IMU_EV_MOTION_CHANGE 0x0100u /* motion class changed */
-#define IMU_EV_SAFETY_STOP   0x0200u /* pickup or overturn; clears when set down */
+/* pickup or overturn; clears when set down */
+#define IMU_EV_SAFETY_STOP   0x0200u
 
-#define IMU_SAFETY_NONE      0u
-#define IMU_SAFETY_LIFT      1u
-#define IMU_SAFETY_OVERTURN  2u
+#define IMU_SAFETY_NONE     0u
+#define IMU_SAFETY_LIFT     1u
+#define IMU_SAFETY_OVERTURN 2u
 
 /* ---- inputs --------------------------------------------------------- */
 
@@ -112,10 +113,10 @@ typedef struct
 /* ---- outputs -------------------------------------------------------- */
 typedef struct
 {
-    uint8_t state      : 3;
-    uint8_t motion     : 3;
+    uint8_t state : 3;
+    uint8_t motion : 3;
     uint8_t calibrated : 1;
-    uint8_t fault      : 1;
+    uint8_t fault : 1;
 
     int16_t ax_mg; /* filtered, bias removed */
     int16_t ay_mg;
@@ -127,10 +128,11 @@ typedef struct
 
     int32_t  hump_height_um; /* height above hump start, now */
     int32_t  last_peak_um;   /* peak of the last completed hump */
-    int32_t  max_peak_um;    /* highest confirmed hump height, including climb */
+    int32_t  max_peak_um; /* highest confirmed hump height, including climb */
     uint16_t hump_count;
     uint32_t sample_count;
-    uint8_t safety_stop; /* IMU_SAFETY_*; clears after set down level and still */
+    uint8_t  safety_stop; /* IMU_SAFETY_*; clears after set down level and still
+                           */
 } imu_status_t;
 
 /* Complete algorithm state (one instance, owned by the IMU task) */
@@ -167,9 +169,9 @@ typedef struct
     int32_t f_hump_pitch; /* slow pitch filter, x 2^hump_lpf_shift */
     int32_t f_hump_ax;    /* slow ax / ay for the lever height, same scale */
     int32_t f_hump_ay;
-    int32_t travel_um;    /* wheel travel since the height was re-zeroed */
-    uint8_t hump_block;   /* tilt too big for a hump: wait for level ground */
-    uint8_t settle_cnt;   /* samples set down level and still */
+    int32_t travel_um;   /* wheel travel since the height was re-zeroed */
+    uint8_t hump_block;  /* tilt too big for a hump: wait for level ground */
+    uint8_t settle_cnt;  /* samples set down level and still */
     int32_t level_ax_mg; /* forward accel on level ground */
 } imu_terrain_t;
 

@@ -75,19 +75,19 @@ typedef enum
     VC_EV_FAULT,        /* p1 = vc_fault_severity_t, p2 = fault code */
 
     /* S1 comms: remote commands never drive the motors directly */
-    VC_EV_CMD_START, /* start the mission */
-    VC_EV_CMD_STOP,  /* stop: go to FAULT (operator stop) */
-    VC_EV_CMD_RESET, /* acknowledge fault, back to IDLE */
-    VC_EV_CMD_PAUSE, /* request pause while following the line */
+    VC_EV_CMD_START,  /* start the mission */
+    VC_EV_CMD_STOP,   /* stop: go to FAULT (operator stop) */
+    VC_EV_CMD_RESET,  /* acknowledge fault, back to IDLE */
+    VC_EV_CMD_PAUSE,  /* request pause while following the line */
     VC_EV_CMD_RESUME, /* resume after stop confirmation */
-    VC_EV_WIFI_DOWN, /* non-critical: keep navigating */
+    VC_EV_WIFI_DOWN,  /* non-critical: keep navigating */
     VC_EV_WIFI_UP,
 
     /* S2 motion: send after every TURN_*, U_TURN, REVERSE, DRIVE_DIST */
     VC_EV_MANOEUVRE_DONE, /* p1 = 1 completed, 0 failed (navigation_complete);
                              p2 = S2 odometer (L + R counts), 0 = not given */
-    VC_EV_MOTION_STOPPED,  /* S2 confirms MOTION_STOP reached zero speed;
-                              p2 = S2 odometer then, 0 = not given */
+    VC_EV_MOTION_STOPPED, /* S2 confirms MOTION_STOP reached zero speed;
+                             p2 = S2 odometer then, 0 = not given */
 
     /* S3 line + barcode */
     VC_EV_LINE_LOST,     /* p1 = last side seen: -1 left, +1 right, 0 unknown */
@@ -145,20 +145,22 @@ typedef enum
 /* Fault codes.  0x00xx are raised by the controller itself; every other
    subsystem uses its own range 0xN0xx..0xN0FF, N = its folder number
    (S2 motion uses 0x2000..0x20FF, S4 IMU 0x4000..0x40FF, ...). */
-#define VC_FC_NONE          0x0000
-#define VC_FC_OPERATOR_STOP 0x0001
-#define VC_FC_SELF_CHECK    0x0002 /* required subsystem not ready */
-#define VC_FC_LINE_RECOVERY 0x0003 /* line not found within limits */
-#define VC_FC_AVOID_FAILED  0x0004
+#define VC_FC_NONE              0x0000
+#define VC_FC_OPERATOR_STOP     0x0001
+#define VC_FC_SELF_CHECK        0x0002 /* required subsystem not ready */
+#define VC_FC_LINE_RECOVERY     0x0003 /* line not found within limits */
+#define VC_FC_AVOID_FAILED      0x0004
 /* 0x0005 was IMPACT: removed (professor's IMU change), do not reuse */
-#define VC_FC_STATE_TIMEOUT 0x0006 /* a state took too long */
-#define VC_FC_BARCODE       0x0007 /* barcode retries used up (non-critical) */
-#define VC_FC_JUNCTION_STOP 0x0008 /* S2 did not confirm stop at junction */
+#define VC_FC_STATE_TIMEOUT     0x0006 /* a state took too long */
+/* barcode retries used up (non-critical) */
+#define VC_FC_BARCODE           0x0007
+#define VC_FC_JUNCTION_STOP     0x0008 /* S2 did not confirm stop at junction */
 #define VC_FC_PAUSE_INTERRUPTED 0x0009 /* unsafe event while paused */
-#define VC_FC_WIFI_DOWN     0x1000 /* reported for S1 (non-critical) */
+#define VC_FC_WIFI_DOWN         0x1000 /* reported for S1 (non-critical) */
 /* Codes the controller itself tests; the bridges check they match. */
-#define VC_FC_S2_SAFE_STOP  0x2011 /* S2_FC_SAFE_STOP, vc_bridge_s2.c */
-#define VC_FC_IMU_SAFETY    0x4005 /* S4_FC_SAFETY (lift / overturn), vc_bridge_s4.c */
+#define VC_FC_S2_SAFE_STOP      0x2011 /* S2_FC_SAFE_STOP, vc_bridge_s2.c */
+/* S4_FC_SAFETY (lift / overturn), vc_bridge_s4.c */
+#define VC_FC_IMU_SAFETY        0x4005
 
 /* vc_event_t.cause.  Only S2's critical safe-stop fault (0x2011) sets it:
    it says whether S4's lift / overturn interlock raised that stop
@@ -173,8 +175,8 @@ typedef enum
    only for VC_EV_BARCODE_DECODED; all other producers set it to empty. */
 typedef struct
 {
-    uint8_t  src;  /* vc_source_t */
-    uint8_t  type; /* vc_event_type_t */
+    uint8_t  src;   /* vc_source_t */
+    uint8_t  type;  /* vc_event_type_t */
     int16_t  cause; /* VC_CAUSE_*: only on S2's safe-stop fault, else 0 */
     int32_t  p1;
     int32_t  p2;
@@ -204,11 +206,12 @@ _Static_assert((VC_UTURN_CMD_DEG >= 120) && (VC_UTURN_CMD_DEG <= 240),
 
 typedef enum
 {
-    VC_MOVE_STOP = 0, /* value unused; ordinary stop, no completion event */
-    VC_MOVE_STOP_CONFIRM, /* stop and report S2's MFLG_STOPPED to the Vehicle Controller */
-    VC_MOVE_FORWARD,  /* value = speed (mm/s) */
-    VC_MOVE_STEER,    /* value = steering (-1000 left .. +1000 right) at current
-                         speed */
+    VC_MOVE_STOP = 0,     /* value unused; ordinary stop, no completion event */
+    VC_MOVE_STOP_CONFIRM, /* stop and report S2's MFLG_STOPPED to the Vehicle
+                             Controller */
+    VC_MOVE_FORWARD,      /* value = speed (mm/s) */
+    VC_MOVE_STEER, /* value = steering (-1000 left .. +1000 right) at current
+                      speed */
     VC_MOVE_TURN_LEFT,  /* value = angle (deg) */
     VC_MOVE_TURN_RIGHT, /* value = angle (deg) */
     VC_MOVE_U_TURN,     /* value = angle (deg, left), 0 = VC_UTURN_CMD_DEG */
@@ -264,15 +267,15 @@ typedef struct
     vc_fault_severity_t  last_fault_sev;
     uint8_t              last_fault_src;
     uint32_t             reports_after_end; /* reports since the run ended */
-    navigation_command_t last_nav;    /* last barcode command */
-    char                 last_barcode[16]; /* last decoded text ("A", "Z"); a letter
-                                              that goes straight is still recorded */
-    int32_t              max_hump_um; /* highest hump this run, micrometres */
-    uint32_t             barcodes_read;
-    uint32_t             events_handled;
-    uint32_t             moves_rejected; /* requests from a non-owner */
-    bool                 wifi_up;
-    bool                 paused;
+    navigation_command_t last_nav;          /* last barcode command */
+    char     last_barcode[16]; /* last decoded text ("A", "Z"); a letter
+                                  that goes straight is still recorded */
+    int32_t  max_hump_um;      /* highest hump this run, micrometres */
+    uint32_t barcodes_read;
+    uint32_t events_handled;
+    uint32_t moves_rejected; /* requests from a non-owner */
+    bool     wifi_up;
+    bool     paused;
 } vc_status_t;
 
 #endif /* VC_TYPES_H */

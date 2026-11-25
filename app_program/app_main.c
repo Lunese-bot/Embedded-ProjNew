@@ -120,7 +120,8 @@ INT usermain(void)
     app_check(subsystem3_init(), "subsystem3_init");
     app_check(subsystem4_init(), "subsystem4_init");
     app_check(subsystem5_init(), "subsystem5_init");
-    app_check(vehicle_controller_init(), "vehicle_controller_init"); /* Vehicle Controller */
+    /* Vehicle Controller */
+    app_check(vehicle_controller_init(), "vehicle_controller_init");
 
     /* Phase 2: every subsystem starts its tasks */
     app_check(subsystem1_start(), "subsystem1_start");

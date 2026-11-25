@@ -34,22 +34,22 @@
 /* ------------------------------------------------------------------ */
 
 static const char * const g_state_names[] = {
-    "IDLE",           "MISSION_START",   "FOLLOW_LINE",    "JUNCTION_STOP",
-    "LOST_LINE",      "AVOID_OBSTACLE",  "DECODE_BARCODE", "EXECUTE_ACTION",
-    "TERRAIN_CHECK",  "FAULT",           "MISSION_COMPLETE"
+    "IDLE",          "MISSION_START",  "FOLLOW_LINE",     "JUNCTION_STOP",
+    "LOST_LINE",     "AVOID_OBSTACLE", "DECODE_BARCODE",  "EXECUTE_ACTION",
+    "TERRAIN_CHECK", "FAULT",          "MISSION_COMPLETE"
 };
 _Static_assert(sizeof(g_state_names) / sizeof(g_state_names[0]) == VC_ST_COUNT,
                "one name per vc_state_t");
 
 static const char * const g_event_names[] = {
-    "NONE",          "READY",          "MOVE_REQUEST",    "FAULT",
-    "CMD_START",     "CMD_STOP",       "CMD_RESET",       "CMD_PAUSE",
-    "CMD_RESUME",    "WIFI_DOWN",      "WIFI_UP",         "MANOEUVRE_DONE",
-    "MOTION_STOPPED", "LINE_LOST",
-    "LINE_FOUND",    "JUNCTION",       "BARCODE_START",  "BARCODE_DECODED",
-    "BARCODE_FAILED", "END_OF_COURSE", "HUMP_START",     "HUMP_CLEARED",
-    "LIFTED",        "OBSTACLE",       "AVOID_DONE",     "AVOID_FAILED",
-    "TICK",          "CMD_CONFIG",     "LINE_SAMPLE"
+    "NONE",           "READY",           "MOVE_REQUEST",   "FAULT",
+    "CMD_START",      "CMD_STOP",        "CMD_RESET",      "CMD_PAUSE",
+    "CMD_RESUME",     "WIFI_DOWN",       "WIFI_UP",        "MANOEUVRE_DONE",
+    "MOTION_STOPPED", "LINE_LOST",       "LINE_FOUND",     "JUNCTION",
+    "BARCODE_START",  "BARCODE_DECODED", "BARCODE_FAILED", "END_OF_COURSE",
+    "HUMP_START",     "HUMP_CLEARED",    "LIFTED",         "OBSTACLE",
+    "AVOID_DONE",     "AVOID_FAILED",    "TICK",           "CMD_CONFIG",
+    "LINE_SAMPLE"
 };
 /* A new event needs its name here too (a missing one was a null name). */
 _Static_assert(sizeof(g_event_names) / sizeof(g_event_names[0]) == VC_EV_COUNT,
@@ -105,7 +105,8 @@ static vc_action_t * emit(vc_actions_t * p_out, vc_action_kind_t kind,
     if (p_out->n >= VC_MAX_ACTIONS)
     {
         p_out->overflow = true;
-        return (vc_action_t *)0; /* <stddef.h> clashes with the kernel's size_t */
+        return (vc_action_t *)0; /* <stddef.h> clashes with the kernel's size_t
+                                  */
     }
     p_action         = &p_out->a[p_out->n++];
     p_action->kind   = (uint8_t)kind;
@@ -201,8 +202,8 @@ static void start_turn(vc_sm_t * p_sm, vc_move_t move_cmd, int32_t value,
 {
     move(p_out, move_cmd, value);
     p_sm->turn_odo0 = p_sm->odo;
-    p_sm->turn_gate = (0 != VC_TURN_END_ON_LINE) ? VC_PIVOT_COUNTS(gate_deg)
-                                                 : 0u;
+    p_sm->turn_gate =
+        (0 != VC_TURN_END_ON_LINE) ? VC_PIVOT_COUNTS(gate_deg) : 0u;
 }
 
 /* Junction evidence for S1 (VC_ACT_JUNCTION), from the pending action as
@@ -308,20 +309,21 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
         case VC_ST_MISSION_START:
             move(p_out, VC_MOVE_STOP, 0);
             p_sm->st.reports_after_end = 0;
-            p_sm->ready_mask          = 0;
-            p_sm->st.mission_start_ms = now_ms;
-            p_sm->st.max_hump_um      = 0;
-            p_sm->st.barcodes_read    = 0;
-            p_sm->st.last_nav         = NAV_NONE;
-            p_sm->st.last_barcode[0]  = '\0';
+            p_sm->ready_mask           = 0;
+            p_sm->st.mission_start_ms  = now_ms;
+            p_sm->st.max_hump_um       = 0;
+            p_sm->st.barcodes_read     = 0;
+            p_sm->st.last_nav          = NAV_NONE;
+            p_sm->st.last_barcode[0]   = '\0';
             request(p_out, VC_SRC_NONE, VC_REQ_SELF_CHECK, 0);
             break;
 
         case VC_ST_FOLLOW_LINE:
             p_sm->retries = 0;
-            p_sm->rejoin_steer_left = ((VC_ST_AVOID_OBSTACLE == prev) ||
-                                       p_sm->ut.handover)
-                                         ? VC_REJOIN_STEER_SAMPLES : 0u;
+            p_sm->rejoin_steer_left =
+                ((VC_ST_AVOID_OBSTACLE == prev) || p_sm->ut.handover)
+                    ? VC_REJOIN_STEER_SAMPLES
+                    : 0u;
             request(p_out, VC_SRC_OBST, VC_REQ_OBST_MONITOR, 0);
             request(p_out, VC_SRC_LINE, VC_REQ_LINE_FOLLOW, 0);
             if (p_sm->ut.handover)
@@ -434,14 +436,15 @@ static bool ut_active(const vc_sm_t * p_sm)
 static void ut_trace(const vc_sm_t * p_sm, vc_actions_t * p_out,
                      vc_ut_trace_t what, int32_t detail)
 {
-    vc_action_t * p_action = emit(p_out, VC_ACT_TRACE, VC_SRC_VC,
-                                  (int32_t)what, p_sm->ut.heading);
+    vc_action_t * p_action =
+        emit(p_out, VC_ACT_TRACE, VC_SRC_VC, (int32_t)what, p_sm->ut.heading);
 
     if ((vc_action_t *)0 != p_action)
     {
         /* Cast: details are small (sensor, verdict, a few hundred counts) */
-        p_action->rsv = (int16_t)((detail > 32767) ? 32767
-                                  : ((detail < -32768) ? -32768 : detail));
+        p_action->rsv =
+            (int16_t)((detail > 32767) ? 32767
+                                       : ((detail < -32768) ? -32768 : detail));
     }
 }
 
@@ -641,7 +644,8 @@ static void ut_decide(vc_sm_t * p_sm, vc_ut_verdict_t v, uint32_t now_ms,
            most VC_UTURN_CORRECT_DEG beyond that */
         p_sm->ut.sweeps++;
         ut_sweep(p_sm, VC_UT_CORRECT, back,
-                 p_sm->ut.sight_h + ((int32_t)back * ut_counts(VC_UTURN_CORRECT_DEG)),
+                 p_sm->ut.sight_h +
+                     ((int32_t)back * ut_counts(VC_UTURN_CORRECT_DEG)),
                  now_ms, p_out);
     }
     else
@@ -657,7 +661,8 @@ static void ut_decide(vc_sm_t * p_sm, vc_ut_verdict_t v, uint32_t now_ms,
 }
 
 /* Slow sweep reached its encoder bound without a sighting */
-static void ut_check_bound(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
+static void ut_check_bound(vc_sm_t * p_sm, uint32_t now_ms,
+                           vc_actions_t * p_out)
 {
     if ((VC_EXEC_UT_SWEEP == p_sm->exec_phase) &&
         (((int32_t)p_sm->ut.dir * (p_sm->ut.heading - p_sm->ut.bound)) >= 0))
@@ -681,7 +686,8 @@ static void ut_sample(vc_sm_t * p_sm, const vc_event_t * p_event,
     {
         case VC_EXEC_UTURN:
             /* the junction, its side arm: logged once, never acted on */
-            if ((0 != (mask & (VC_LINE_C | VC_LINE_R))) && (0u == p_sm->ut.early))
+            if ((0 != (mask & (VC_LINE_C | VC_LINE_R))) &&
+                (0u == p_sm->ut.early))
             {
                 p_sm->ut.early = 1u;
                 ut_trace(p_sm, p_out, VC_UT_EARLY, mask);
@@ -756,7 +762,8 @@ static void ut_handle(vc_sm_t * p_sm, const vc_event_t * p_event,
     {
         ut_fail(p_sm, 4, now_ms, p_out);
     }
-    else if ((VC_EV_MANOEUVRE_DONE == type) && (VC_EXEC_UTURN == p_sm->exec_phase))
+    else if ((VC_EV_MANOEUVRE_DONE == type) &&
+             (VC_EXEC_UTURN == p_sm->exec_phase))
     {
         /* fast pivot done: the slow approach, same way */
         ut_trace(p_sm, p_out, VC_UT_FAST_DONE, 0);
@@ -764,7 +771,8 @@ static void ut_handle(vc_sm_t * p_sm, const vc_event_t * p_event,
                  ut_counts(VC_UTURN_CMD_DEG + VC_UTURN_SECTOR_DEG), now_ms,
                  p_out);
     }
-    else if ((VC_EV_MOTION_STOPPED == type) && (VC_EXEC_UT_BRAKE == p_sm->exec_phase))
+    else if ((VC_EV_MOTION_STOPPED == type) &&
+             (VC_EXEC_UT_BRAKE == p_sm->exec_phase))
     {
         /* standing: how far did the wheels run on after the request? */
         ut_trace(p_sm, p_out, VC_UT_SETTLED,
@@ -1338,7 +1346,8 @@ static void on_junction_stop(vc_sm_t * p_sm, const vc_event_t * p_event,
     }
     else if (VC_EV_OBSTACLE == type)
     {
-        /* Obstacle safety takes priority; discard the pending junction action. */
+        /* Obstacle safety takes priority; discard the pending junction action.
+         */
         drop_pending(p_sm, p_out);
         enter(p_sm, VC_ST_AVOID_OBSTACLE, now_ms, p_out);
     }
@@ -1358,7 +1367,8 @@ static void on_execute_action(vc_sm_t * p_sm, const vc_event_t * p_event,
     {
         ut_handle(p_sm, p_event, type, now_ms, p_out);
     }
-    else if ((VC_EV_MANOEUVRE_DONE == type) && (VC_EXEC_ADVANCE == p_sm->exec_phase))
+    else if ((VC_EV_MANOEUVRE_DONE == type) &&
+             (VC_EXEC_ADVANCE == p_sm->exec_phase))
     {
         /* the advance is done: the axle is over the crossing, now turn */
         p_sm->exec_phase = VC_EXEC_TURN;
@@ -1373,17 +1383,17 @@ static void on_execute_action(vc_sm_t * p_sm, const vc_event_t * p_event,
     {
         /* past the gate and C or R is on the new arm: the turn is done,
            line following takes over (its FORWARD replaces S2's turn) */
-        p_sm->turn_gate   = 0u;
+        p_sm->turn_gate = 0u;
         junction_note(p_sm, p_out, VC_JX_COMPLETED);
-        p_sm->pending_nav = NAV_NONE;
+        p_sm->pending_nav        = NAV_NONE;
         p_sm->pending_barcode[0] = '\0';
         enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
     }
     else if (VC_EV_MANOEUVRE_DONE == type)
     {
-        p_sm->turn_gate   = 0u;
+        p_sm->turn_gate = 0u;
         junction_note(p_sm, p_out, VC_JX_COMPLETED);
-        p_sm->pending_nav = NAV_NONE;
+        p_sm->pending_nav        = NAV_NONE;
         p_sm->pending_barcode[0] = '\0';
         enter(p_sm, VC_ST_FOLLOW_LINE, now_ms, p_out);
     }
@@ -1448,7 +1458,8 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
           (VC_SRC_MOTION == p_event->src))) &&
         (0 != p_event->p2))
     {
-        ut_track_odo(p_sm, (uint32_t)p_event->p2); /* Cast: counts, sent as int32 */
+        ut_track_odo(p_sm, (uint32_t)p_event->p2); /* Cast: counts, sent as
+                                                      int32 */
         p_sm->odo = (uint32_t)p_event->p2;
     }
 
@@ -1463,8 +1474,8 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
     {
         if ((VC_ST_FOLLOW_LINE == p_sm->st.state) && !p_sm->st.paused)
         {
-            p_sm->st.paused = true;
-            p_sm->pause_stopped = false;
+            p_sm->st.paused      = true;
+            p_sm->pause_stopped  = false;
             p_sm->pause_since_ms = now_ms;
             move(p_out, VC_MOVE_STOP_CONFIRM, 0);
         }
@@ -1474,7 +1485,7 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
     {
         if (p_sm->st.paused && p_sm->pause_stopped)
         {
-            p_sm->st.paused = false;
+            p_sm->st.paused     = false;
             p_sm->pause_stopped = false;
             request(p_out, VC_SRC_LINE, VC_REQ_LINE_FOLLOW, 0);
             if (0u != p_sm->rejoin_steer_left)
@@ -1509,8 +1520,8 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
             ((VC_EV_FAULT == type) &&
              ((int32_t)VC_FAULT_RECOVERABLE == p_event->p1)))
         {
-            go_fault(p_sm, (vc_source_t)p_event->src,
-                     VC_FC_PAUSE_INTERRUPTED, now_ms, p_out);
+            go_fault(p_sm, (vc_source_t)p_event->src, VC_FC_PAUSE_INTERRUPTED,
+                     now_ms, p_out);
             return;
         }
         if ((VC_EV_MOVE_REQUEST == type) || (VC_EV_TICK == type))

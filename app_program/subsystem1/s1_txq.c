@@ -138,8 +138,8 @@ int32_t s1_txq_claim(S1_TXQ * p_q, S1_STATS * p_st, s1_txq_pull_fn pull,
     if (stage_event(p_q, pull))
     {
         item_copy(&p_claim->item, &p_q->staged_evt);
-        p_claim->kind    = s1_stats_line_kind(p_q->staged_evt.line,
-                                              p_q->staged_evt.len);
+        p_claim->kind =
+            s1_stats_line_kind(p_q->staged_evt.line, p_q->staged_evt.len);
         p_q->evt_claimed = 1;
     }
     else if (tlm_at_cap(p_q, p_st))
@@ -223,8 +223,8 @@ void s1_txq_drop_claim(S1_TXQ * p_q, S1_STATS * p_st,
 void s1_txq_done(S1_TXQ * p_q, S1_STATS * p_st, int32_t kind, uint32_t gen,
                  int32_t err)
 {
-    uint32_t * p_inflight = (kind == S1_KIND_TLM) ? &p_st->inflight_tlm :
-                                                    &p_st->inflight_evt;
+    uint32_t * p_inflight =
+        (kind == S1_KIND_TLM) ? &p_st->inflight_tlm : &p_st->inflight_evt;
 
     if ((gen != p_q->gen) || (*p_inflight == 0U))
     {

@@ -32,12 +32,13 @@
 #define FLASH_TOTAL_BYTES     (2048u * 1024u)
 #define FLASH_SECTOR_BYTES    4096u
 #define FLASH_PAGE_BYTES      256u
-#define FLASH_BLOCK_BYTES     65536u      /* as the Pico SDK passes */
+#define FLASH_BLOCK_BYTES     65536u /* as the Pico SDK passes */
 #define FLASH_BLOCK_ERASE_CMD 0xD8u
-#define BOOT2_WORDS           64u         /* 256-byte second stage */
+#define BOOT2_WORDS           64u /* 256-byte second stage */
 
-#define VC_BCMAP_FLASH_OFFSET (FLASH_TOTAL_BYTES - (VC_BCMAP_SLOTS * FLASH_SECTOR_BYTES))
-#define VC_BCMAP_PARK_US      20000u
+#define VC_BCMAP_FLASH_OFFSET \
+    (FLASH_TOTAL_BYTES - (VC_BCMAP_SLOTS * FLASH_SECTOR_BYTES))
+#define VC_BCMAP_PARK_US 20000u
 
 /* Linker script: end of the program image = start of the map slots. */
 extern char __bcmap_flash_start[];
@@ -51,16 +52,17 @@ extern void knl_smp_flash_lockout_end(void);
 typedef void (*rom_void_fn)(void);
 typedef void (*rom_erase_fn)(uint32_t addr, size_t count, uint32_t block_size,
                              uint8_t block_cmd);
-typedef void (*rom_prog_fn)(uint32_t addr, const uint8_t * p_data, size_t count);
+typedef void (*rom_prog_fn)(uint32_t addr, const uint8_t * p_data,
+                            size_t count);
 typedef void * (*rom_lookup_fn)(const uint16_t * p_table, uint32_t code);
 
 typedef struct
 {
-    rom_void_fn  connect;   /* 'IF' connect_internal_flash */
-    rom_void_fn  exit_xip;  /* 'EX' flash_exit_xip */
-    rom_erase_fn erase;     /* 'RE' flash_range_erase */
-    rom_prog_fn  program;   /* 'RP' flash_range_program */
-    rom_void_fn  flush;     /* 'FC' flash_flush_cache */
+    rom_void_fn  connect;  /* 'IF' connect_internal_flash */
+    rom_void_fn  exit_xip; /* 'EX' flash_exit_xip */
+    rom_erase_fn erase;    /* 'RE' flash_range_erase */
+    rom_prog_fn  program;  /* 'RP' flash_range_program */
+    rom_void_fn  flush;    /* 'FC' flash_flush_cache */
 } flash_rom_t;
 
 static flash_rom_t s_rom;
@@ -68,11 +70,13 @@ static uint32_t    s_boot2[BOOT2_WORDS];
 static uint8_t     s_page[FLASH_PAGE_BYTES] __attribute__((aligned(4)));
 static bool        s_b_ready;
 
-#define RAMFUNC __attribute__((section(".ramfunc.vc_bcmap"), noinline, long_call))
+#define RAMFUNC \
+    __attribute__((section(".ramfunc.vc_bcmap"), noinline, long_call))
 
 /* Runs from RAM while XIP is off: no flash code, no flash constants. */
 static void RAMFUNC flash_op(uint32_t offset, const uint8_t * p_page,
-                             const flash_rom_t * p_rom, const uint32_t * p_boot2)
+                             const flash_rom_t * p_rom,
+                             const uint32_t *    p_boot2)
 {
     p_rom->connect();
     p_rom->exit_xip();
@@ -89,28 +93,29 @@ static uint32_t irq_save(void)
 {
     uint32_t primask;
 
-    __asm__ volatile ("mrs %0, primask\n\tcpsid i" : "=r"(primask) :: "memory");
+    __asm__ volatile("mrs %0, primask\n\tcpsid i" : "=r"(primask)::"memory");
     return primask;
 }
 
 static void irq_restore(uint32_t primask)
 {
-    __asm__ volatile ("msr primask, %0" :: "r"(primask) : "memory");
+    __asm__ volatile("msr primask, %0" ::"r"(primask) : "memory");
 }
 
 static uint16_t rom_hword(uintptr_t address)
 {
     /* hide the constant address from the compiler's bounds checks */
-    __asm__ volatile ("" : "+r"(address));
+    __asm__ volatile("" : "+r"(address));
     return *(const volatile uint16_t *)address;
 }
 
 static void * rom_func(char c1, char c2)
 {
-    rom_lookup_fn lookup = (rom_lookup_fn)(uintptr_t)rom_hword(0x18u);
+    rom_lookup_fn    lookup  = (rom_lookup_fn)(uintptr_t)rom_hword(0x18u);
     const uint16_t * p_table = (const uint16_t *)(uintptr_t)rom_hword(0x14u);
 
-    return lookup(p_table, (uint32_t)(uint8_t)c1 | ((uint32_t)(uint8_t)c2 << 8));
+    return lookup(p_table,
+                  (uint32_t)(uint8_t)c1 | ((uint32_t)(uint8_t)c2 << 8));
 }
 
 static uint32_t slot_offset(uint32_t slot)
@@ -122,14 +127,15 @@ static int32_t flash_read(void * p_ctx, uint32_t slot, uint8_t * p_buf,
                           uint32_t len)
 {
     const volatile uint8_t * p_src;
-    uint32_t i;
+    uint32_t                 i;
 
     (void)p_ctx;
     if ((slot >= VC_BCMAP_SLOTS) || (len > FLASH_PAGE_BYTES))
     {
         return -1;
     }
-    p_src = (const volatile uint8_t *)(uintptr_t)(FLASH_XIP_NOCACHE + slot_offset(slot));
+    p_src = (const volatile uint8_t *)(uintptr_t)(FLASH_XIP_NOCACHE +
+                                                  slot_offset(slot));
     for (i = 0u; i < len; i++)
     {
         p_buf[i] = p_src[i];
@@ -157,7 +163,7 @@ static int32_t flash_write(void * p_ctx, uint32_t slot, const uint8_t * p_buf,
     }
 
     primask = irq_save();
-    ok = knl_smp_flash_lockout_begin(VC_BCMAP_PARK_US);
+    ok      = knl_smp_flash_lockout_begin(VC_BCMAP_PARK_US);
     if (ok)
     {
         flash_op(slot_offset(slot), s_page, &s_rom, s_boot2);
@@ -209,9 +215,12 @@ const vc_bcmap_store_t * vc_bcmap_flash_store(void)
         }
         for (i = 0u; i < BOOT2_WORDS; i++)
         {
-            s_boot2[i] = ((const volatile uint32_t *)(uintptr_t)FLASH_XIP_BASE)[i];
+            s_boot2[i] =
+                ((const volatile uint32_t *)(uintptr_t)FLASH_XIP_BASE)[i];
         }
         s_b_ready = true;
     }
     return &s_store;
 }
+
+/*** end of file ***/

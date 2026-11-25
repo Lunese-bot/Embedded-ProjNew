@@ -20,27 +20,43 @@ int s1_cfg_decode_request(const uint8_t * p_in, int len, S1_CFG_REQ * p_req)
     unsigned i;
 
     if (p_req == 0)
+    {
         return -1;
-    p_req->op = 0u;
-    p_req->request_id = 0u;
+    }
+    p_req->op           = 0u;
+    p_req->request_id   = 0u;
     p_req->expected_gen = 0u;
     for (i = 0u; i < S1_CFG_MAP_BYTES; i++)
+    {
         p_req->map[i] = 0u;
+    }
     if (p_in == 0 || len < S1_CFG_READ_LEN || p_in[0] != S1_CFG_MARKER)
+    {
         return -1;
+    }
     p_req->request_id = get_be16(&p_in[2]);
     if (p_in[1] == S1_CFG_OP_READ || p_in[1] == S1_CFG_OP_WRITE ||
         p_in[1] == S1_CFG_OP_FACTORY)
+    {
         p_req->op = p_in[1];
+    }
     if (p_req->request_id == 0u || p_req->op == 0u)
+    {
         return -1;
+    }
     if (p_req->op != S1_CFG_OP_WRITE)
+    {
         return (len == S1_CFG_READ_LEN) ? 0 : -1;
+    }
     if (len != S1_CFG_WRITE_LEN)
+    {
         return -1;
+    }
     p_req->expected_gen = get_be16(&p_in[4]);
     for (i = 0u; i < S1_CFG_MAP_BYTES; i++)
+    {
         p_req->map[i] = p_in[6u + i];
+    }
     return 0;
 }
 
@@ -54,7 +70,7 @@ int s1_cfg_encode_read(uint16_t request_id, uint8_t out[S1_CFG_READ_LEN])
 
 int s1_cfg_encode_write(uint16_t request_id, uint16_t expected_gen,
                         const uint8_t map[S1_CFG_MAP_BYTES],
-                        uint8_t out[S1_CFG_WRITE_LEN])
+                        uint8_t       out[S1_CFG_WRITE_LEN])
 {
     unsigned i;
 
@@ -63,14 +79,16 @@ int s1_cfg_encode_write(uint16_t request_id, uint16_t expected_gen,
     put_be16(&out[2], request_id);
     put_be16(&out[4], expected_gen);
     for (i = 0u; i < S1_CFG_MAP_BYTES; i++)
+    {
         out[6u + i] = map[i];
+    }
     return S1_CFG_WRITE_LEN;
 }
 
 int s1_cfg_encode_reply(uint8_t op, uint16_t request_id, uint8_t result,
                         uint16_t gen, uint8_t flags,
                         const uint8_t map[S1_CFG_MAP_BYTES],
-                        uint8_t out[S1_CFG_REPLY_LEN])
+                        uint8_t       out[S1_CFG_REPLY_LEN])
 {
     unsigned i;
 
@@ -81,7 +99,9 @@ int s1_cfg_encode_reply(uint8_t op, uint16_t request_id, uint8_t result,
     put_be16(&out[5], gen);
     out[7] = flags;
     for (i = 0u; i < S1_CFG_MAP_BYTES; i++)
+    {
         out[8u + i] = map[i];
+    }
     return S1_CFG_REPLY_LEN;
 }
 
@@ -95,3 +115,5 @@ int s1_cfg_encode_junction(uint8_t kind, uint8_t letter, uint8_t code,
     put_be16(&out[4], gen);
     return S1_JX_LEN;
 }
+
+/*** end of file ***/

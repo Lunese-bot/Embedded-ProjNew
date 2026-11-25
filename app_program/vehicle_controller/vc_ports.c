@@ -22,9 +22,9 @@
 vc_port_log_t g_vc_port_log;
 
 static const char * const g_move_names[] = {
-    "STOP", "STOP_CONFIRM", "FORWARD", "STEER", "TURN_LEFT", "TURN_RIGHT",
-    "U_TURN", "REVERSE", "SET_SPEED", "DRIVE_DIST", "SAFE_STOP", "RESET",
-    "PIVOT"
+    "STOP",       "STOP_CONFIRM", "FORWARD", "STEER",     "TURN_LEFT",
+    "TURN_RIGHT", "U_TURN",       "REVERSE", "SET_SPEED", "DRIVE_DIST",
+    "SAFE_STOP",  "RESET",        "PIVOT"
 };
 /* A new move or request needs its name here too (a missing one used to
    print as "?" or read past the table). */
@@ -97,9 +97,8 @@ ER vc_port_request(vc_source_t target, vc_request_t req, int32_t arg)
     if ((req != VC_REQ_LINE_FOLLOW) || (arg != 0))
     {
         tm_printf((uint8_t *)"vc: request S%d %s (%d)\n", (int32_t)target,
-                  ((uint32_t)req < (uint32_t)VC_REQ_COUNT)
-                      ? g_req_names[req]
-                      : "?",
+                  ((uint32_t)req < (uint32_t)VC_REQ_COUNT) ? g_req_names[req]
+                                                           : "?",
                   arg);
     }
 #endif

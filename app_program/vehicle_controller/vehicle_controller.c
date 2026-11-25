@@ -1,7 +1,7 @@
 /*
  *      vehicle_controller.c
- *      Vehicle Controller -- Vehicle Controller: creates its objects, starts its
- *      task, and provides the public calls of vehicle_controller.h.
+ *      Vehicle Controller -- Vehicle Controller: creates its objects, starts
+ * its task, and provides the public calls of vehicle_controller.h.
  *
  *      Kernel objects (TEAM.md section 6):
  *        1 task            vehicle_ctrl_task
@@ -73,12 +73,12 @@ ER vc_post_event(vc_source_t src, vc_event_type_t type, int32_t param1,
     SYSTIM     now;
 
     tk_get_tim(&now);
-    event.src     = (uint8_t)src;
-    event.type    = (uint8_t)type;
-    event.cause   = 0;
-    event.p1      = param1;
-    event.p2      = param2;
-    event.time_ms = now.lo;
+    event.src             = (uint8_t)src;
+    event.type            = (uint8_t)type;
+    event.cause           = 0;
+    event.p1              = param1;
+    event.p2              = param2;
+    event.time_ms         = now.lo;
     event.barcode_text[0] = '\0';
     return tk_snd_mbf(g_mbf_vc_events, &event, sizeof(event), tmo);
 }

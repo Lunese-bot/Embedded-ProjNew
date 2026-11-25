@@ -9,7 +9,7 @@
 #include "drv_ir.h"
 #include "subsystem3.h" /* g_s3_lf_* counters */
 #include "line_algo.h"  /* l_fast_t (S3_L_FAST) */
-#include <tk/syslib.h> /* in_w() */
+#include <tk/syslib.h>  /* in_w() */
 
 /* RP2040 TIMER: raw low word of the 1 MHz counter (read only, no side
    effects, so it is safe from any task on either core) */
@@ -71,12 +71,12 @@ static l_fast_rd_t g_lf_rd;
 static uint32_t    g_lf_next; /* TIMERAWL of the next alarm */
 
 /* bench counters (dashboard GET /b: lf...) */
-volatile uint32_t g_s3_lf_isr;    /* 2 ms samples taken          */
-volatile uint32_t g_s3_lf_late;   /* alarm re-armed after a miss */
-volatile uint32_t g_s3_lf_max_us; /* longest interrupt, us       */
-volatile uint32_t g_s3_lf_adc_err;/* conversion timeout or error */
-volatile uint32_t g_s3_lf_stall;  /* 10 ms reads with no sample  */
-volatile uint32_t g_s3_lf_used;   /* samples in the last record  */
+volatile uint32_t g_s3_lf_isr;     /* 2 ms samples taken          */
+volatile uint32_t g_s3_lf_late;    /* alarm re-armed after a miss */
+volatile uint32_t g_s3_lf_max_us;  /* longest interrupt, us       */
+volatile uint32_t g_s3_lf_adc_err; /* conversion timeout or error */
+volatile uint32_t g_s3_lf_stall;   /* 10 ms reads with no sample  */
+volatile uint32_t g_s3_lf_used;    /* samples in the last record  */
 
 static uint16_t lf_convert(uint32_t ch)
 {
@@ -105,7 +105,7 @@ static uint16_t lf_convert(uint32_t ch)
 /* TIMER alarm interrupt, every S3_L_FAST_PERIOD_US.  No kernel calls. */
 static void lf_isr(UINT intno)
 {
-    uint32_t t0 = in_w(RP2040_TIMERAWL);
+    uint32_t t0  = in_w(RP2040_TIMERAWL);
     uint32_t sum = 0u;
     uint32_t k;
     uint16_t c = 0u;
@@ -133,7 +133,9 @@ static void lf_isr(UINT intno)
     r = lf_convert(ADC_CH_IR_R);
 #endif
     /* Cast: a mean of 12-bit values fits 16 bits */
-    l_fast_put(&g_lf, (uint16_t)((sum + (S3_L_FAST_CONV / 2u)) / S3_L_FAST_CONV), c, r);
+    l_fast_put(&g_lf,
+               (uint16_t)((sum + (S3_L_FAST_CONV / 2u)) / S3_L_FAST_CONV), c,
+               r);
     g_s3_lf_isr++;
     dt = in_w(RP2040_TIMERAWL) - t0;
     if (dt > g_s3_lf_max_us)
@@ -151,8 +153,8 @@ static ER lf_start(void)
     ER     ercd;
 
     l_fast_reset(&g_lf, &g_lf_rd);
-    out_w(LF_ADC_INTE, 0u);           /* no ADC interrupt: we poll READY */
-    set_w(LF_ADC_CS, LF_CS_EN);       /* already on after dev_adc_llinit */
+    out_w(LF_ADC_INTE, 0u);     /* no ADC interrupt: we poll READY */
+    set_w(LF_ADC_CS, LF_CS_EN); /* already on after dev_adc_llinit */
     dint.intatr = TA_HLNG;
     dint.inthdr = (FP)lf_isr;
     ercd        = tk_def_int(LF_INTNO, &dint);

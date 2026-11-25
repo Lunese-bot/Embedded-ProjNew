@@ -10,16 +10,14 @@
  *        HUMP_END      -> VC_EV_HUMP_CLEARED, p1 = peak height (um)
  *        HUMP_ABORT    -> VC_EV_HUMP_CLEARED, p1 = 0
  *        TILT_LIMIT    -> fault 0x4003 at S4's own severity
- *        SAFETY_STOP   LIFT     -> VC_EV_LIFTED (ends the run: MISSION_COMPLETE,
- *                                  motors stopped; cannot be ignored)
- *                      OVERTURN -> critical fault 0x4005, cannot be ignored
- *        (collision / impact detection was removed: professor's IMU change)
- *        FAULT         -> recoverable fault 0x4001 (S4 retrying, bounded)
- *        FAULT_FATAL   -> NON-CRITICAL fault 0x4002: the IMU is not needed to
- *                         follow the line, so the run continues without
- *                         hump data.  TEAM DECISION:
- *                         change to VC_FAULT_CRITICAL for a safe stop.
- *        HUMP_PEAK, MOTION, RECOVERED -> not needed by the controller
+ *        SAFETY_STOP   LIFT     -> VC_EV_LIFTED (ends the run:
+ * MISSION_COMPLETE, motors stopped; cannot be ignored) OVERTURN -> critical
+ * fault 0x4005, cannot be ignored (collision / impact detection was removed:
+ * professor's IMU change) FAULT         -> recoverable fault 0x4001 (S4
+ * retrying, bounded) FAULT_FATAL   -> NON-CRITICAL fault 0x4002: the IMU is not
+ * needed to follow the line, so the run continues without hump data.  TEAM
+ * DECISION: change to VC_FAULT_CRITICAL for a safe stop. HUMP_PEAK, MOTION,
+ * RECOVERED -> not needed by the controller
  *
  *      controller -> S4
  *        SELF_CHECK -> s4_request_peak_reset() + s4_request_calibration()
@@ -70,12 +68,12 @@ static int32_t severity(uint8_t imu_sev)
 static void make(vc_event_t * p_event, vc_event_type_t type, int32_t param1,
                  int32_t param2, uint32_t time_ms)
 {
-    p_event->src     = VC_SRC_IMU;
-    p_event->type    = (uint8_t)type; /* Cast: enum fits 8 bits */
-    p_event->cause   = 0;
-    p_event->p1      = param1;
-    p_event->p2      = param2;
-    p_event->time_ms = time_ms;
+    p_event->src             = VC_SRC_IMU;
+    p_event->type            = (uint8_t)type; /* Cast: enum fits 8 bits */
+    p_event->cause           = 0;
+    p_event->p1              = param1;
+    p_event->p2              = param2;
+    p_event->time_ms         = time_ms;
     p_event->barcode_text[0] = '\0';
 }
 

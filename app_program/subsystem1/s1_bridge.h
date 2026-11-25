@@ -12,25 +12,25 @@
 
 #include <stdint.h>
 
-#define S1_TOPIC_ROOT       "robot/g10/"
-#define S1_TOPIC_CMD        S1_TOPIC_ROOT "cmd"
-#define S1_TOPIC_TLM        "t"
-#define S1_TOPIC_ACK        "ack"
-#define S1_TOPIC_BARCODE    "barcode"
+#define S1_TOPIC_ROOT            "robot/g10/"
+#define S1_TOPIC_CMD             S1_TOPIC_ROOT "cmd"
+#define S1_TOPIC_TLM             "t"
+#define S1_TOPIC_ACK             "ack"
+#define S1_TOPIC_BARCODE         "barcode"
 /* barcode letter map read / replace (s1_cfg.h); requests are never retained */
-#define S1_TOPIC_CFG        S1_TOPIC_ROOT "cfg"
-#define S1_TOPIC_CFG_REPLY  "cfgr"
-#define S1_TOPIC_JUNCTION   "jx"
-#define S1_BRIDGE_LINE_MAX  192
-#define S1_BRIDGE_TOPIC_MAX 48
-#define S1_BRIDGE_FULL_TOPIC_MAX \
-    (sizeof(S1_TOPIC_ROOT) + S1_BRIDGE_TOPIC_MAX)
+#define S1_TOPIC_CFG             S1_TOPIC_ROOT "cfg"
+#define S1_TOPIC_CFG_REPLY       "cfgr"
+#define S1_TOPIC_JUNCTION        "jx"
+#define S1_BRIDGE_LINE_MAX       192
+#define S1_BRIDGE_TOPIC_MAX      48
+#define S1_BRIDGE_FULL_TOPIC_MAX (sizeof(S1_TOPIC_ROOT) + S1_BRIDGE_TOPIC_MAX)
 
 /* Bytes one MQTT 3.1.1 QoS 0 PUBLISH takes in lwIP's output ring: fixed
    header byte, remaining-length bytes (1 below 128, 2 below 16384), the
    2-byte topic length, the topic and the payload. */
-#define S1_MQTT_RL_BYTES(rem) (((rem) < 128U) ? 1U : (((rem) < 16384U) ? 2U : 3U))
-#define S1_MQTT_PUBLISH_BYTES(topic_len, payload_len) \
+#define S1_MQTT_RL_BYTES(rem) \
+    (((rem) < 128U) ? 1U : (((rem) < 16384U) ? 2U : 3U))
+#define S1_MQTT_PUBLISH_BYTES(topic_len, payload_len)               \
     (1U + S1_MQTT_RL_BYTES(2U + (topic_len) + (payload_len)) + 2U + \
      (topic_len) + (payload_len))
 
@@ -51,7 +51,8 @@
 int32_t s1_bridge_pop(char * p_topic, int32_t topic_max, uint8_t * p_payload,
                       int32_t payload_max);
 
-/* Commands are one byte or a two-byte extension; acknowledgements are one byte. */
+/* Commands are one byte or a two-byte extension; acknowledgements are one byte.
+ */
 void s1_bridge_on_command(const uint8_t * p_payload, int32_t len);
 void s1_bridge_command_result(uint8_t seq, int32_t accepted);
 
@@ -82,7 +83,7 @@ void s1_bridge_set_connected(int32_t connected);
 /* Publish adapter: the only place that calls mqtt_publish() (mqtt_utk.c).
    Returns lwIP's err_t; p_tag is passed to lwIP as the callback argument
    and comes back through s1_bridge_publish_done(). */
-typedef int32_t (*s1_publish_fn)(const char * p_topic,
+typedef int32_t (*s1_publish_fn)(const char *    p_topic,
                                  const uint8_t * p_payload, uint16_t len,
                                  void * p_tag);
 

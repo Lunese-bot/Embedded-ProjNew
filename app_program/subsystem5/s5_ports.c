@@ -53,8 +53,9 @@ uint32_t s5_port_odo_mm(void)
     ticks = g_s2_odo_ticks;
     /* Integer maths on a compile-time constant (0.5 x S2_MM_PER_TICK in
        units of 1/100000 mm), so no float rounding on a growing count. */
-    return (uint32_t)(((uint64_t)ticks * (uint32_t)(S2_MM_PER_TICK * 50000.0f)) /
-                      100000U);
+    return (
+        uint32_t)(((uint64_t)ticks * (uint32_t)(S2_MM_PER_TICK * 50000.0f)) /
+                  100000U);
 }
 
 bool s5_port_line_both_black(void)

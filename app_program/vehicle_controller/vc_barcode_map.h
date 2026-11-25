@@ -57,26 +57,30 @@
 /* Result of a read or replace; also the result byte on the wire. */
 typedef enum
 {
-    VC_BCMAP_OK             = 0, /* new map saved, read back and active */
-    VC_BCMAP_UNCHANGED      = 1, /* same as the active map: nothing written */
-    VC_BCMAP_REJ_ACTIVE     = 2, /* a mission is running: map not changed */
-    VC_BCMAP_REJ_STALE      = 3, /* robot's map changed since the dashboard read it */
-    VC_BCMAP_REJ_MALFORMED  = 4, /* bad length, opcode or padding bits */
-    VC_BCMAP_REJ_STORAGE    = 5, /* write or read-back failed: old map kept */
-    VC_BCMAP_BUSY           = 6  /* another save is still being processed */
+    VC_BCMAP_OK         = 0, /* new map saved, read back and active */
+    VC_BCMAP_UNCHANGED  = 1, /* same as the active map: nothing written */
+    VC_BCMAP_REJ_ACTIVE = 2, /* a mission is running: map not changed */
+    VC_BCMAP_REJ_STALE  = 3, /* robot's map changed since the dashboard read it
+                              */
+    VC_BCMAP_REJ_MALFORMED = 4, /* bad length, opcode or padding bits */
+    VC_BCMAP_REJ_STORAGE   = 5, /* write or read-back failed: old map kept */
+    VC_BCMAP_BUSY          = 6  /* another save is still being processed */
 } vc_bcmap_result_t;
 
 /* Flags in a snapshot (and on the wire). */
-#define VC_BCMAP_FLAG_SAVED          0x01u /* loaded from / written to storage (else factory) */
+/* loaded from / written to storage (else factory) */
+#define VC_BCMAP_FLAG_SAVED          0x01u
 #define VC_BCMAP_FLAG_MISSION_ACTIVE 0x02u /* edits are refused right now */
-#define VC_BCMAP_FLAG_FACTORY_EQUAL  0x04u /* the active map equals the factory map */
-#define VC_BCMAP_FLAG_NO_STORAGE     0x08u /* no persistent storage on this build */
+/* the active map equals the factory map */
+#define VC_BCMAP_FLAG_FACTORY_EQUAL  0x04u
+/* no persistent storage on this build */
+#define VC_BCMAP_FLAG_NO_STORAGE     0x08u
 
 typedef struct
 {
-    uint32_t gen;                              /* save counter, 0 = factory */
+    uint32_t gen; /* save counter, 0 = factory */
     uint8_t  packed[VC_BCMAP_PACKED_BYTES];
-    uint8_t  flags;                            /* VC_BCMAP_FLAG_* */
+    uint8_t  flags; /* VC_BCMAP_FLAG_* */
 } vc_bcmap_snapshot_t;
 
 /* ---- storage ------------------------------------------------------- */
@@ -106,29 +110,31 @@ typedef struct
      12..18 packed map
      19     0
      20..23 CRC-32 (IEEE, reflected, as zlib) of bytes 0..19 */
-void vc_bcmap_record_encode(uint32_t gen, const uint8_t packed[VC_BCMAP_PACKED_BYTES],
-                            uint8_t out[VC_BCMAP_RECORD_BYTES]);
+void     vc_bcmap_record_encode(uint32_t      gen,
+                                const uint8_t packed[VC_BCMAP_PACKED_BYTES],
+                                uint8_t       out[VC_BCMAP_RECORD_BYTES]);
 /* true and fills gen / packed when the record is complete and valid */
-bool vc_bcmap_record_decode(const uint8_t in[VC_BCMAP_RECORD_BYTES], uint32_t * p_gen,
-                            uint8_t packed[VC_BCMAP_PACKED_BYTES]);
+bool     vc_bcmap_record_decode(const uint8_t in[VC_BCMAP_RECORD_BYTES],
+                                uint32_t *    p_gen,
+                                uint8_t       packed[VC_BCMAP_PACKED_BYTES]);
 uint32_t vc_bcmap_crc32(const uint8_t * p_data, uint32_t len);
 
 /* ---- codec --------------------------------------------------------- */
 
 /* NAV_NONE and NAV_STRAIGHT -> 0, LEFT 1, RIGHT 2, U_TURN 3; -1 otherwise */
-int32_t vc_bcmap_wire_from_nav(navigation_command_t nav);
+int32_t              vc_bcmap_wire_from_nav(navigation_command_t nav);
 /* 0..3 -> NAV_STRAIGHT / LEFT / RIGHT / U_TURN; NAV_NONE for anything else */
 navigation_command_t vc_bcmap_nav_from_wire(uint32_t code);
 
 /* 0 = ok, -1 = a value is not one of the four actions */
-int32_t vc_bcmap_pack(const navigation_command_t nav[VC_BCMAP_LETTERS],
-                      uint8_t out[VC_BCMAP_PACKED_BYTES]);
+int32_t  vc_bcmap_pack(const navigation_command_t nav[VC_BCMAP_LETTERS],
+                       uint8_t                    out[VC_BCMAP_PACKED_BYTES]);
 /* 0 = ok, -1 = padding bits set (then nav is not changed) */
-int32_t vc_bcmap_unpack(const uint8_t in[VC_BCMAP_PACKED_BYTES],
-                        navigation_command_t nav[VC_BCMAP_LETTERS]);
+int32_t  vc_bcmap_unpack(const uint8_t        in[VC_BCMAP_PACKED_BYTES],
+                         navigation_command_t nav[VC_BCMAP_LETTERS]);
 /* wire code of letter index 0..25 inside a packed map */
 uint32_t vc_bcmap_packed_code(const uint8_t packed[VC_BCMAP_PACKED_BYTES],
-                              uint32_t letter);
+                              uint32_t      letter);
 
 /* The factory map, packed (vc_barcode_config.h, NAV_NONE as straight). */
 void vc_bcmap_factory(uint8_t out[VC_BCMAP_PACKED_BYTES]);
@@ -153,7 +159,8 @@ void vc_bcmap_set_mission_active(bool b_active);
 /* VC task: validate and apply a whole map (also used directly by tests).
    b_mission_active is the controller's own state check. */
 vc_bcmap_result_t vc_bcmap_replace(const uint8_t packed[VC_BCMAP_PACKED_BYTES],
-                                   uint16_t expected_gen, bool b_mission_active);
+                                   uint16_t      expected_gen,
+                                   bool          b_mission_active);
 
 /* ---- one pending save between the S1 task and the VC task ----------- */
 
@@ -171,3 +178,5 @@ bool vc_bcmap_service(bool b_allowed, uint16_t * p_request_id,
                       vc_bcmap_result_t * p_result);
 
 #endif /* VC_BARCODE_MAP_H */
+
+/*** end of file ***/

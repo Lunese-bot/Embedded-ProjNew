@@ -44,8 +44,8 @@ static void post_obstacle_profile(void)
         s1_obst_pub_due(&s_obst_pub, &s_obst_rec, g_s1_stat.mqtt_up))
     {
         s5_or_encode(&s_obst_rec, frame);
-        if (E_OK == s1_post_spare(S5_OR_TOPIC, frame, S5_OR_BYTES,
-                                  S1_OBST_SPARE_SLOTS))
+        if (E_OK ==
+            s1_post_spare(S5_OR_TOPIC, frame, S5_OR_BYTES, S1_OBST_SPARE_SLOTS))
         {
             s1_obst_pub_sent(&s_obst_pub, &s_obst_rec);
         }
@@ -63,7 +63,7 @@ void telemetry_task(int32_t stacd, void * p_exinf)
     uint8_t          frame[S1_TLM_BYTES];
     uint8_t          buf[S1_CONSOLE_LINE_MAX]; /* tm_sprintf has no bound */
     uint32_t         tick = 0;
-    uint8_t          seq = 0;
+    uint8_t          seq  = 0;
     SYSTIM           now;
 #if TM_WIFI_CYW43
     T_CYW43_UTK_STATUS wifi_st;
@@ -92,28 +92,28 @@ void telemetry_task(int32_t stacd, void * p_exinf)
         cyw43_utk_get_status(&wifi_st);
         g_s1_stat.wifi_up = (S1_CYW43_LINK_UP == wifi_st.link_status);
 #endif
-        tlm.version      = S1_PROTO_VERSION;
-        tlm.seq          = seq++;
-        tlm.state        = (uint8_t)vc_st.state;
-        tlm.speed_l_mms  = motion_st.speed_l_mm_s;
-        tlm.speed_r_mms  = motion_st.speed_r_mm_s;
-        tlm.distance_mm  = motion_st.distance_mm;
-        tlm.line_pos     = line_st.position;
-        tlm.obs_dist_cm  = (obs_st.last_distance_mm == 0) ?
-                           S1_OBS_MAX_CM :
-                           (uint32_t)(obs_st.last_distance_mm / 10);
-        tlm.obs_detected = (obs_st.state >= S5_ST_DETECTED) &&
-                           (obs_st.state != S5_ST_ERROR);
-        tlm.obs_state    = (uint8_t)obs_st.state;
-        tlm.nav          = (uint8_t)vc_st.last_nav;
-        tlm.barcodes     = (vc_st.barcodes_read > 15U) ?
-                           15U : (uint8_t)vc_st.barcodes_read;
-        tlm.pitch_cdeg   = imu_st.pitch_cdeg;
-        tlm.hump_now_um  = imu_st.hump_height_um;
-        tlm.hump_max_um  = imu_st.max_peak_um;
-        tlm.fault_code   = vc_st.last_fault_code;
-        tlm.wifi_up      = g_s1_stat.wifi_up;
-        tlm.paused       = vc_st.paused;
+        tlm.version     = S1_PROTO_VERSION;
+        tlm.seq         = seq++;
+        tlm.state       = (uint8_t)vc_st.state;
+        tlm.speed_l_mms = motion_st.speed_l_mm_s;
+        tlm.speed_r_mms = motion_st.speed_r_mm_s;
+        tlm.distance_mm = motion_st.distance_mm;
+        tlm.line_pos    = line_st.position;
+        tlm.obs_dist_cm = (obs_st.last_distance_mm == 0)
+                              ? S1_OBS_MAX_CM
+                              : (uint32_t)(obs_st.last_distance_mm / 10);
+        tlm.obs_detected =
+            (obs_st.state >= S5_ST_DETECTED) && (obs_st.state != S5_ST_ERROR);
+        tlm.obs_state = (uint8_t)obs_st.state;
+        tlm.nav       = (uint8_t)vc_st.last_nav;
+        tlm.barcodes =
+            (vc_st.barcodes_read > 15U) ? 15U : (uint8_t)vc_st.barcodes_read;
+        tlm.pitch_cdeg  = imu_st.pitch_cdeg;
+        tlm.hump_now_um = imu_st.hump_height_um;
+        tlm.hump_max_um = imu_st.max_peak_um;
+        tlm.fault_code  = vc_st.last_fault_code;
+        tlm.wifi_up     = g_s1_stat.wifi_up;
+        tlm.paused      = vc_st.paused;
         s1_tlm_encode(&tlm, frame);
         (void)s1_post(S1_TOPIC_TLM, frame, sizeof(frame));
         post_obstacle_profile();
