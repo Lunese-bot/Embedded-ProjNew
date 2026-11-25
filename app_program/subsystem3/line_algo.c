@@ -251,22 +251,19 @@ static line_evt_t tracker_update_state(line_tracker_t *      p_trk,
     return evt;
 }
 
-line_evt_t line_tracker_step(line_tracker_t *      p_trk,
-                             line_params_t const * p_params,
-                             uint16_t const        p_norm[S3_IR_COUNT],
-                             bool                  b_junction_inhibit)
+/* Step 1 of line_tracker_step(): which sensors see black (line and
+   junction cut-offs) and the weighted sums for the line position. */
+static void tracker_read(line_params_t const * p_params,
+                         uint16_t const p_norm[S3_IR_COUNT], uint8_t * p_mask,
+                         uint8_t * p_jmask, int32_t * p_sum_w,
+                         int32_t * p_sum_n)
 {
     int32_t sum_w = 0;
     int32_t sum_n = 0;
-    int32_t steer;
     uint8_t idx;
     uint8_t mask  = 0u;
-    uint8_t jmask = 0u; /* sensors above the (stricter) junction threshold */
-    bool    b_line_seen;
-    bool    b_found;
-    bool    b_junction;
+    uint8_t jmask = 0u;
 
-    /* 1. Which sensors see black, and the weighted line position */
     for (idx = 0u; idx < S3_IR_COUNT; idx++)
     {
         if (p_norm[idx] >= p_params->black_threshold)
@@ -283,32 +280,18 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
             sum_n += (int32_t)p_norm[idx];
         }
     }
-    p_trk->black_mask = mask;
+    *p_mask  = mask;
+    *p_jmask = jmask;
+    *p_sum_w = sum_w;
+    *p_sum_n = sum_n;
+}
 
-    /* C and R can both see black where the bypass rejoins the line. Keep
-       tracking the line, but wait for a clean stretch before a junction
-       can be reported. A brief gap between two strips does not rearm it. */
-    if (0u != p_trk->rejoin_clear_left)
-    {
-        const uint8_t rejoin_mask = S3_MASK_C | S3_MASK_R;
-
-        b_junction_inhibit = true;
-        if ((mask & rejoin_mask) == rejoin_mask)
-        {
-            p_trk->rejoin_clear_left = S3_REJOIN_CLEAR_SAMPLES;
-        }
-        else
-        {
-            p_trk->rejoin_clear_left--;
-        }
-    }
-
-    b_line_seen = (0u != (mask & p_params->line_mask));
-    b_junction =
-        (0u != p_params->junction_mask) && /* 0 = junction detection off */
-        ((jmask & p_params->junction_mask) == p_params->junction_mask) &&
-        (!b_junction_inhibit);
-
+/* Step 1 of line_tracker_step(), continued: the line position and the
+   side it was last seen on. */
+static void tracker_position(line_tracker_t *      p_trk,
+                             line_params_t const * p_params, bool b_line_seen,
+                             int32_t sum_w, int32_t sum_n)
+{
     if (p_params->straddle)
     {
         /* Line between C and R: position = R - C (weights -1000 / +1000).
@@ -348,163 +331,254 @@ line_evt_t line_tracker_step(line_tracker_t *      p_trk,
         /* No line: assume it is past the side it was last seen on */
         p_trk->position = (int16_t)(p_trk->last_side * LINE_POS_MAX);
     }
+}
+
+/* Straddle, both white during a curve hold: keep turning the same way, or
+   give up after S3_STRADDLE_HOLD_MAX samples.  Updates *p_side. */
+static int32_t straddle_hold(line_tracker_t * p_trk, int8_t * p_side)
+{
+    int8_t  side = *p_side;
+    int32_t steer;
+
+    /* Curve memory: the line slipped past the sensor to the
+       outside of a tight curve, so both read white although the
+       robot is NOT centred.  Keep turning the same way until the
+       line comes back under a sensor, or for at most
+       S3_STRADDLE_HOLD_MAX samples. */
+    p_trk->hold_count++;
+    if (p_trk->hold_count > S3_STRADDLE_HOLD_MAX)
+    {
+        /* gave up: drive straight, no new hold until a sensor
+           sees black again */
+        p_trk->b_hold     = false;
+        p_trk->corr_count = 0u;
+        steer             = 0;
+        side              = 0;
+    }
+    else
+    {
+        steer = (int32_t)p_trk->corr_side * p_trk->corr_mag;
+        side  = p_trk->corr_side; /* still correcting this side */
+    }
+    *p_side = side;
+    return steer;
+}
+
+/* Straddle, both white with no hold: start the curve memory after a hard
+   correction, else drive straight.  Updates *p_side. */
+static int32_t straddle_white(line_tracker_t * p_trk, int8_t * p_side)
+{
+    int8_t  side = *p_side;
+    int32_t steer;
+
+    /* A HARD correction that ends on white means the line went
+       outside (a sharp curve): start the curve memory.  A short
+       touch, or the line coming back in after a hold, means the
+       robot is centred again: go straight at once. */
+    if ((0 != p_trk->corr_side) && (!p_trk->b_reentry) &&
+        (S3_STRADDLE_HOLD_MAX > 0) && (p_trk->corr_mag >= S3_STRADDLE_HOLD_MAG))
+    {
+        p_trk->b_hold     = true;
+        p_trk->hold_count = 0u;
+        steer             = (int32_t)p_trk->corr_side * p_trk->corr_mag;
+        side              = p_trk->corr_side;
+    }
+    else
+    {
+        /* straight now, but remember the turn for a short while
+           (S3_STRADDLE_DECAY per sample, 0 = forget at once) */
+        p_trk->b_reentry = false;
+        if ((0 == S3_STRADDLE_DECAY) ||
+            (p_trk->corr_count <= (uint16_t)S3_STRADDLE_DECAY))
+        {
+            p_trk->corr_count = 0u;
+        }
+        else
+        {
+            p_trk->corr_count =
+                (uint16_t)(p_trk->corr_count - S3_STRADDLE_DECAY);
+        }
+        steer = 0;
+    }
+    *p_side = side;
+    return steer;
+}
+
+/* Straddle, one sensor black on side (-1 C, +1 R): a correction that
+   starts gently and grows while that sensor stays black. */
+static int32_t straddle_black(line_tracker_t *      p_trk,
+                              line_params_t const * p_params, int8_t side,
+                              bool b_far)
+{
+    int32_t mag;
+    int32_t steer;
+
+    if (p_trk->b_hold)
+    {
+        /* the line is back under a sensor: the hold is over.  Same
+           side = it re-enters from outside, so the next white means
+           centred (no new hold). */
+        p_trk->b_hold    = false;
+        p_trk->b_reentry = (side == p_trk->corr_side);
+    }
+    if ((side != p_trk->mem_side) ||
+        ((0u == p_trk->corr_count) && (side != p_trk->corr_side)))
+    {
+        p_trk->corr_count = 0u; /* other side: start gently */
+        p_trk->b_reentry  = false;
+    }
+    else if (p_trk->corr_count < 1000u)
+    {
+        p_trk->corr_count++; /* same side: carry on growing */
+    }
+    else
+    {
+        /* no other case needs any action */
+    }
+    p_trk->mem_side = side;
+    mag             = ((int32_t)p_params->kp_num * S3_STRADDLE_BASE) +
+          ((int32_t)p_params->kd_num * (int32_t)p_trk->corr_count);
+    if (b_far && (side < 0))
+    {
+        mag = LINE_STEER_MAX; /* L and C black: line far left */
+    }
+    mag   = (mag > LINE_STEER_MAX) ? LINE_STEER_MAX : ((mag < 0) ? 0 : mag);
+    steer = (int32_t)side * mag;
+    p_trk->corr_mag  = (int16_t)mag;
+    p_trk->last_side = side;
+    return steer;
+}
+
+/* Step 2 of line_tracker_step() for the straddle layout (line between C
+   and R): the steering correction from the black mask. */
+static int32_t straddle_steer(line_tracker_t *      p_trk,
+                              line_params_t const * p_params, uint8_t mask,
+                              bool b_junction_inhibit)
+{
+    /* Straddle: correct ONLY while a sensor sees black, and stop the
+       moment both are white again, so the robot never keeps turning
+       past the line (no over-correction).
+         C black only -> steer left, R black only -> steer right,
+         both white   -> 0 (straight),
+         both black   -> keep the current correction (junction off).
+       Strength = a gentle start (kp_num * S3_STRADDLE_BASE) that grows
+       by kd_num per 10 ms sample while that sensor stays black, so a
+       short touch gives a small nudge and a sharp curve a strong turn. */
+    bool   b_c   = (0u != (mask & S3_MASK_C));
+    bool   b_r   = (0u != (mask & S3_MASK_R));
+    int8_t side  = (b_c && !b_r) ? -1 : ((b_r && !b_c) ? 1 : 0);
+    /* L black while a left turn is going on (or remembered): the line
+       is further left than C */
+    bool   b_far = (0 != S3_STRADDLE_L_ASSIST) && (0u != (mask & S3_MASK_L)) &&
+                 (!b_r) &&
+                 ((p_trk->corr_side < 0) ||
+                  ((p_trk->mem_side < 0) && (p_trk->corr_count > 0u)));
+
+    /* Barcode bar across the line: L, C and R all black at once (L
+       judged on its RAW reading, since its cut-off is set low for
+       barcodes and white paper can cross it), or C and R black while
+       a barcode is being read or the car is rejoining after a bypass.
+       Drive straight and forget the turn so a patch of black cannot
+       build up a strong steering correction. */
+    bool b_bar =
+        (0 != S3_STRADDLE_BAR_STRAIGHT) && b_c && b_r &&
+        ((p_trk->l_raw >= (uint16_t)S3_BAR_L_RAW) || b_junction_inhibit);
+
+    int32_t steer;
+
+    if (b_c && b_r && !b_bar)
+    {
+        side = p_trk->corr_side; /* both black: hold */
+    }
+    if (b_bar)
+    {
+        p_trk->b_hold     = false;
+        p_trk->b_reentry  = false;
+        p_trk->hold_count = 0u;
+        p_trk->corr_count = 0u;
+        p_trk->corr_mag   = 0;
+        p_trk->mem_side   = 0;
+        side              = 0;
+        steer             = 0;
+    }
+    else if ((0 == side) && b_far)
+    {
+        /* only L black: the line is outside on the left.  Turn fully
+           and keep turning (curve memory) until it is back under C. */
+        p_trk->b_hold     = true;
+        p_trk->hold_count = 0u;
+        p_trk->b_reentry  = false;
+        p_trk->corr_mag   = (int16_t)LINE_STEER_MAX;
+        p_trk->mem_side   = -1;
+        side              = -1;
+        steer             = -(int32_t)LINE_STEER_MAX;
+    }
+    else if ((0 == side) && p_trk->b_hold)
+    {
+        steer = straddle_hold(p_trk, &side);
+    }
+    else if (0 == side)
+    {
+        steer = straddle_white(p_trk, &side);
+    }
+    else
+    {
+        steer = straddle_black(p_trk, p_params, side, b_far);
+    }
+    p_trk->corr_side = side;
+    return steer;
+}
+
+line_evt_t line_tracker_step(line_tracker_t *      p_trk,
+                             line_params_t const * p_params,
+                             uint16_t const        p_norm[S3_IR_COUNT],
+                             bool                  b_junction_inhibit)
+{
+    int32_t sum_w;
+    int32_t sum_n;
+    int32_t steer;
+    uint8_t mask;
+    uint8_t jmask; /* sensors above the (stricter) junction threshold */
+    bool    b_line_seen;
+    bool    b_found;
+    bool    b_junction;
+
+    /* 1. Which sensors see black, and the weighted line position */
+    tracker_read(p_params, p_norm, &mask, &jmask, &sum_w, &sum_n);
+    p_trk->black_mask = mask;
+
+    /* C and R can both see black where the bypass rejoins the line. Keep
+       tracking the line, but wait for a clean stretch before a junction
+       can be reported. A brief gap between two strips does not rearm it. */
+    if (0u != p_trk->rejoin_clear_left)
+    {
+        const uint8_t rejoin_mask = S3_MASK_C | S3_MASK_R;
+
+        b_junction_inhibit = true;
+        if ((mask & rejoin_mask) == rejoin_mask)
+        {
+            p_trk->rejoin_clear_left = S3_REJOIN_CLEAR_SAMPLES;
+        }
+        else
+        {
+            p_trk->rejoin_clear_left--;
+        }
+    }
+
+    b_line_seen = (0u != (mask & p_params->line_mask));
+    b_junction =
+        (0u != p_params->junction_mask) && /* 0 = junction detection off */
+        ((jmask & p_params->junction_mask) == p_params->junction_mask) &&
+        (!b_junction_inhibit);
+
+    tracker_position(p_trk, p_params, b_line_seen, sum_w, sum_n);
 
     /* 2. Steering */
     p_trk->error = clamp16((int32_t)p_trk->position - p_params->setpoint,
                            2 * LINE_POS_MAX);
     if (p_params->straddle)
     {
-        /* Straddle: correct ONLY while a sensor sees black, and stop the
-           moment both are white again, so the robot never keeps turning
-           past the line (no over-correction).
-             C black only -> steer left, R black only -> steer right,
-             both white   -> 0 (straight),
-             both black   -> keep the current correction (junction off).
-           Strength = a gentle start (kp_num * S3_STRADDLE_BASE) that grows
-           by kd_num per 10 ms sample while that sensor stays black, so a
-           short touch gives a small nudge and a sharp curve a strong turn. */
-        bool    b_c  = (0u != (mask & S3_MASK_C));
-        bool    b_r  = (0u != (mask & S3_MASK_R));
-        int8_t  side = (b_c && !b_r) ? -1 : ((b_r && !b_c) ? 1 : 0);
-        int32_t mag;
-        /* L black while a left turn is going on (or remembered): the line
-           is further left than C */
-        bool    b_far = (0 != S3_STRADDLE_L_ASSIST) &&
-                     (0u != (mask & S3_MASK_L)) && (!b_r) &&
-                     ((p_trk->corr_side < 0) ||
-                      ((p_trk->mem_side < 0) && (p_trk->corr_count > 0u)));
-
-        /* Barcode bar across the line: L, C and R all black at once (L
-           judged on its RAW reading, since its cut-off is set low for
-           barcodes and white paper can cross it), or C and R black while
-           a barcode is being read or the car is rejoining after a bypass.
-           Drive straight and forget the turn so a patch of black cannot
-           build up a strong steering correction. */
-        bool b_bar =
-            (0 != S3_STRADDLE_BAR_STRAIGHT) && b_c && b_r &&
-            ((p_trk->l_raw >= (uint16_t)S3_BAR_L_RAW) || b_junction_inhibit);
-
-        if (b_c && b_r && !b_bar)
-        {
-            side = p_trk->corr_side; /* both black: hold */
-        }
-        if (b_bar)
-        {
-            p_trk->b_hold     = false;
-            p_trk->b_reentry  = false;
-            p_trk->hold_count = 0u;
-            p_trk->corr_count = 0u;
-            p_trk->corr_mag   = 0;
-            p_trk->mem_side   = 0;
-            side              = 0;
-            steer             = 0;
-        }
-        else if ((0 == side) && b_far)
-        {
-            /* only L black: the line is outside on the left.  Turn fully
-               and keep turning (curve memory) until it is back under C. */
-            p_trk->b_hold     = true;
-            p_trk->hold_count = 0u;
-            p_trk->b_reentry  = false;
-            p_trk->corr_mag   = (int16_t)LINE_STEER_MAX;
-            p_trk->mem_side   = -1;
-            side              = -1;
-            steer             = -(int32_t)LINE_STEER_MAX;
-        }
-        else if ((0 == side) && p_trk->b_hold)
-        {
-            /* Curve memory: the line slipped past the sensor to the
-               outside of a tight curve, so both read white although the
-               robot is NOT centred.  Keep turning the same way until the
-               line comes back under a sensor, or for at most
-               S3_STRADDLE_HOLD_MAX samples. */
-            p_trk->hold_count++;
-            if (p_trk->hold_count > S3_STRADDLE_HOLD_MAX)
-            {
-                /* gave up: drive straight, no new hold until a sensor
-                   sees black again */
-                p_trk->b_hold     = false;
-                p_trk->corr_count = 0u;
-                steer             = 0;
-                side              = 0;
-            }
-            else
-            {
-                steer = (int32_t)p_trk->corr_side * p_trk->corr_mag;
-                side  = p_trk->corr_side; /* still correcting this side */
-            }
-        }
-        else if (0 == side)
-        {
-            /* A HARD correction that ends on white means the line went
-               outside (a sharp curve): start the curve memory.  A short
-               touch, or the line coming back in after a hold, means the
-               robot is centred again: go straight at once. */
-            if ((0 != p_trk->corr_side) && (!p_trk->b_reentry) &&
-                (S3_STRADDLE_HOLD_MAX > 0) &&
-                (p_trk->corr_mag >= S3_STRADDLE_HOLD_MAG))
-            {
-                p_trk->b_hold     = true;
-                p_trk->hold_count = 0u;
-                steer             = (int32_t)p_trk->corr_side * p_trk->corr_mag;
-                side              = p_trk->corr_side;
-            }
-            else
-            {
-                /* straight now, but remember the turn for a short while
-                   (S3_STRADDLE_DECAY per sample, 0 = forget at once) */
-                p_trk->b_reentry = false;
-                if ((0 == S3_STRADDLE_DECAY) ||
-                    (p_trk->corr_count <= (uint16_t)S3_STRADDLE_DECAY))
-                {
-                    p_trk->corr_count = 0u;
-                }
-                else
-                {
-                    p_trk->corr_count =
-                        (uint16_t)(p_trk->corr_count - S3_STRADDLE_DECAY);
-                }
-                steer = 0;
-            }
-        }
-        else
-        {
-            if (p_trk->b_hold)
-            {
-                /* the line is back under a sensor: the hold is over.  Same
-                   side = it re-enters from outside, so the next white means
-                   centred (no new hold). */
-                p_trk->b_hold    = false;
-                p_trk->b_reentry = (side == p_trk->corr_side);
-            }
-            if ((side != p_trk->mem_side) ||
-                ((0u == p_trk->corr_count) && (side != p_trk->corr_side)))
-            {
-                p_trk->corr_count = 0u; /* other side: start gently */
-                p_trk->b_reentry  = false;
-            }
-            else if (p_trk->corr_count < 1000u)
-            {
-                p_trk->corr_count++; /* same side: carry on growing */
-            }
-            else
-            {
-                /* no other case needs any action */
-            }
-            p_trk->mem_side = side;
-            mag             = ((int32_t)p_params->kp_num * S3_STRADDLE_BASE) +
-                  ((int32_t)p_params->kd_num * (int32_t)p_trk->corr_count);
-            if (b_far && (side < 0))
-            {
-                mag = LINE_STEER_MAX; /* L and C black: line far left */
-            }
-            mag =
-                (mag > LINE_STEER_MAX) ? LINE_STEER_MAX : ((mag < 0) ? 0 : mag);
-            steer            = (int32_t)side * mag;
-            p_trk->corr_mag  = (int16_t)mag;
-            p_trk->last_side = side;
-        }
-        p_trk->corr_side = side;
+        steer = straddle_steer(p_trk, p_params, mask, b_junction_inhibit);
     }
     else
     {
@@ -582,12 +656,11 @@ uint8_t bc_edge_step(bc_edge_t * p_e, int32_t raw, uint32_t t_us, int32_t swing,
                             &edge_pos);
 }
 
-/* The edge finder itself.  A bar starts above `enter` and is forced to
-   end below `leave` (bc_edge_step_pos passes its one floor for both). */
-static uint8_t bc_edge_core(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
-                            uint32_t pos, int32_t swing, int32_t enter,
-                            int32_t leave, uint32_t * p_edge_us,
-                            uint32_t * p_edge_pos)
+/* bc_edge_core(), first part: follow this run's extreme and the
+   halfway crossing, and say which level the sample belongs to. */
+static uint8_t edge_level(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                          uint32_t pos, int32_t swing, int32_t enter,
+                          int32_t leave)
 {
     uint8_t next = p_e->level;
     int32_t mid;
@@ -646,6 +719,19 @@ static uint8_t bc_edge_core(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
             next = 1U;
         }
     }
+    return next;
+}
+
+/* The edge finder itself.  A bar starts above `enter` and is forced to
+   end below `leave` (bc_edge_step_pos passes its one floor for both). */
+static uint8_t bc_edge_core(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                            uint32_t pos, int32_t swing, int32_t enter,
+                            int32_t leave, uint32_t * p_edge_us,
+                            uint32_t * p_edge_pos)
+{
+    uint8_t next;
+
+    next = edge_level(p_e, raw, t_us, pos, swing, enter, leave);
 
     if (next == p_e->level)
     {
@@ -738,6 +824,146 @@ static void bc_white_window(bc_edge_t * p_e, int32_t raw)
     p_e->w_dsum = 0;
 }
 
+/* bc_edge_step_adapt(): forget the learned white and restart; ends an
+   open bar.  Returns 1 when a bar was open. */
+static uint8_t white_restart(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                             uint32_t pos, uint32_t * p_edge_us,
+                             uint32_t * p_edge_pos)
+{
+    uint8_t was = p_e->level;
+
+    p_e->w_relearn = 0U;
+    p_e->w_valid   = 0U;
+    p_e->w_high    = 0U;
+    p_e->hold_cnt  = 0U;
+    bc_white_window(p_e, raw);
+    if (0U != was)
+    {
+        /* end the open bar where L was last on its dark side */
+        *p_edge_us  = p_e->mid_t_us;
+        *p_edge_pos = p_e->mid_pos;
+    }
+    p_e->level     = 0U;
+    p_e->b_prev    = 0U;
+    p_e->ext       = raw;
+    p_e->prev      = raw;
+    p_e->mid_t_us  = t_us;
+    p_e->mid_pos   = pos;
+    p_e->last_raw  = raw;
+    p_e->last_t_us = t_us;
+    p_e->last_pos  = pos;
+    return was;
+}
+
+/* bc_edge_step_adapt(): learn white from a steady stretch of
+   S3_BC_WHITE_INIT_N samples. */
+static void white_learn(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                        uint32_t pos)
+{
+    /* learning: a steady stretch of S3_BC_WHITE_INIT_N samples */
+    if (0U == p_e->w_n)
+    {
+        bc_white_window(p_e, raw);
+    }
+    else
+    {
+        int32_t low2  = (raw < p_e->w_min) ? raw : p_e->w_min;
+        int32_t high2 = (raw > p_e->w_max) ? raw : p_e->w_max;
+        if ((high2 - low2) > S3_BC_WHITE_INIT_SPREAD)
+        {
+            bc_white_window(p_e, raw); /* not steady: start again */
+        }
+        else
+        {
+            p_e->w_min = low2;
+            p_e->w_max = high2;
+            p_e->w_sum += raw;
+            p_e->w_dsum += (raw > p_e->last_raw) ? (raw - p_e->last_raw)
+                                                 : (p_e->last_raw - raw);
+            p_e->w_n++;
+        }
+    }
+    if (p_e->w_n >= S3_BC_WHITE_INIT_N)
+    {
+        /* Casts: w_n is at most S3_BC_WHITE_INIT_N */
+        p_e->w_x16 = (p_e->w_sum * 16) / (int32_t)p_e->w_n;
+        /* noise from the steps between samples, not from the spread,
+           so a level that drifts or a window over faint ink cannot
+           pass as noise: sd = 0.886 x mean |step| for a normal noise
+           (casts: w_n - 1 >= 1 here) */
+        p_e->w_sd_x16 =
+            (p_e->w_dsum * 16 * 886) / (1000 * ((int32_t)p_e->w_n - 1));
+        p_e->w_valid = 1U;
+        p_e->w_high  = 0U;
+        p_e->ext     = raw;
+        p_e->b_prev  = 0U;
+    }
+    p_e->mid_t_us  = t_us;
+    p_e->mid_pos   = pos;
+    p_e->last_raw  = raw;
+    p_e->last_t_us = t_us;
+    p_e->last_pos  = pos;
+}
+
+/* bc_edge_step_adapt(): between bars, follow the white level and its
+   noise. */
+static void white_follow(bc_edge_t * p_e, int32_t raw, int32_t m_val)
+{
+    int32_t step = raw - p_e->h_prev;       /* from the sample before */
+    int32_t d16  = (raw * 16) - p_e->w_x16; /* x 16 */
+    int32_t ad16 = (d16 < 0) ? -d16 : d16;
+    if (ad16 <= (m_val * 16))
+    {
+        /* white travel: follow the level slowly */
+        p_e->w_x16 += d16 / (1 << S3_BC_WHITE_EMA_SHIFT);
+        if ((d16 < 0) && (0U != p_e->h_prev_white))
+        {
+            /* and the noise, from the step between two white samples
+               below white only: ink only reads higher, so the sides
+               of faint marks cannot grow it, and an error in the
+               level (learned on ink) is not taken for noise.
+               sd of a normal noise = 0.886 x mean |step|. */
+            int32_t as_val = (step < 0) ? -step : step;
+            p_e->w_sd_x16 += (((as_val * 16 * 886) / 1000) - p_e->w_sd_x16) /
+                             (1 << S3_BC_WHITE_EMA_SHIFT);
+        }
+    }
+    else if (d16 < 0)
+    {
+        /* far below the learned white (it was learned on ink, or
+           the paper reads lower now): follow down fast */
+        p_e->w_x16 += d16 / 4;
+    }
+    else
+    {
+        /* above white but not a bar: leave the estimate alone */
+    }
+}
+
+/* bc_edge_step_adapt(): a "bar" wider than any printed bar is a lighter
+   surface (the paper sheet): take it as the new white and end the bar. */
+static void white_move_up(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
+                          uint32_t pos, uint32_t * p_edge_us,
+                          uint32_t * p_edge_pos)
+{
+    /* wider than any printed bar and no read open: L has moved onto a
+       surface that reads higher (the paper sheet), so that level is
+       the new white.  End the "bar" here (its width shows it was no
+       bar) and look for bars above the new level.  Cast: wrapping
+       difference of an up-counter. */
+    p_e->w_x16    = raw * 16;
+    p_e->w_high   = 0U;
+    p_e->level    = 0U;
+    p_e->hold_cnt = 0U;
+    p_e->b_prev   = 0U;
+    p_e->ext      = raw;
+    p_e->prev     = raw;
+    *p_edge_us    = t_us;
+    *p_edge_pos   = pos;
+    p_e->mid_t_us = t_us;
+    p_e->mid_pos  = pos;
+}
+
 uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
                            uint32_t pos, bool b_freeze, uint32_t * p_edge_us,
                            uint32_t * p_edge_pos)
@@ -753,166 +979,59 @@ uint8_t bc_edge_step_adapt(bc_edge_t * p_e, int32_t raw, uint32_t t_us,
     }
     if (0U != p_e->w_relearn)
     {
-        uint8_t was = p_e->level;
-
-        p_e->w_relearn = 0U;
-        p_e->w_valid   = 0U;
-        p_e->w_high    = 0U;
-        p_e->hold_cnt  = 0U;
-        bc_white_window(p_e, raw);
-        if (0U != was)
-        {
-            /* end the open bar where L was last on its dark side */
-            *p_edge_us  = p_e->mid_t_us;
-            *p_edge_pos = p_e->mid_pos;
-        }
-        p_e->level     = 0U;
-        p_e->b_prev    = 0U;
-        p_e->ext       = raw;
-        p_e->prev      = raw;
-        p_e->mid_t_us  = t_us;
-        p_e->mid_pos   = pos;
-        p_e->last_raw  = raw;
-        p_e->last_t_us = t_us;
-        p_e->last_pos  = pos;
-        return was;
+        changed = white_restart(p_e, raw, t_us, pos, p_edge_us, p_edge_pos);
     }
-
-    if (0U == p_e->w_valid)
+    else if (0U == p_e->w_valid)
     {
-        /* learning: a steady stretch of S3_BC_WHITE_INIT_N samples */
-        if (0U == p_e->w_n)
-        {
-            bc_white_window(p_e, raw);
-        }
-        else
-        {
-            int32_t low2  = (raw < p_e->w_min) ? raw : p_e->w_min;
-            int32_t high2 = (raw > p_e->w_max) ? raw : p_e->w_max;
-            if ((high2 - low2) > S3_BC_WHITE_INIT_SPREAD)
-            {
-                bc_white_window(p_e, raw); /* not steady: start again */
-            }
-            else
-            {
-                p_e->w_min = low2;
-                p_e->w_max = high2;
-                p_e->w_sum += raw;
-                p_e->w_dsum += (raw > p_e->last_raw) ? (raw - p_e->last_raw)
-                                                     : (p_e->last_raw - raw);
-                p_e->w_n++;
-            }
-        }
-        if (p_e->w_n >= S3_BC_WHITE_INIT_N)
-        {
-            /* Casts: w_n is at most S3_BC_WHITE_INIT_N */
-            p_e->w_x16 = (p_e->w_sum * 16) / (int32_t)p_e->w_n;
-            /* noise from the steps between samples, not from the spread,
-               so a level that drifts or a window over faint ink cannot
-               pass as noise: sd = 0.886 x mean |step| for a normal noise
-               (casts: w_n - 1 >= 1 here) */
-            p_e->w_sd_x16 =
-                (p_e->w_dsum * 16 * 886) / (1000 * ((int32_t)p_e->w_n - 1));
-            p_e->w_valid = 1U;
-            p_e->w_high  = 0U;
-            p_e->ext     = raw;
-            p_e->b_prev  = 0U;
-        }
-        p_e->mid_t_us  = t_us;
-        p_e->mid_pos   = pos;
-        p_e->last_raw  = raw;
-        p_e->last_t_us = t_us;
-        p_e->last_pos  = pos;
-        return 0U;
-    }
-
-    m_val   = bc_edge_margin(p_e);
-    white   = p_e->w_x16 / 16;
-    changed = bc_edge_core(p_e, raw, t_us, pos, m_val, white + m_val,
-                           white + (m_val / 2), p_edge_us, p_edge_pos);
-    if ((0U == p_e->level) && (0U == p_e->b_prev) &&
-        (raw <= (white + (m_val / 2))))
-    {
-        /* no bar since white was learned: the gap's halfway point is its
-           lowest sample + m / 2, which stays at the floor's level if L has
-           moved onto a surface that reads a little higher (the paper
-           sheet).  L at white here is still on the white side, so the
-           next bar starts after this sample, not back at the floor. */
-        p_e->mid_t_us = t_us;
-        p_e->mid_pos  = pos;
-    }
-
-    if ((0U == p_e->level) && !b_freeze)
-    {
-        int32_t step = raw - p_e->h_prev;       /* from the sample before */
-        int32_t d16  = (raw * 16) - p_e->w_x16; /* x 16 */
-        int32_t ad16 = (d16 < 0) ? -d16 : d16;
-        if (ad16 <= (m_val * 16))
-        {
-            /* white travel: follow the level slowly */
-            p_e->w_x16 += d16 / (1 << S3_BC_WHITE_EMA_SHIFT);
-            if ((d16 < 0) && (0U != p_e->h_prev_white))
-            {
-                /* and the noise, from the step between two white samples
-                   below white only: ink only reads higher, so the sides
-                   of faint marks cannot grow it, and an error in the
-                   level (learned on ink) is not taken for noise.
-                   sd of a normal noise = 0.886 x mean |step|. */
-                int32_t as_val = (step < 0) ? -step : step;
-                p_e->w_sd_x16 +=
-                    (((as_val * 16 * 886) / 1000) - p_e->w_sd_x16) /
-                    (1 << S3_BC_WHITE_EMA_SHIFT);
-            }
-        }
-        else if (d16 < 0)
-        {
-            /* far below the learned white (it was learned on ink, or
-               the paper reads lower now): follow down fast */
-            p_e->w_x16 += d16 / 4;
-        }
-        else
-        {
-            /* above white but not a bar: leave the estimate alone */
-        }
-    }
-    if ((0U != p_e->level) && !b_freeze && (0U == changed) &&
-        ((uint32_t)(pos - p_e->bar_pos) >= S3_BC_FIRST_BAR_MAX_COUNTS))
-    {
-        /* wider than any printed bar and no read open: L has moved onto a
-           surface that reads higher (the paper sheet), so that level is
-           the new white.  End the "bar" here (its width shows it was no
-           bar) and look for bars above the new level.  Cast: wrapping
-           difference of an up-counter. */
-        p_e->w_x16    = raw * 16;
-        p_e->w_high   = 0U;
-        p_e->level    = 0U;
-        p_e->hold_cnt = 0U;
-        p_e->b_prev   = 0U;
-        p_e->ext      = raw;
-        p_e->prev     = raw;
-        *p_edge_us    = t_us;
-        *p_edge_pos   = pos;
-        p_e->mid_t_us = t_us;
-        p_e->mid_pos  = pos;
-        changed       = 1U;
-    }
-    if ((0U != p_e->level) && !b_freeze)
-    {
-        if (p_e->w_high < 0xFFFFU)
-        {
-            p_e->w_high++;
-        }
-        if (p_e->w_high >= S3_BC_WHITE_RELEARN_SAMPLES)
-        {
-            p_e->w_relearn = 1U; /* black far longer than any bar */
-        }
+        white_learn(p_e, raw, t_us, pos);
+        changed = 0U;
     }
     else
     {
-        p_e->w_high = 0U;
+        m_val   = bc_edge_margin(p_e);
+        white   = p_e->w_x16 / 16;
+        changed = bc_edge_core(p_e, raw, t_us, pos, m_val, white + m_val,
+                               white + (m_val / 2), p_edge_us, p_edge_pos);
+        if ((0U == p_e->level) && (0U == p_e->b_prev) &&
+            (raw <= (white + (m_val / 2))))
+        {
+            /* no bar since white was learned: the gap's halfway point is its
+               lowest sample + m / 2, which stays at the floor's level if L has
+               moved onto a surface that reads a little higher (the paper
+               sheet).  L at white here is still on the white side, so the
+               next bar starts after this sample, not back at the floor. */
+            p_e->mid_t_us = t_us;
+            p_e->mid_pos  = pos;
+        }
+
+        if ((0U == p_e->level) && !b_freeze)
+        {
+            white_follow(p_e, raw, m_val);
+        }
+        if ((0U != p_e->level) && !b_freeze && (0U == changed) &&
+            ((uint32_t)(pos - p_e->bar_pos) >= S3_BC_FIRST_BAR_MAX_COUNTS))
+        {
+            white_move_up(p_e, raw, t_us, pos, p_edge_us, p_edge_pos);
+            changed = 1U;
+        }
+        if ((0U != p_e->level) && !b_freeze)
+        {
+            if (p_e->w_high < 0xFFFFU)
+            {
+                p_e->w_high++;
+            }
+            if (p_e->w_high >= S3_BC_WHITE_RELEARN_SAMPLES)
+            {
+                p_e->w_relearn = 1U; /* black far longer than any bar */
+            }
+        }
+        else
+        {
+            p_e->w_high = 0U;
+        }
+        p_e->h_prev       = raw;
+        p_e->h_prev_white = (0U == p_e->level) ? 1U : 0U;
     }
-    p_e->h_prev       = raw;
-    p_e->h_prev_white = (0U == p_e->level) ? 1U : 0U;
     return changed;
 }
 

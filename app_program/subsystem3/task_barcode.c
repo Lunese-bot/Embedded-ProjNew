@@ -534,102 +534,110 @@ static bool early_end_ok(void)
 #endif
 }
 
-static void on_run(const s3_bc_run_t * p_run)
+/* on_run() while idle: a white run ended, so a bar has just begun. */
+static void on_run_idle(const s3_bc_run_t * p_run)
 {
     s3_event_t evt = { 0 };
 
+    /* A white run ended, so a bar has just begun.  It may start a
+       barcode only after a long white gap (the quiet zone), and
+       only once it has ended as a believable bar: a paper sheet
+       boundary or the line is far wider than any printed bar and
+       must not slow the robot or open a read (owner 2026-11-24). */
+    uint8_t state = bc_start_step(&g_start, 0U != p_run->black, p_run->width_us,
+                                  p_run->width_pos);
+    if (BC_START_ARMED == state)
+    {
+        g_pend_idx = g_s3_ltrace_idx;
+    }
+    else if (BC_START_READ == state)
+    {
+        set_state(BARCODE_STATE_DETECT);
+        g_b_s3_bc_scanning = true;
+        g_read_start_idx   = g_pend_idx;
+        evt.type           = S3_EVT_BARCODE_START;
+        s3_send_event(&evt);
+        set_state(BARCODE_STATE_READ);
+        rec_start();
+        /* this bar is the first element */
+        g_widths[0]     = p_run->width_us;
+        g_widths_pos[0] = p_run->width_pos;
+        g_total_pos     = p_run->width_pos;
+        g_widest_us     = p_run->width_us;
+        g_n_widths      = 1U;
+    }
+    else
+    {
+        /* not a start */
+    }
+}
+
+/* on_run() while reading: add the run, or end the read. */
+static void on_run_read(const s3_bc_run_t * p_run)
+{
+    if ((0U != p_run->black) &&
+        (p_run->width_us > ((uint32_t)S3_BC_ELEMENT_MAX_MS * S3_US_PER_MS)))
+    {
+        abort_read(S3_BC_END_LONG_BLACK); /* not a barcode bar */
+    }
+    else if ((0U == p_run->black) && (g_n_widths > 0U) &&
+             (dist_live() ? (p_run->width_pos >= S3_BC_QUIET_COUNTS)
+                          : (p_run->width_us >= quiet_us())))
+    {
+        decode(S3_BC_END_QUIET_RUN); /* trailing quiet zone */
+    }
+    else if (g_n_widths < S3_BC_MAX_ELEMENTS)
+    {
+        if ((0U != p_run->black) && (g_n_widths > 0U))
+        {
+            /* the bar began later than first guessed: that piece
+               belongs to the space before it */
+            g_widths[g_n_widths - 1U] += p_run->lead_us;
+            g_widths_pos[g_n_widths - 1U] += p_run->lead_pos;
+            g_total_pos += p_run->lead_pos;
+        }
+        g_widths[g_n_widths]     = p_run->width_us;
+        g_widths_pos[g_n_widths] = p_run->width_pos;
+        g_total_pos += p_run->width_pos;
+        g_n_widths++;
+        if (g_n_widths >= 2U)
+        {
+            g_b_s3_bc_bars = true; /* bar + space: a barcode */
+        }
+        if (p_run->width_us > g_widest_us)
+        {
+            g_widest_us = p_run->width_us;
+        }
+        if (g_n_widths >= S3_BC_MAX_ELEMENTS)
+        {
+            decode(S3_BC_END_MAX_ELEMS);
+        }
+        else if (early_end_ok())
+        {
+            decode(S3_BC_END_EARLY); /* stop '*' seen: no need to wait
+                                      */
+        }
+        else
+        {
+            /* keep reading */
+        }
+    }
+    else
+    {
+        /* no other case needs any action */
+    }
+}
+
+static void on_run(const s3_bc_run_t * p_run)
+{
     switch (g_state)
     {
         case BARCODE_STATE_IDLE:
-            /* A white run ended, so a bar has just begun.  It may start a
-               barcode only after a long white gap (the quiet zone), and
-               only once it has ended as a believable bar: a paper sheet
-               boundary or the line is far wider than any printed bar and
-               must not slow the robot or open a read (owner 2026-11-24). */
-            {
-                uint8_t state =
-                    bc_start_step(&g_start, 0U != p_run->black, p_run->width_us,
-                                  p_run->width_pos);
-                if (BC_START_ARMED == state)
-                {
-                    g_pend_idx = g_s3_ltrace_idx;
-                }
-                else if (BC_START_READ == state)
-                {
-                    set_state(BARCODE_STATE_DETECT);
-                    g_b_s3_bc_scanning = true;
-                    g_read_start_idx   = g_pend_idx;
-                    evt.type           = S3_EVT_BARCODE_START;
-                    s3_send_event(&evt);
-                    set_state(BARCODE_STATE_READ);
-                    rec_start();
-                    /* this bar is the first element */
-                    g_widths[0]     = p_run->width_us;
-                    g_widths_pos[0] = p_run->width_pos;
-                    g_total_pos     = p_run->width_pos;
-                    g_widest_us     = p_run->width_us;
-                    g_n_widths      = 1U;
-                }
-                else
-                {
-                    /* not a start */
-                }
-            }
+            on_run_idle(p_run);
             break;
 
         case BARCODE_STATE_READ:
-            if ((0U != p_run->black) &&
-                (p_run->width_us >
-                 ((uint32_t)S3_BC_ELEMENT_MAX_MS * S3_US_PER_MS)))
-            {
-                abort_read(S3_BC_END_LONG_BLACK); /* not a barcode bar */
-            }
-            else if ((0U == p_run->black) && (g_n_widths > 0U) &&
-                     (dist_live() ? (p_run->width_pos >= S3_BC_QUIET_COUNTS)
-                                  : (p_run->width_us >= quiet_us())))
-            {
-                decode(S3_BC_END_QUIET_RUN); /* trailing quiet zone */
-            }
-            else if (g_n_widths < S3_BC_MAX_ELEMENTS)
-            {
-                if ((0U != p_run->black) && (g_n_widths > 0U))
-                {
-                    /* the bar began later than first guessed: that piece
-                       belongs to the space before it */
-                    g_widths[g_n_widths - 1U] += p_run->lead_us;
-                    g_widths_pos[g_n_widths - 1U] += p_run->lead_pos;
-                    g_total_pos += p_run->lead_pos;
-                }
-                g_widths[g_n_widths]     = p_run->width_us;
-                g_widths_pos[g_n_widths] = p_run->width_pos;
-                g_total_pos += p_run->width_pos;
-                g_n_widths++;
-                if (g_n_widths >= 2U)
-                {
-                    g_b_s3_bc_bars = true; /* bar + space: a barcode */
-                }
-                if (p_run->width_us > g_widest_us)
-                {
-                    g_widest_us = p_run->width_us;
-                }
-                if (g_n_widths >= S3_BC_MAX_ELEMENTS)
-                {
-                    decode(S3_BC_END_MAX_ELEMS);
-                }
-                else if (early_end_ok())
-                {
-                    decode(S3_BC_END_EARLY); /* stop '*' seen: no need to wait
-                                              */
-                }
-                else
-                {
-                    /* keep reading */
-                }
-            }
-            else
-            {
-                /* no other case needs any action */
-            }
+            on_run_read(p_run);
             break;
 
         default:
