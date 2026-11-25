@@ -55,6 +55,63 @@ static void run_config(bool b_allowed)
     }
 }
 
+/* run_actions(): print a junction note ("vc: jx assigned B 1") and pass it
+   to the dashboard. */
+static void action_junction(const vc_action_t * p_action)
+{
+    /* "vc: jx assigned B 1": the dashboard reads this line on
+       USB too.  letter '-' = no single-letter barcode. */
+    static const char * const k_note[] = { "?", "assigned", "completed",
+                                           "dropped" };
+    const uint32_t            kind     = (uint32_t)p_action->p1;
+    const uint8_t             letter   = (uint8_t)((uint32_t)p_action->p2 >> 8);
+    const uint8_t             code     = (uint8_t)((uint32_t)p_action->p2 & 3u);
+
+    tm_printf((uint8_t *)"vc: jx %s %c %u\n", k_note[(kind <= 3u) ? kind : 0u],
+              (0u != letter) ? (int)letter : (int)'-', (unsigned)code);
+    s1_bridge_junction((uint8_t)kind, letter, code);
+}
+
+/* run_actions(): print one U-turn trace line. */
+static void action_trace(const vc_action_t * p_action)
+{
+    /* "vc: ut sight C h=1052 (137 deg)": h = counts turned
+       since the U-turn began (+ = left), deg = the same in S2
+       command degrees, x = detail (vc_sm.h vc_ut_trace_t) */
+    static const char * const k_what[] = {
+        "?",         "start",   "early-line-ignored",
+        "fast-done", "sweep",   "sight",
+        "brake",     "settled", "verdict",
+        "done",      "FAIL"
+    };
+    static const char * const k_verdict[] = { "unsure", "on-line",
+                                              "between-C-R", "turned-past",
+                                              "no-line" };
+    const uint32_t            what        = (uint32_t)p_action->p1;
+    const int32_t             h_val       = p_action->p2;
+    const int32_t             x_val       = (int32_t)p_action->rsv;
+    const int32_t deg = (h_val * 180) / (int32_t)VC_PIVOT_COUNTS(180);
+
+    if ((uint32_t)VC_UT_VERDICT == what)
+    {
+        tm_printf((uint8_t *)"vc: ut verdict %s h=%d (%d deg)\n",
+                  k_verdict[((uint32_t)x_val <= 4u) ? (uint32_t)x_val : 0u],
+                  h_val, deg);
+    }
+    else if (((uint32_t)VC_UT_SIGHT == what) || ((uint32_t)VC_UT_EARLY == what))
+    {
+        tm_printf((uint8_t *)"vc: ut %s %s h=%d (%d deg)\n", k_what[what],
+                  (VC_LINE_C == x_val) ? "C"
+                                       : ((VC_LINE_R == x_val) ? "R" : "C+R"),
+                  h_val, deg);
+    }
+    else
+    {
+        tm_printf((uint8_t *)"vc: ut %s h=%d (%d deg) x=%d\n",
+                  k_what[(what <= 10u) ? what : 0u], h_val, deg, x_val);
+    }
+}
+
 static void run_actions(const vc_actions_t * p_acts)
 {
     int32_t idx;
@@ -90,68 +147,11 @@ static void run_actions(const vc_actions_t * p_acts)
                 run_config(0 != p_action->p1);
                 break;
             case VC_ACT_JUNCTION:
-            {
-                /* "vc: jx assigned B 1": the dashboard reads this line on
-                   USB too.  letter '-' = no single-letter barcode. */
-                static const char * const k_note[] = { "?", "assigned",
-                                                       "completed", "dropped" };
-                const uint32_t            kind     = (uint32_t)p_action->p1;
-                const uint8_t letter = (uint8_t)((uint32_t)p_action->p2 >> 8);
-                const uint8_t code   = (uint8_t)((uint32_t)p_action->p2 & 3u);
-
-                tm_printf((uint8_t *)"vc: jx %s %c %u\n",
-                          k_note[(kind <= 3u) ? kind : 0u],
-                          (0u != letter) ? (int)letter : (int)'-',
-                          (unsigned)code);
-                s1_bridge_junction((uint8_t)kind, letter, code);
+                action_junction(p_action);
                 break;
-            }
             case VC_ACT_TRACE:
-            {
-                /* "vc: ut sight C h=1052 (137 deg)": h = counts turned
-                   since the U-turn began (+ = left), deg = the same in S2
-                   command degrees, x = detail (vc_sm.h vc_ut_trace_t) */
-                static const char * const k_what[] = {
-                    "?",         "start",   "early-line-ignored",
-                    "fast-done", "sweep",   "sight",
-                    "brake",     "settled", "verdict",
-                    "done",      "FAIL"
-                };
-                static const char * const k_verdict[] = {
-                    "unsure", "on-line", "between-C-R", "turned-past", "no-line"
-                };
-                const uint32_t what  = (uint32_t)p_action->p1;
-                const int32_t  h_val = p_action->p2;
-                const int32_t  x_val = (int32_t)p_action->rsv;
-                const int32_t  deg =
-                    (h_val * 180) / (int32_t)VC_PIVOT_COUNTS(180);
-
-                if ((uint32_t)VC_UT_VERDICT == what)
-                {
-                    tm_printf(
-                        (uint8_t *)"vc: ut verdict %s h=%d (%d deg)\n",
-                        k_verdict[((uint32_t)x_val <= 4u) ? (uint32_t)x_val
-                                                          : 0u],
-                        h_val, deg);
-                }
-                else if (((uint32_t)VC_UT_SIGHT == what) ||
-                         ((uint32_t)VC_UT_EARLY == what))
-                {
-                    tm_printf((uint8_t *)"vc: ut %s %s h=%d (%d deg)\n",
-                              k_what[what],
-                              (VC_LINE_C == x_val)
-                                  ? "C"
-                                  : ((VC_LINE_R == x_val) ? "R" : "C+R"),
-                              h_val, deg);
-                }
-                else
-                {
-                    tm_printf((uint8_t *)"vc: ut %s h=%d (%d deg) x=%d\n",
-                              k_what[(what <= 10u) ? what : 0u], h_val, deg,
-                              x_val);
-                }
+                action_trace(p_action);
                 break;
-            }
             default:
                 break;
         }

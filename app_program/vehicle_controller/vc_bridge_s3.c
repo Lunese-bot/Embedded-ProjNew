@@ -88,13 +88,12 @@ static void make(vc_event_t * p_event, vc_event_type_t type, int32_t param1,
 
 /* One S3 event -> controller event.  Returns false for events the
    controller does not need (CAL_DONE). */
-static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
-{
-    bool b_event = true;
-
 #if S2_WEBDEBUG
-    /* dashboard: remember the last barcode result, even with barcodes
-       switched off for the mission, so reading can be tested by hand */
+/* map_s3_event(), dashboard: remember the last barcode result and the
+   history, even with barcodes switched off for the mission, so reading
+   can be tested by hand. */
+static void dashboard_bc_note(const s3_event_t * p_s3)
+{
     if (S3_EVT_BARCODE_DECODED == p_s3->type)
     {
         uint32_t idx;
@@ -144,6 +143,60 @@ static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
             g_lt_bc_hist[kdx] = tmp[kdx];
         }
     }
+}
+#endif
+
+/* map_s3_event(S3_EVT_BARCODE_DECODED): publish the text and pass it on
+   with the event. */
+static void barcode_decoded(const s3_event_t * p_s3, vc_event_t * p_event)
+{
+    /* Cast: the console API takes uint8_t format strings. */
+    tm_printf((uint8_t *)"vc: barcode \"%s\" nav %d\n", p_s3->text, p_s3->nav);
+    {
+        uint8_t payload[S1_BARCODE_MAX_BYTES];
+        int32_t len = 0;
+        int32_t encoded;
+
+        while ((len < (int32_t)sizeof(p_s3->text)) && (p_s3->text[len] != 0U))
+        {
+            len++;
+        }
+        encoded = s1_barcode_encode(p_s3->text, len, payload);
+        if (encoded < 0)
+        {
+            app_check(E_PAR, "vc barcode encoding");
+        }
+        else
+        {
+            app_check(s1_post(S1_TOPIC_BARCODE, payload, encoded),
+                      "vc barcode publish");
+        }
+    }
+    /* Cast: arg is 0 or 1 (read backwards). */
+    make(p_event, VC_EV_BARCODE_DECODED, p_s3->nav, (int32_t)p_s3->arg,
+         p_s3->time_ms);
+    /* Carry the complete text through the Vehicle Controller; action
+       rules match the whole barcode rather than only S3's legacy
+       first-letter nav. */
+    {
+        uint32_t idx;
+        for (idx = 0u; (idx < (sizeof(p_event->barcode_text) - 1u)) &&
+                       (idx < (sizeof(p_s3->text) - 1u)) &&
+                       ('\0' != (char)p_s3->text[idx]);
+             idx++)
+        {
+            p_event->barcode_text[idx] = (char)p_s3->text[idx];
+        }
+        p_event->barcode_text[idx] = '\0';
+    }
+}
+
+static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
+{
+    bool b_event = true;
+
+#if S2_WEBDEBUG
+    dashboard_bc_note(p_s3);
 #endif
     if (BC_OFF && ((S3_EVT_BARCODE_START == p_s3->type) ||
                    (S3_EVT_BARCODE_DECODED == p_s3->type) ||
@@ -170,47 +223,7 @@ static bool map_s3_event(const s3_event_t * p_s3, vc_event_t * p_event)
             make(p_event, VC_EV_BARCODE_START, 0, 0, p_s3->time_ms);
             break;
         case S3_EVT_BARCODE_DECODED:
-            /* Cast: the console API takes uint8_t format strings. */
-            tm_printf((uint8_t *)"vc: barcode \"%s\" nav %d\n", p_s3->text,
-                      p_s3->nav);
-            {
-                uint8_t payload[S1_BARCODE_MAX_BYTES];
-                int32_t len = 0;
-                int32_t encoded;
-
-                while ((len < (int32_t)sizeof(p_s3->text)) &&
-                       (p_s3->text[len] != 0U))
-                {
-                    len++;
-                }
-                encoded = s1_barcode_encode(p_s3->text, len, payload);
-                if (encoded < 0)
-                {
-                    app_check(E_PAR, "vc barcode encoding");
-                }
-                else
-                {
-                    app_check(s1_post(S1_TOPIC_BARCODE, payload, encoded),
-                              "vc barcode publish");
-                }
-            }
-            /* Cast: arg is 0 or 1 (read backwards). */
-            make(p_event, VC_EV_BARCODE_DECODED, p_s3->nav, (int32_t)p_s3->arg,
-                 p_s3->time_ms);
-            /* Carry the complete text through the Vehicle Controller; action
-               rules match the whole barcode rather than only S3's legacy
-               first-letter nav. */
-            {
-                uint32_t idx;
-                for (idx = 0u; (idx < (sizeof(p_event->barcode_text) - 1u)) &&
-                               (idx < (sizeof(p_s3->text) - 1u)) &&
-                               ('\0' != (char)p_s3->text[idx]);
-                     idx++)
-                {
-                    p_event->barcode_text[idx] = (char)p_s3->text[idx];
-                }
-                p_event->barcode_text[idx] = '\0';
-            }
+            barcode_decoded(p_s3, p_event);
             break;
         case S3_EVT_BARCODE_FAILED:
             /* Cast: arg is a small retry count. */
@@ -269,59 +282,19 @@ static bool next_s3_event(vc_event_t * p_event, vc_state_t state)
     return b_event;
 }
 
-bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
+/* vc_bridge_s3_next(), when S3 sent no event: events made from the live
+   line status (found while searching, U-turn samples, junction turn end,
+   steering). */
+static bool line_status_event(vc_event_t * p_event, vc_state_t state)
 {
     s3_line_status_t line_st;
     bool             b_event = false;
 
-    if (VC_ST_EXECUTE_ACTION != state)
-    {
-        g_b_line_watch = false; /* the watch belongs to one manoeuvre */
-    }
-#if S2_WEBDEBUG
-    if (live_tune_straight_at_junction())
-    {
-        g_b_junction_held = false;
-    }
-#endif
-    if (g_b_ready_pending)
-    {
-        g_b_ready_pending = false;
-        make(p_event, VC_EV_READY, 0, 0, 0);
-        b_event = true;
-    }
-#if S2_WEBDEBUG
-    else if (g_b_junction_held)
-    {
-        g_b_junction_held = false;
-        *p_event          = g_junction_held; /* after the forced action */
-        b_event           = true;
-    }
-#endif
-    /* 1. events first: a LINE_LOST must beat the next steering value */
-    else if (next_s3_event(p_event, state))
-    {
-#if S2_WEBDEBUG
-        int32_t nav = g_lt_next_nav;
-
-        if ((VC_EV_JUNCTION == p_event->type) &&
-            ((NAV_LEFT == nav) || (NAV_RIGHT == nav)))
-        {
-            /* send the dashboard's action first, the junction next call */
-            g_junction_held   = *p_event;
-            g_b_junction_held = true;
-            make(p_event, VC_EV_BARCODE_DECODED, nav, 0,
-                 g_junction_held.time_ms);
-        }
-#endif
-        b_event = true;
-    }
     /* 1b. Controller is searching (LOST_LINE): with the straddle layout S3
        has no LOST state, so it never sends LINE_FOUND and the search could
        only end in a fault.  C or R on black = found (review 2026-11-10). */
-    else if ((VC_ST_LOST_LINE == state) &&
-             (E_OK == s3_get_line_status(&line_st)) &&
-             (0u != (line_st.black_mask & (S3_MASK_C | S3_MASK_R))))
+    if ((VC_ST_LOST_LINE == state) && (E_OK == s3_get_line_status(&line_st)) &&
+        (0u != (line_st.black_mask & (S3_MASK_C | S3_MASK_R))))
     {
         make(p_event, VC_EV_LINE_FOUND, 0, 0, line_st.time_ms);
         b_event = true;
@@ -377,6 +350,59 @@ bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
     else
     {
         /* nothing new */
+    }
+    return b_event;
+}
+
+bool vc_bridge_s3_next(vc_event_t * p_event, vc_state_t state)
+{
+    bool b_event = false;
+
+    if (VC_ST_EXECUTE_ACTION != state)
+    {
+        g_b_line_watch = false; /* the watch belongs to one manoeuvre */
+    }
+#if S2_WEBDEBUG
+    if (live_tune_straight_at_junction())
+    {
+        g_b_junction_held = false;
+    }
+#endif
+    if (g_b_ready_pending)
+    {
+        g_b_ready_pending = false;
+        make(p_event, VC_EV_READY, 0, 0, 0);
+        b_event = true;
+    }
+#if S2_WEBDEBUG
+    else if (g_b_junction_held)
+    {
+        g_b_junction_held = false;
+        *p_event          = g_junction_held; /* after the forced action */
+        b_event           = true;
+    }
+#endif
+    /* 1. events first: a LINE_LOST must beat the next steering value */
+    else if (next_s3_event(p_event, state))
+    {
+#if S2_WEBDEBUG
+        int32_t nav = g_lt_next_nav;
+
+        if ((VC_EV_JUNCTION == p_event->type) &&
+            ((NAV_LEFT == nav) || (NAV_RIGHT == nav)))
+        {
+            /* send the dashboard's action first, the junction next call */
+            g_junction_held   = *p_event;
+            g_b_junction_held = true;
+            make(p_event, VC_EV_BARCODE_DECODED, nav, 0,
+                 g_junction_held.time_ms);
+        }
+#endif
+        b_event = true;
+    }
+    else
+    {
+        b_event = line_status_event(p_event, state);
     }
     return b_event;
 }

@@ -122,6 +122,74 @@ static bool     g_b_waiting_stop;
 static bool     g_b_safe_stop_reported;
 static uint32_t g_reported_stop_epoch;
 
+/* vc_bridge_s2_move(VC_MOVE_STEER): follow the line, slower in curves. */
+static ER move_steer(int32_t value)
+{
+    ER      ercd;
+    /* slower in curves: the harder S3 steers, the lower the
+       forward speed (vc_sm.h VC_CURVE_SLOW_PERMILLE) */
+    int32_t base;
+    int32_t mag;
+    int32_t fwd;
+#if S2_WEBDEBUG
+    int32_t slow = g_lt_curve;
+#else
+    int32_t slow = VC_CURVE_SLOW_PERMILLE;
+#endif
+
+#if S2_WEBDEBUG
+    if (0 != g_lt_steer_inv)
+    {
+        value = -value; /* dashboard: swap left and right steering */
+    }
+#endif
+    base = sent_speed();
+    mag  = (value < 0) ? -value : value;
+#if S3_BC_LOCK
+    if (g_b_s3_bc_lock)
+    {
+        slow = 0; /* barcode: one constant speed */
+    }
+#endif
+    mag = (mag > VC_STEER_FULL_SCALE) ? VC_STEER_FULL_SCALE : mag;
+    fwd = base - ((base * slow / 1000) * mag) / VC_STEER_FULL_SCALE;
+    if ((fwd < VC_CURVE_MIN_MMS) && (base > VC_CURVE_MIN_MMS))
+    {
+        fwd = VC_CURVE_MIN_MMS;
+    }
+    g_steer           = -((value * fwd) / VC_STEER_FULL_SCALE);
+    g_b_driving       = true;
+    ercd              = s2_cmd_drive(fwd, g_steer);
+    g_s3_bc_speed_now = (int16_t)fwd; /* barcode record; Cast: mm/s */
+    return ercd;
+}
+
+/* vc_bridge_s2_move(VC_MOVE_PIVOT): turn on the spot at a limited speed. */
+static ER move_pivot(int32_t value)
+{
+    ER ercd;
+
+    /* Speed 0, steer v: S2 drives the left wheel at -v and the
+       right at +v (task_motion.c MSTATE_DRIVING), a pivot about
+       the axle at a speed the controller chooses.  Not scaled by
+       the dashboard's live speed: the U-turn sets it. */
+    g_b_driving = false;
+    if (value > VC_TURN_SPEED_MMS)
+    {
+        value = VC_TURN_SPEED_MMS;
+    }
+    else if (value < -VC_TURN_SPEED_MMS)
+    {
+        value = -VC_TURN_SPEED_MMS;
+    }
+    else
+    {
+        /* in range */
+    }
+    ercd = s2_cmd_drive(0, value);
+    return ercd;
+}
+
 ER vc_bridge_s2_move(vc_move_t move, int32_t value)
 {
     ER ercd;
@@ -157,41 +225,7 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
             g_s3_bc_speed_now = (int16_t)sent_speed(); /* Cast: mm/s */
             break;
         case VC_MOVE_STEER:
-#if S2_WEBDEBUG
-            if (0 != g_lt_steer_inv)
-            {
-                value = -value; /* dashboard: swap left and right steering */
-            }
-#endif
-            {
-                /* slower in curves: the harder S3 steers, the lower the
-                   forward speed (vc_sm.h VC_CURVE_SLOW_PERMILLE) */
-                int32_t base = sent_speed();
-                int32_t mag  = (value < 0) ? -value : value;
-                int32_t fwd;
-#if S2_WEBDEBUG
-                int32_t slow = g_lt_curve;
-#else
-            int32_t slow = VC_CURVE_SLOW_PERMILLE;
-#endif
-#if S3_BC_LOCK
-                if (g_b_s3_bc_lock)
-                {
-                    slow = 0; /* barcode: one constant speed */
-                }
-#endif
-                mag = (mag > VC_STEER_FULL_SCALE) ? VC_STEER_FULL_SCALE : mag;
-                fwd = base - ((base * slow / 1000) * mag) / VC_STEER_FULL_SCALE;
-                if ((fwd < VC_CURVE_MIN_MMS) && (base > VC_CURVE_MIN_MMS))
-                {
-                    fwd = VC_CURVE_MIN_MMS;
-                }
-                g_steer           = -((value * fwd) / VC_STEER_FULL_SCALE);
-                g_b_driving       = true;
-                ercd              = s2_cmd_drive(fwd, g_steer);
-                g_s3_bc_speed_now = (int16_t)fwd; /* barcode record; Cast: mm/s
-                                                   */
-            }
+            ercd = move_steer(value);
             break;
         case VC_MOVE_SET_SPEED:
             g_speed = value;
@@ -215,24 +249,7 @@ ER vc_bridge_s2_move(vc_move_t move, int32_t value)
                                (value > 0) ? value : VC_UTURN_CMD_DEG);
             break;
         case VC_MOVE_PIVOT:
-            /* Speed 0, steer v: S2 drives the left wheel at -v and the
-               right at +v (task_motion.c MSTATE_DRIVING), a pivot about
-               the axle at a speed the controller chooses.  Not scaled by
-               the dashboard's live speed: the U-turn sets it. */
-            g_b_driving = false;
-            if (value > VC_TURN_SPEED_MMS)
-            {
-                value = VC_TURN_SPEED_MMS;
-            }
-            else if (value < -VC_TURN_SPEED_MMS)
-            {
-                value = -VC_TURN_SPEED_MMS;
-            }
-            else
-            {
-                /* in range */
-            }
-            ercd = s2_cmd_drive(0, value);
+            ercd = move_pivot(value);
             break;
         case VC_MOVE_DRIVE_DIST:
             g_b_driving = false;

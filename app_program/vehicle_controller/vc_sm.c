@@ -279,6 +279,56 @@ static void enter_execute(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
     }
 }
 
+/* enter(VC_ST_MISSION_START): stop, clear the run's results and ask for the
+   self-check. */
+static void enter_mission_start(vc_sm_t * p_sm, uint32_t now_ms,
+                                vc_actions_t * p_out)
+{
+    move(p_out, VC_MOVE_STOP, 0);
+    p_sm->st.reports_after_end = 0;
+    p_sm->ready_mask           = 0;
+    p_sm->st.mission_start_ms  = now_ms;
+    p_sm->st.max_hump_um       = 0;
+    p_sm->st.barcodes_read     = 0;
+    p_sm->st.last_nav          = NAV_NONE;
+    p_sm->st.last_barcode[0]   = '\0';
+    request(p_out, VC_SRC_NONE, VC_REQ_SELF_CHECK, 0);
+}
+
+/* enter(VC_ST_FOLLOW_LINE): start line following, slowly after a bypass or
+   a U-turn. */
+static void enter_follow_line(vc_sm_t * p_sm, vc_state_t prev,
+                              vc_actions_t * p_out)
+{
+    p_sm->retries = 0;
+    p_sm->rejoin_steer_left =
+        ((VC_ST_AVOID_OBSTACLE == prev) || p_sm->ut.handover)
+            ? VC_REJOIN_STEER_SAMPLES
+            : 0u;
+    request(p_out, VC_SRC_OBST, VC_REQ_OBST_MONITOR, 0);
+    request(p_out, VC_SRC_LINE, VC_REQ_LINE_FOLLOW, 0);
+    if (p_sm->ut.handover)
+    {
+        /* U-turn aligned on the line: slow line following for
+           VC_REJOIN_STEER_SAMPLES fresh steering samples, then
+           cruise (move_request()) */
+        p_sm->ut.handover = false;
+        move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS);
+        move(p_out, VC_MOVE_FORWARD, VC_SPEED_SLOW_MMS);
+    }
+    else if (0u != p_sm->rejoin_steer_left)
+    {
+        /* S5 finished at rest. The first fresh steering sample
+           starts the car moving. */
+        move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS);
+    }
+    else
+    {
+        move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS);
+        move(p_out, VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS);
+    }
+}
+
 static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
                   vc_actions_t * p_out)
 {
@@ -307,45 +357,11 @@ static void enter(vc_sm_t * p_sm, vc_state_t next, uint32_t now_ms,
             break;
 
         case VC_ST_MISSION_START:
-            move(p_out, VC_MOVE_STOP, 0);
-            p_sm->st.reports_after_end = 0;
-            p_sm->ready_mask           = 0;
-            p_sm->st.mission_start_ms  = now_ms;
-            p_sm->st.max_hump_um       = 0;
-            p_sm->st.barcodes_read     = 0;
-            p_sm->st.last_nav          = NAV_NONE;
-            p_sm->st.last_barcode[0]   = '\0';
-            request(p_out, VC_SRC_NONE, VC_REQ_SELF_CHECK, 0);
+            enter_mission_start(p_sm, now_ms, p_out);
             break;
 
         case VC_ST_FOLLOW_LINE:
-            p_sm->retries = 0;
-            p_sm->rejoin_steer_left =
-                ((VC_ST_AVOID_OBSTACLE == prev) || p_sm->ut.handover)
-                    ? VC_REJOIN_STEER_SAMPLES
-                    : 0u;
-            request(p_out, VC_SRC_OBST, VC_REQ_OBST_MONITOR, 0);
-            request(p_out, VC_SRC_LINE, VC_REQ_LINE_FOLLOW, 0);
-            if (p_sm->ut.handover)
-            {
-                /* U-turn aligned on the line: slow line following for
-                   VC_REJOIN_STEER_SAMPLES fresh steering samples, then
-                   cruise (move_request()) */
-                p_sm->ut.handover = false;
-                move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS);
-                move(p_out, VC_MOVE_FORWARD, VC_SPEED_SLOW_MMS);
-            }
-            else if (0u != p_sm->rejoin_steer_left)
-            {
-                /* S5 finished at rest. The first fresh steering sample
-                   starts the car moving. */
-                move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS);
-            }
-            else
-            {
-                move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS);
-                move(p_out, VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS);
-            }
+            enter_follow_line(p_sm, prev, p_out);
             break;
 
         case VC_ST_JUNCTION_STOP:
@@ -1445,6 +1461,168 @@ static void on_terrain_check(vc_sm_t * p_sm, const vc_event_t * p_event,
     }
 }
 
+/* vc_sm_handle(): the dashboard's Pause and Resume.  Returns false for any
+   other event. */
+static bool pause_command(vc_sm_t * p_sm, vc_event_type_t type, uint32_t now_ms,
+                          vc_actions_t * p_out)
+{
+    bool b_done = true;
+
+    if (VC_EV_CMD_PAUSE == type)
+    {
+        if ((VC_ST_FOLLOW_LINE == p_sm->st.state) && !p_sm->st.paused)
+        {
+            p_sm->st.paused      = true;
+            p_sm->pause_stopped  = false;
+            p_sm->pause_since_ms = now_ms;
+            move(p_out, VC_MOVE_STOP_CONFIRM, 0);
+        }
+    }
+    else if (VC_EV_CMD_RESUME == type)
+    {
+        if (p_sm->st.paused && p_sm->pause_stopped)
+        {
+            p_sm->st.paused     = false;
+            p_sm->pause_stopped = false;
+            request(p_out, VC_SRC_LINE, VC_REQ_LINE_FOLLOW, 0);
+            if (0u != p_sm->rejoin_steer_left)
+            {
+                move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS);
+            }
+            else
+            {
+                move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS);
+                move(p_out, VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS);
+            }
+        }
+    }
+    else
+    {
+        b_done = false;
+    }
+    return b_done;
+}
+
+/* vc_sm_handle() while paused: wait for the stop, and end the run as a fault
+   on anything that would need the robot to move. */
+static void while_paused(vc_sm_t * p_sm, const vc_event_t * p_event,
+                         vc_event_type_t type, uint32_t now_ms,
+                         vc_actions_t * p_out)
+{
+    if (VC_EV_MOTION_STOPPED == type)
+    {
+        p_sm->pause_stopped = true;
+    }
+    else if ((VC_EV_TICK == type) && !p_sm->pause_stopped &&
+             (elapsed(now_ms, p_sm->pause_since_ms) >= VC_JUNCTION_STOP_MS))
+    {
+        go_fault(p_sm, VC_SRC_MOTION, VC_FC_JUNCTION_STOP, now_ms, p_out);
+    }
+    else if ((VC_EV_OBSTACLE == type) || (VC_EV_LINE_LOST == type) ||
+             (VC_EV_JUNCTION == type) || (VC_EV_BARCODE_START == type) ||
+             (VC_EV_BARCODE_DECODED == type) || (VC_EV_HUMP_START == type) ||
+             (VC_EV_END_OF_COURSE == type) ||
+             ((VC_EV_FAULT == type) &&
+              ((int32_t)VC_FAULT_RECOVERABLE == p_event->p1)))
+    {
+        go_fault(p_sm, (vc_source_t)p_event->src, VC_FC_PAUSE_INTERRUPTED,
+                 now_ms, p_out);
+    }
+    else if ((VC_EV_MOVE_REQUEST == type) || (VC_EV_TICK == type))
+    {
+        /* ignored while paused */
+    }
+    else
+    {
+        (void)handle_common(p_sm, p_event, now_ms, p_out);
+    }
+}
+
+/* vc_sm_handle(): pass the event to the handler of the current state. */
+static void state_dispatch(vc_sm_t * p_sm, const vc_event_t * p_event,
+                           vc_event_type_t type, uint32_t in_state,
+                           uint32_t now_ms, vc_actions_t * p_out)
+{
+    switch (p_sm->st.state)
+    {
+        case VC_ST_IDLE:
+            if (VC_EV_CMD_START == type)
+            {
+                /* Start acts as Reset then Start, as it already does
+                   after MISSION_COMPLETE: a lift while idle (e.g.
+                   placing the robot on the track) leaves S2 latched in
+                   SAFE_STOP, and without this reset S2 never reports
+                   READY (self check 0x0002).  S2 refuses the reset
+                   while S4's lift / overturn interlock is still set,
+                   so a robot that is still lifted stays stopped. */
+                move(p_out, VC_MOVE_RESET, 0);
+                enter(p_sm, VC_ST_MISSION_START, now_ms, p_out);
+            }
+            else if (VC_EV_CMD_RESET == type)
+            {
+                move(p_out, VC_MOVE_RESET, 0);
+            }
+            else
+            {
+                /* no other case needs any action */
+            }
+            break;
+        case VC_ST_MISSION_START:
+            on_mission_start(p_sm, p_event, type, in_state, now_ms, p_out);
+            break;
+        case VC_ST_FOLLOW_LINE:
+            on_follow_line(p_sm, p_event, type, in_state, now_ms, p_out);
+            break;
+        case VC_ST_JUNCTION_STOP:
+            on_junction_stop(p_sm, p_event, type, in_state, now_ms, p_out);
+            break;
+        case VC_ST_LOST_LINE:
+            on_lost_line(p_sm, p_event, type, in_state, now_ms, p_out);
+            break;
+        case VC_ST_AVOID_OBSTACLE:
+            on_avoid_obstacle(p_sm, p_event, type, in_state, now_ms, p_out);
+            break;
+        case VC_ST_DECODE_BARCODE:
+            on_decode_barcode(p_sm, p_event, type, in_state, now_ms, p_out);
+            break;
+        case VC_ST_EXECUTE_ACTION:
+            on_execute_action(p_sm, p_event, type, in_state, now_ms, p_out);
+            break;
+        case VC_ST_TERRAIN_CHECK:
+            on_terrain_check(p_sm, p_event, type, in_state, now_ms, p_out);
+            break;
+        case VC_ST_FAULT:
+            /* stay stopped until Reset (overturn, operator stop, ...) */
+            if (VC_EV_CMD_RESET == type)
+            {
+                enter(p_sm, VC_ST_IDLE, now_ms, p_out);
+            }
+            break;
+        case VC_ST_MISSION_COMPLETE:
+            /* Motors stay off until an explicit Start or Reset (owner,
+               2026-11-14).  Start acts as Reset then Start: it clears
+               the S2 latch (via IDLE) and begins a new mission. */
+            if (VC_EV_CMD_RESET == type)
+            {
+                enter(p_sm, VC_ST_IDLE, now_ms, p_out);
+            }
+            else if (VC_EV_CMD_START == type)
+            {
+                enter(p_sm, VC_ST_IDLE, now_ms, p_out);
+                enter(p_sm, VC_ST_MISSION_START, now_ms, p_out);
+            }
+            else
+            {
+                /* everything else is ignored: stay stopped */
+            }
+            break;
+        default:
+            /* corrupt state: fail safe */
+            go_fault(p_sm, VC_SRC_VC, VC_FC_STATE_TIMEOUT, now_ms, p_out);
+            break;
+    }
+}
+
 void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
                   vc_actions_t * p_out)
 {
@@ -1479,151 +1657,21 @@ void vc_sm_handle(vc_sm_t * p_sm, const vc_event_t * p_event, uint32_t now_ms,
         p_sm->st.max_hump_um = p_event->p1;
     }
 
-    if (VC_EV_CMD_PAUSE == type)
+    if (pause_command(p_sm, type, now_ms, p_out))
     {
-        if ((VC_ST_FOLLOW_LINE == p_sm->st.state) && !p_sm->st.paused)
-        {
-            p_sm->st.paused      = true;
-            p_sm->pause_stopped  = false;
-            p_sm->pause_since_ms = now_ms;
-            move(p_out, VC_MOVE_STOP_CONFIRM, 0);
-        }
-        return;
+        /* Pause or Resume: nothing else to do */
     }
-    if (VC_EV_CMD_RESUME == type)
+    else if (p_sm->st.paused)
     {
-        if (p_sm->st.paused && p_sm->pause_stopped)
-        {
-            p_sm->st.paused     = false;
-            p_sm->pause_stopped = false;
-            request(p_out, VC_SRC_LINE, VC_REQ_LINE_FOLLOW, 0);
-            if (0u != p_sm->rejoin_steer_left)
-            {
-                move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS);
-            }
-            else
-            {
-                move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_CRUISE_MMS);
-                move(p_out, VC_MOVE_FORWARD, VC_SPEED_CRUISE_MMS);
-            }
-        }
-        return;
+        while_paused(p_sm, p_event, type, now_ms, p_out);
     }
-    if (p_sm->st.paused)
+    else if (!handle_common(p_sm, p_event, now_ms, p_out))
     {
-        if (VC_EV_MOTION_STOPPED == type)
-        {
-            p_sm->pause_stopped = true;
-            return;
-        }
-        if ((VC_EV_TICK == type) && !p_sm->pause_stopped &&
-            (elapsed(now_ms, p_sm->pause_since_ms) >= VC_JUNCTION_STOP_MS))
-        {
-            go_fault(p_sm, VC_SRC_MOTION, VC_FC_JUNCTION_STOP, now_ms, p_out);
-            return;
-        }
-        if ((VC_EV_OBSTACLE == type) || (VC_EV_LINE_LOST == type) ||
-            (VC_EV_JUNCTION == type) || (VC_EV_BARCODE_START == type) ||
-            (VC_EV_BARCODE_DECODED == type) || (VC_EV_HUMP_START == type) ||
-            (VC_EV_END_OF_COURSE == type) ||
-            ((VC_EV_FAULT == type) &&
-             ((int32_t)VC_FAULT_RECOVERABLE == p_event->p1)))
-        {
-            go_fault(p_sm, (vc_source_t)p_event->src, VC_FC_PAUSE_INTERRUPTED,
-                     now_ms, p_out);
-            return;
-        }
-        if ((VC_EV_MOVE_REQUEST == type) || (VC_EV_TICK == type))
-        {
-            return;
-        }
-        if (handle_common(p_sm, p_event, now_ms, p_out))
-        {
-            return;
-        }
-        return;
+        state_dispatch(p_sm, p_event, type, in_state, now_ms, p_out);
     }
-
-    if (!handle_common(p_sm, p_event, now_ms, p_out))
+    else
     {
-        switch (p_sm->st.state)
-        {
-            case VC_ST_IDLE:
-                if (VC_EV_CMD_START == type)
-                {
-                    /* Start acts as Reset then Start, as it already does
-                       after MISSION_COMPLETE: a lift while idle (e.g.
-                       placing the robot on the track) leaves S2 latched in
-                       SAFE_STOP, and without this reset S2 never reports
-                       READY (self check 0x0002).  S2 refuses the reset
-                       while S4's lift / overturn interlock is still set,
-                       so a robot that is still lifted stays stopped. */
-                    move(p_out, VC_MOVE_RESET, 0);
-                    enter(p_sm, VC_ST_MISSION_START, now_ms, p_out);
-                }
-                else if (VC_EV_CMD_RESET == type)
-                {
-                    move(p_out, VC_MOVE_RESET, 0);
-                }
-                else
-                {
-                    /* no other case needs any action */
-                }
-                break;
-            case VC_ST_MISSION_START:
-                on_mission_start(p_sm, p_event, type, in_state, now_ms, p_out);
-                break;
-            case VC_ST_FOLLOW_LINE:
-                on_follow_line(p_sm, p_event, type, in_state, now_ms, p_out);
-                break;
-            case VC_ST_JUNCTION_STOP:
-                on_junction_stop(p_sm, p_event, type, in_state, now_ms, p_out);
-                break;
-            case VC_ST_LOST_LINE:
-                on_lost_line(p_sm, p_event, type, in_state, now_ms, p_out);
-                break;
-            case VC_ST_AVOID_OBSTACLE:
-                on_avoid_obstacle(p_sm, p_event, type, in_state, now_ms, p_out);
-                break;
-            case VC_ST_DECODE_BARCODE:
-                on_decode_barcode(p_sm, p_event, type, in_state, now_ms, p_out);
-                break;
-            case VC_ST_EXECUTE_ACTION:
-                on_execute_action(p_sm, p_event, type, in_state, now_ms, p_out);
-                break;
-            case VC_ST_TERRAIN_CHECK:
-                on_terrain_check(p_sm, p_event, type, in_state, now_ms, p_out);
-                break;
-            case VC_ST_FAULT:
-                /* stay stopped until Reset (overturn, operator stop, ...) */
-                if (VC_EV_CMD_RESET == type)
-                {
-                    enter(p_sm, VC_ST_IDLE, now_ms, p_out);
-                }
-                break;
-            case VC_ST_MISSION_COMPLETE:
-                /* Motors stay off until an explicit Start or Reset (owner,
-                   2026-11-14).  Start acts as Reset then Start: it clears
-                   the S2 latch (via IDLE) and begins a new mission. */
-                if (VC_EV_CMD_RESET == type)
-                {
-                    enter(p_sm, VC_ST_IDLE, now_ms, p_out);
-                }
-                else if (VC_EV_CMD_START == type)
-                {
-                    enter(p_sm, VC_ST_IDLE, now_ms, p_out);
-                    enter(p_sm, VC_ST_MISSION_START, now_ms, p_out);
-                }
-                else
-                {
-                    /* everything else is ignored: stay stopped */
-                }
-                break;
-            default:
-                /* corrupt state: fail safe */
-                go_fault(p_sm, VC_SRC_VC, VC_FC_STATE_TIMEOUT, now_ms, p_out);
-                break;
-        }
+        /* handle_common() took it */
     }
 }
 
