@@ -28,7 +28,7 @@ static const char * const g_move_names[] = {
 };
 /* A new move or request needs its name here too (a missing one used to
    print as "?" or read past the table). */
-_Static_assert(sizeof(g_move_names) / sizeof(g_move_names[0]) == VC_MOVE_COUNT,
+_Static_assert(VC_MOVE_COUNT == sizeof(g_move_names) / sizeof(g_move_names[0]),
                "one name per vc_move_t");
 
 static const char * const g_req_names[] = {
@@ -37,7 +37,7 @@ static const char * const g_req_names[] = {
     "OBST_AVOID",  "OBST_MONITOR", "TERRAIN_MEASURE",
     "STOP_ALL",    "LINE_WATCH"
 };
-_Static_assert(sizeof(g_req_names) / sizeof(g_req_names[0]) == VC_REQ_COUNT,
+_Static_assert(VC_REQ_COUNT == sizeof(g_req_names) / sizeof(g_req_names[0]),
                "one name per vc_request_t");
 
 ER vc_port_move(vc_move_t move, int32_t value)

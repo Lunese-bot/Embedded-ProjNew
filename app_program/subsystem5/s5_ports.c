@@ -46,7 +46,7 @@ uint32_t s5_port_odo_mm(void)
 {
     uint32_t ticks;
 
-    if (&g_s2_odo_ticks == NULL)
+    if (NULL == &g_s2_odo_ticks)
     {
         return 0U;
     }

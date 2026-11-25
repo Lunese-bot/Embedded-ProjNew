@@ -32,7 +32,7 @@ int32_t s1_stats_kind(const char * p_topic)
     const char * p_root = S1_TOPIC_ROOT;
     const char * p_rest = p_topic;
 
-    if (p_topic == NULL)
+    if (NULL == p_topic)
     {
         return S1_EVT_OTHER;
     }
@@ -70,7 +70,7 @@ int32_t s1_stats_line_kind(const uint8_t * p_line, int32_t len)
 
     for (idx = 0; idx < len; idx++)
     {
-        if (p_line[idx] == 0U)
+        if (0U == p_line[idx])
         {
             return s1_stats_kind((const char *)p_line);
         }
@@ -80,7 +80,7 @@ int32_t s1_stats_line_kind(const uint8_t * p_line, int32_t len)
 
 void s1_stats_lost(s1_stats_t * p_stats, int32_t kind)
 {
-    if (kind == S1_KIND_TLM)
+    if (S1_KIND_TLM == kind)
     {
         p_stats->tlm_lost++;
     }
@@ -96,9 +96,9 @@ void s1_stats_lost(s1_stats_t * p_stats, int32_t kind)
 
 void s1_stats_publish(s1_stats_t * p_stats, int32_t kind, int32_t err)
 {
-    if (err == S1_ERR_OK)
+    if (S1_ERR_OK == err)
     {
-        if (kind == S1_KIND_TLM)
+        if (S1_KIND_TLM == kind)
         {
             p_stats->pub_tlm++;
         }
@@ -107,11 +107,11 @@ void s1_stats_publish(s1_stats_t * p_stats, int32_t kind, int32_t err)
             p_stats->pub_evt++;
         }
     }
-    else if (err == S1_ERR_MEM)
+    else if (S1_ERR_MEM == err)
     {
         p_stats->ref_mem++;
     }
-    else if (err == S1_ERR_CONN)
+    else if (S1_ERR_CONN == err)
     {
         p_stats->ref_conn++;
     }
@@ -181,7 +181,7 @@ int32_t s1_stats_format(const s1_stats_t * p_stats, char * p_buf, int32_t size)
     s1_text_t text;
     uint32_t  value2[3];
 
-    if ((p_buf == NULL) || (size <= 0))
+    if ((NULL == p_buf) || (size <= 0))
     {
         return 0;
     }
@@ -221,25 +221,25 @@ void s1_latch_resolve(s1_latch_t * p_out, uint32_t stop_before,
                       int32_t status_ok, uint32_t safety_stop,
                       uint32_t stop_after)
 {
-    if (p_out == NULL)
+    if (NULL == p_out)
     {
         return;
     }
     p_out->active = (stop_after != 0U) ? 1 : 0;
     p_out->cause  = S1_LATCH_CAUSE_NONE;
-    if (p_out->active == 0)
+    if (0 == p_out->active)
     {
         return; /* clear now: an old cause is never reported */
     }
-    if ((stop_before == 0U) || (status_ok == 0))
+    if ((0U == stop_before) || (0 == status_ok))
     {
         p_out->cause = S1_LATCH_CAUSE_UNKNOWN; /* changed while read */
     }
-    else if (safety_stop == IMU_SAFETY_LIFT)
+    else if (IMU_SAFETY_LIFT == safety_stop)
     {
         p_out->cause = S1_LATCH_CAUSE_LIFT;
     }
-    else if (safety_stop == IMU_SAFETY_OVERTURN)
+    else if (IMU_SAFETY_OVERTURN == safety_stop)
     {
         p_out->cause = S1_LATCH_CAUSE_OVERTURN;
     }
@@ -254,19 +254,19 @@ int32_t s1_latch_format(const s1_latch_t * p_latch, char * p_buf, int32_t size)
     const char * p_text;
     int32_t      len = 0;
 
-    if ((p_latch == NULL) || (p_buf == NULL) || (size <= 0))
+    if ((NULL == p_latch) || (NULL == p_buf) || (size <= 0))
     {
         return 0;
     }
-    if (p_latch->active == 0)
+    if (0 == p_latch->active)
     {
         p_text = " il=0";
     }
-    else if (p_latch->cause == S1_LATCH_CAUSE_LIFT)
+    else if (S1_LATCH_CAUSE_LIFT == p_latch->cause)
     {
         p_text = " il=1 ic=lift";
     }
-    else if (p_latch->cause == S1_LATCH_CAUSE_OVERTURN)
+    else if (S1_LATCH_CAUSE_OVERTURN == p_latch->cause)
     {
         p_text = " il=1 ic=overturn";
     }

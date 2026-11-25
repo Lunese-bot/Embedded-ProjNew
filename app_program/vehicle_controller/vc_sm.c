@@ -38,7 +38,7 @@ static const char * const g_state_names[] = {
     "LOST_LINE",     "AVOID_OBSTACLE", "DECODE_BARCODE",  "EXECUTE_ACTION",
     "TERRAIN_CHECK", "FAULT",          "MISSION_COMPLETE"
 };
-_Static_assert(sizeof(g_state_names) / sizeof(g_state_names[0]) == VC_ST_COUNT,
+_Static_assert(VC_ST_COUNT == sizeof(g_state_names) / sizeof(g_state_names[0]),
                "one name per vc_state_t");
 
 static const char * const g_event_names[] = {
@@ -52,7 +52,7 @@ static const char * const g_event_names[] = {
     "LINE_SAMPLE"
 };
 /* A new event needs its name here too (a missing one was a null name). */
-_Static_assert(sizeof(g_event_names) / sizeof(g_event_names[0]) == VC_EV_COUNT,
+_Static_assert(VC_EV_COUNT == sizeof(g_event_names) / sizeof(g_event_names[0]),
                "one name per vc_event_type_t");
 
 const char * vc_state_name(vc_state_t state)

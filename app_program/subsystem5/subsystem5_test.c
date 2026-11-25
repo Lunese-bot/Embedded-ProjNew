@@ -145,7 +145,7 @@ void subsystem5_test(void)
 
         TEST_CHECK("S5-U19",
                    ((uint8_t)S5_ST_ERROR < (1U << S5_PACK_STATE_BITS)) &&
-                       (2000U <= S5_PACK_DIST_MAX_MM) && (sizeof(word) == 2U),
+                       (2000U <= S5_PACK_DIST_MAX_MM) && (2U == sizeof(word)),
                    "every state fits 4 bits, 2000 mm fits 11 bits, 2 bytes");
 
         TEST_CHECK("S5-U20",

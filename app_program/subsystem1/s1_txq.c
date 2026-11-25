@@ -165,7 +165,7 @@ int32_t s1_txq_claim(s1_txq_t * p_q, s1_stats_t * p_st, s1_txq_pull_fn_t pull,
 void s1_txq_finish(s1_txq_t * p_q, s1_stats_t * p_st,
                    const s1_txq_claim_t * p_claim, int32_t err)
 {
-    int32_t b_tlm = (p_claim->kind == S1_KIND_TLM);
+    int32_t b_tlm = (S1_KIND_TLM == p_claim->kind);
 
     s1_stats_publish(p_st, p_claim->kind, err);
     if (b_tlm)
@@ -207,7 +207,7 @@ void s1_txq_finish(s1_txq_t * p_q, s1_stats_t * p_st,
 void s1_txq_drop_claim(s1_txq_t * p_q, s1_stats_t * p_st,
                        const s1_txq_claim_t * p_claim)
 {
-    if (p_claim->kind == S1_KIND_TLM)
+    if (S1_KIND_TLM == p_claim->kind)
     {
         p_q->tlm_claimed = 0;
         p_q->has_tlm     = 0;
@@ -224,15 +224,15 @@ void s1_txq_done(s1_txq_t * p_q, s1_stats_t * p_st, int32_t kind, uint32_t gen,
                  int32_t err)
 {
     uint32_t * p_inflight =
-        (kind == S1_KIND_TLM) ? &p_st->inflight_tlm : &p_st->inflight_evt;
+        (S1_KIND_TLM == kind) ? &p_st->inflight_tlm : &p_st->inflight_evt;
 
-    if ((gen != p_q->gen) || (*p_inflight == 0U))
+    if ((gen != p_q->gen) || (0U == *p_inflight))
     {
         p_st->cb_stale++; /* old connection, or nothing outstanding */
         return;
     }
     (*p_inflight)--;
-    if (err == S1_ERR_OK)
+    if (S1_ERR_OK == err)
     {
         p_st->cb_ok++;
     }

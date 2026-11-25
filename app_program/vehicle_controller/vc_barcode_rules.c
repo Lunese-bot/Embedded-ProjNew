@@ -71,7 +71,7 @@ navigation_command_t vc_barcode_lookup(const char * p_text)
         {
             jdx++;
         }
-        if ((p_text[jdx] == '\0') && (g_rules[idx].text[jdx] == '\0'))
+        if (('\0' == p_text[jdx]) && ('\0' == g_rules[idx].text[jdx]))
         {
             return g_rules[idx].nav;
         }

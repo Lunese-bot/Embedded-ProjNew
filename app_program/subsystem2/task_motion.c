@@ -278,10 +278,10 @@ static void check_emergency_stop(void)
 {
     uint32_t epoch = s2_stop_epoch();
 
-    if ((epoch != g_handled_stop_epoch) || (epoch == UINT32_MAX))
+    if ((epoch != g_handled_stop_epoch) || (UINT32_MAX == epoch))
     {
         enter_latched(MSTATE_SAFE_STOP, MFAULT_NONE);
-        if ((epoch == UINT32_MAX) && (g_handled_stop_epoch != UINT32_MAX))
+        if ((UINT32_MAX == epoch) && (g_handled_stop_epoch != UINT32_MAX))
         {
             tm_printf((uint8_t *)"motion: stop generation exhausted; restart "
                                  "required\n");

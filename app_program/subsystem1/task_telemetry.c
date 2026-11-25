@@ -99,7 +99,7 @@ void telemetry_task(int32_t stacd, void * p_exinf)
         tlm.speed_r_mms = motion_st.speed_r_mm_s;
         tlm.distance_mm = motion_st.distance_mm;
         tlm.line_pos    = line_st.position;
-        tlm.obs_dist_cm = (obs_st.last_distance_mm == 0)
+        tlm.obs_dist_cm = (0 == obs_st.last_distance_mm)
                               ? S1_OBS_MAX_CM
                               : (uint32_t)(obs_st.last_distance_mm / 10);
         tlm.obs_detected =

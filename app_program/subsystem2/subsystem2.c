@@ -22,11 +22,14 @@ volatile uint32_t g_s2_imu_stop; /* S2_IMU_CAUSE_* while the IMU interlock is
                                     set, 0 once the robot is set down */
 /* The last IMU interlock and the stop generation it raised.  Kept after
    set-down, so the stop can still be explained when it is read later. */
-static volatile uint32_t g_imu_stop_cause, g_imu_stop_epoch;
+static volatile uint32_t g_imu_stop_cause;
+static volatile uint32_t g_imu_stop_epoch;
 #if TK_SUPPORT_SMP
-static UW g_stop_epoch, g_s2_seq;
+static UW g_stop_epoch;
+static UW g_s2_seq;
 #else
-static volatile UW g_stop_epoch, g_s2_seq;
+static volatile UW g_stop_epoch;
+static volatile UW g_s2_seq;
 #endif
 
 uint32_t s2_stop_epoch(void)
@@ -186,7 +189,7 @@ ER s2_send_cmd(motion_cmd_t * p_cmd)
 #if !TK_SUPPORT_SMP
     UW intsts;
 #endif
-    if (p_cmd == NULL)
+    if (NULL == p_cmd)
     {
         return E_PAR;
     }
@@ -202,7 +205,7 @@ ER s2_send_cmd(motion_cmd_t * p_cmd)
     EI(intsts);
 #endif
     p_cmd->stop_epoch = s2_stop_epoch();
-    if (p_cmd->stop_epoch == UINT32_MAX)
+    if (UINT32_MAX == p_cmd->stop_epoch)
     {
         return E_LIMIT;
     }

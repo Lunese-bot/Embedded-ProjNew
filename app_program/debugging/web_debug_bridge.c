@@ -679,20 +679,22 @@ int32_t web_debug_motion(char cmd, uint32_t client, char * p_out,
     }
 
     p_out[0] = '\0';
-    pos      = put_str(p_out, pos, out_max,
+
+    pos = put_str(p_out, pos, out_max,
                   (E_OK == er_val) ? "ok"
-                                        : (b_lock ? "LOCKED (another user is using "
-                                                    "this)"
-                                                  : "ERR"));
-    pos      = put_str(p_out, pos, out_max, " mode=");
-    pos      = put_int(p_out, pos, out_max, g_wd_mode);
-    pos      = put_str(p_out, pos, out_max, " speed=");
-    pos      = put_int(p_out, pos, out_max, g_wd_speed);
-    pos      = put_str(p_out, pos, out_max, " trimL=");
-    pos      = put_int(p_out, pos, out_max, g_s2_dbg_trim_l);
-    pos      = put_str(p_out, pos, out_max, " trimR=");
-    pos      = put_int(p_out, pos, out_max, g_s2_dbg_trim_r);
-    pos      = put_str(p_out, pos, out_max,
+                                   : (b_lock ? "LOCKED (another user is using "
+                                               "this)"
+                                             : "ERR"));
+
+    pos = put_str(p_out, pos, out_max, " mode=");
+    pos = put_int(p_out, pos, out_max, g_wd_mode);
+    pos = put_str(p_out, pos, out_max, " speed=");
+    pos = put_int(p_out, pos, out_max, g_wd_speed);
+    pos = put_str(p_out, pos, out_max, " trimL=");
+    pos = put_int(p_out, pos, out_max, g_s2_dbg_trim_l);
+    pos = put_str(p_out, pos, out_max, " trimR=");
+    pos = put_int(p_out, pos, out_max, g_s2_dbg_trim_r);
+    pos = put_str(p_out, pos, out_max,
                   (0 != g_s2_dbg_straight) ? " straight=ON" : " straight=OFF");
     if (E_OK == s2_get_status(&state2))
     {

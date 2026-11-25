@@ -23,7 +23,9 @@ volatile bool          g_b_s3_bc_lock = false; /* barcode lock flag read by
                                                   vc_bridge_s2.c */
 volatile int16_t       g_s3_bc_speed_now; /* barcode read record, written by
                                              vc_bridge_s2.c */
-volatile int32_t       g_lt_speed_pct, g_lt_steer_inv, g_lt_curve;
+volatile int32_t       g_lt_speed_pct;
+volatile int32_t       g_lt_steer_inv;
+volatile int32_t       g_lt_curve;
 static motion_status_t status;
 static uint32_t        stop_epoch;
 static int             reset_count;
@@ -73,7 +75,9 @@ ER s2_cmd_stop(void)
 {
     return E_OK;
 }
-static int32_t last_drive_speed, last_drive_steer, drives;
+static int32_t last_drive_speed;
+static int32_t last_drive_steer;
+static int32_t drives;
 ER             s2_cmd_drive(int32_t speed, int32_t steer)
 {
     last_drive_speed = speed;
@@ -108,7 +112,8 @@ ER s2_emergency_stop(void)
     return E_OK;
 }
 /* Stand-in for S2's IMU stop record: the cause applies to one generation */
-static uint32_t imu_cause, imu_cause_epoch;
+static uint32_t imu_cause;
+static uint32_t imu_cause_epoch;
 uint32_t        s2_imu_stop_cause(uint32_t epoch)
 {
     return (0U != g_s2_imu_stop)
@@ -122,20 +127,20 @@ int main(void)
 {
     vc_event_t event;
 
-    assert(vc_bridge_s2_request(VC_REQ_SELF_CHECK, 0) == E_OK);
+    assert(E_OK == vc_bridge_s2_request(VC_REQ_SELF_CHECK, 0));
     status_result = E_PAR;
-    assert(!vc_bridge_s2_next(&event) && status_errors == 1);
+    assert(!vc_bridge_s2_next(&event) && 1 == status_errors);
     status_result = E_OK;
     assert(!vc_bridge_s2_next(&event)); /* no published motion snapshot */
     status.loop_count = 1;
     status.state      = MSTATE_SAFE_STOP;
     status.stop_epoch = stop_epoch = 1;
     assert(vc_bridge_s2_next(&event));
-    assert(event.type == VC_EV_FAULT && event.p1 == VC_FAULT_CRITICAL);
+    assert(VC_EV_FAULT == event.type && VC_FAULT_CRITICAL == event.p1);
     assert(!vc_bridge_s2_next(&event)); /* latched stop is not READY */
 
-    assert(vc_bridge_s2_move(VC_MOVE_RESET, 0) == E_OK && reset_count == 1);
-    assert(vc_bridge_s2_request(VC_REQ_SELF_CHECK, 0) == E_OK);
+    assert(E_OK == vc_bridge_s2_move(VC_MOVE_RESET, 0) && 1 == reset_count);
+    assert(E_OK == vc_bridge_s2_request(VC_REQ_SELF_CHECK, 0));
     assert(!vc_bridge_s2_next(&event)); /* queueing reset is not execution */
     status.state = MSTATE_FAULT;
     assert(!vc_bridge_s2_next(&event));
@@ -148,52 +153,52 @@ int main(void)
     stop_epoch    = 2;
     assert(!vc_bridge_s2_next(&event)); /* newer stop not yet in snapshot */
     status.stop_epoch = 2;
-    assert(vc_bridge_s2_next(&event) && event.type == VC_EV_READY);
+    assert(vc_bridge_s2_next(&event) && VC_EV_READY == event.type);
     assert(!vc_bridge_s2_next(&event));
 
     status.state      = MSTATE_SAFE_STOP;
     status.stop_epoch = stop_epoch = 3;
-    assert(vc_bridge_s2_next(&event) && event.type == VC_EV_FAULT);
+    assert(vc_bridge_s2_next(&event) && VC_EV_FAULT == event.type);
     assert(!vc_bridge_s2_next(&event)); /* no repeated fault for same stop */
     status.stop_epoch = stop_epoch = 4;
-    assert(vc_bridge_s2_next(&event) && event.type == VC_EV_FAULT);
+    assert(vc_bridge_s2_next(&event) && VC_EV_FAULT == event.type);
 
     status.state      = MSTATE_IDLE;
     status.stop_epoch = stop_epoch = UINT32_MAX;
-    assert(vc_bridge_s2_request(VC_REQ_SELF_CHECK, 0) == E_OK);
+    assert(E_OK == vc_bridge_s2_request(VC_REQ_SELF_CHECK, 0));
     assert(!vc_bridge_s2_next(&event)); /* saturated generation fails closed */
-    assert(vc_bridge_s2_move(VC_MOVE_SAFE_STOP, 0) == E_OK);
+    assert(E_OK == vc_bridge_s2_move(VC_MOVE_SAFE_STOP, 0));
     status.stop_epoch = stop_epoch = 0;
     assert(!vc_bridge_s2_next(&event)); /* aborted self-check stays cancelled */
 
     /* encoder-based turn requests: the bridge passes the angle to S2 */
-    assert(vc_bridge_s2_move(VC_MOVE_U_TURN, 0) == E_OK &&
-           last_turn_angle == VC_UTURN_CMD_DEG);
+    assert(E_OK == vc_bridge_s2_move(VC_MOVE_U_TURN, 0) &&
+           VC_UTURN_CMD_DEG == last_turn_angle);
     assert(VC_UTURN_CMD_DEG == 137); /* owner: 141 gave ~185 deg; 141 x 180 /
                                         185 */
-    assert(vc_bridge_s2_move(VC_MOVE_TURN_LEFT, 90) == E_OK &&
-           last_turn_angle == 90);
-    assert(vc_bridge_s2_move(VC_MOVE_TURN_RIGHT, 90) == E_OK &&
-           last_turn_angle == -90);
+    assert(E_OK == vc_bridge_s2_move(VC_MOVE_TURN_LEFT, 90) &&
+           90 == last_turn_angle);
+    assert(E_OK == vc_bridge_s2_move(VC_MOVE_TURN_RIGHT, 90) &&
+           -90 == last_turn_angle);
     puts("[TEST] S6-U01 PASS  U-turn asks S2 for VC_UTURN_CMD_DEG (137, tuned "
          "on the robot); left +90, right -90 unchanged");
 
     /* U-turn recovery: the fast part asks for its own angle, the slow part
        pivots by wheel speed until the controller stops it */
-    assert(vc_bridge_s2_move(VC_MOVE_U_TURN, 97) == E_OK &&
-           last_turn_angle == 97);
+    assert(E_OK == vc_bridge_s2_move(VC_MOVE_U_TURN, 97) &&
+           97 == last_turn_angle);
     drives = 0;
-    assert(vc_bridge_s2_move(VC_MOVE_PIVOT, 60) == E_OK && drives == 1 &&
-           last_drive_speed == 0 && last_drive_steer == 60);
-    assert(vc_bridge_s2_move(VC_MOVE_PIVOT, -60) == E_OK &&
-           last_drive_speed == 0 && last_drive_steer == -60);
-    assert(vc_bridge_s2_move(VC_MOVE_PIVOT, 5000) == E_OK &&
-           last_drive_steer == VC_TURN_SPEED_MMS);
-    assert(vc_bridge_s2_move(VC_MOVE_PIVOT, -5000) == E_OK &&
+    assert(E_OK == vc_bridge_s2_move(VC_MOVE_PIVOT, 60) && 1 == drives &&
+           0 == last_drive_speed && 60 == last_drive_steer);
+    assert(E_OK == vc_bridge_s2_move(VC_MOVE_PIVOT, -60) &&
+           0 == last_drive_speed && -60 == last_drive_steer);
+    assert(E_OK == vc_bridge_s2_move(VC_MOVE_PIVOT, 5000) &&
+           VC_TURN_SPEED_MMS == last_drive_steer);
+    assert(E_OK == vc_bridge_s2_move(VC_MOVE_PIVOT, -5000) &&
            last_drive_steer == -VC_TURN_SPEED_MMS);
     /* SET_SPEED must not turn a pivot back into a forward drive */
     drives = 0;
-    assert(vc_bridge_s2_move(VC_MOVE_SET_SPEED, 120) == E_OK && drives == 0);
+    assert(E_OK == vc_bridge_s2_move(VC_MOVE_SET_SPEED, 120) && 0 == drives);
     puts("[TEST] S6-U02 PASS  U_TURN carries its angle (0 = VC_UTURN_CMD_DEG); "
          "PIVOT = drive(0, +-v), clamped to the turn speed, not resumed by "
          "SET_SPEED");
@@ -203,13 +208,13 @@ int main(void)
     status.stop_epoch = stop_epoch;
     g_s2_odo_ticks    = 4321U;
     flg_pending       = MFLG_CMD_DONE;
-    assert(vc_bridge_s2_next(&event) && event.type == VC_EV_MANOEUVRE_DONE &&
-           event.p1 == 1 && event.p2 == 4321);
-    assert(vc_bridge_s2_move(VC_MOVE_STOP_CONFIRM, 0) == E_OK);
+    assert(vc_bridge_s2_next(&event) && VC_EV_MANOEUVRE_DONE == event.type &&
+           1 == event.p1 && 4321 == event.p2);
+    assert(E_OK == vc_bridge_s2_move(VC_MOVE_STOP_CONFIRM, 0));
     g_s2_odo_ticks = 4400U;
     flg_pending    = MFLG_STOPPED;
-    assert(vc_bridge_s2_next(&event) && event.type == VC_EV_MOTION_STOPPED &&
-           event.p2 == 4400);
+    assert(vc_bridge_s2_next(&event) && VC_EV_MOTION_STOPPED == event.type &&
+           4400 == event.p2);
     flg_pending = MFLG_STOPPED; /* not asked for: not forwarded */
     assert(!vc_bridge_s2_next(&event));
     puts("[TEST] S6-U03 PASS  MANOEUVRE_DONE and MOTION_STOPPED carry S2's "
@@ -222,26 +227,26 @@ int main(void)
     status.state      = MSTATE_SAFE_STOP;
     status.stop_epoch = stop_epoch = 10;
     g_s2_imu_stop                  = S2_IMU_CAUSE_LIFT;
-    assert(vc_bridge_s2_next(&event) && event.type == VC_EV_FAULT &&
-           event.p2 == VC_FC_S2_SAFE_STOP && event.cause == VC_CAUSE_IMU_LIFT);
+    assert(vc_bridge_s2_next(&event) && VC_EV_FAULT == event.type &&
+           VC_FC_S2_SAFE_STOP == event.p2 && VC_CAUSE_IMU_LIFT == event.cause);
     assert(!vc_bridge_s2_next(&event)); /* still one report per stop */
     status.stop_epoch = stop_epoch = 11;
     g_s2_imu_stop                  = S2_IMU_CAUSE_OVERTURN;
-    assert(vc_bridge_s2_next(&event) && event.cause == VC_CAUSE_IMU_OVERTURN);
+    assert(vc_bridge_s2_next(&event) && VC_CAUSE_IMU_OVERTURN == event.cause);
     /* set down before the controller read the stop: the record still
        explains exactly that stop generation */
     status.stop_epoch = stop_epoch = 12;
     g_s2_imu_stop                  = 0;
     imu_cause                      = S2_IMU_CAUSE_LIFT;
     imu_cause_epoch                = 12;
-    assert(vc_bridge_s2_next(&event) && event.cause == VC_CAUSE_IMU_LIFT);
+    assert(vc_bridge_s2_next(&event) && VC_CAUSE_IMU_LIFT == event.cause);
     /* a later, unrelated stop has no IMU cause: genuine 0x2011 */
     status.stop_epoch = stop_epoch = 13;
-    assert(vc_bridge_s2_next(&event) && event.p2 == VC_FC_S2_SAFE_STOP &&
-           event.cause == VC_CAUSE_NONE);
+    assert(vc_bridge_s2_next(&event) && VC_FC_S2_SAFE_STOP == event.p2 &&
+           VC_CAUSE_NONE == event.cause);
     /* other events never carry a cause */
     status.state = MSTATE_IDLE;
-    assert(vc_bridge_s2_move(VC_MOVE_RESET, 0) == E_OK);
+    assert(E_OK == vc_bridge_s2_move(VC_MOVE_RESET, 0));
     puts("[TEST] S6-SAFE04 PASS  S2 safe-stop report carries the IMU "
          "lift/overturn cause of that stop only");
     return 0;

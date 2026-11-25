@@ -57,24 +57,26 @@ int32_t s5_merge_samples(const s5_sample_t * p_a_val, int32_t na_val,
                          const s5_sample_t * p_b_val, int32_t nb_val,
                          s5_sample_t * p_output, int32_t max)
 {
-    int32_t idx2 = 0, j = 0, n = 0;
-    while (n < max && (idx2 < na_val || j < nb_val))
+    int32_t idx2   = 0;
+    int32_t jdx    = 0;
+    int32_t count2 = 0;
+    while ((count2 < max) && ((idx2 < na_val) || (jdx < nb_val)))
     {
-        if (j >= nb_val ||
-            (idx2 < na_val && p_a_val[idx2].deg < p_b_val[j].deg))
+        if ((jdx >= nb_val) ||
+            ((idx2 < na_val) && (p_a_val[idx2].deg < p_b_val[jdx].deg)))
         {
-            p_output[n++] = p_a_val[idx2++];
+            p_output[count2++] = p_a_val[idx2++];
         }
         else
         {
-            if (idx2 < na_val && p_a_val[idx2].deg == p_b_val[j].deg)
+            if ((idx2 < na_val) && (p_a_val[idx2].deg == p_b_val[jdx].deg))
             {
                 idx2++;
             }
-            p_output[n++] = p_b_val[j++];
+            p_output[count2++] = p_b_val[jdx++];
         }
     }
-    return n;
+    return count2;
 }
 
 static int32_t abs_i(int32_t value)

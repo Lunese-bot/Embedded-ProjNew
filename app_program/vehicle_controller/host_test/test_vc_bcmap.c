@@ -316,7 +316,7 @@ static void uturn_to_line(void)
         event2.time_ms = g_now_ms;
         vc_sm_handle(&g_sm, &event2, g_now_ms, &g_actions);
         run_actions();
-        if ((count == 16) && (VC_EXEC_UT_BRAKE == g_sm.exec_phase))
+        if ((16 == count) && (VC_EXEC_UT_BRAKE == g_sm.exec_phase))
         {
             feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, (int32_t)odo);
         }

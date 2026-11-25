@@ -151,7 +151,7 @@ int32_t s1_tlm_decode(const uint8_t * p_input, int32_t len, s1_tlm_t * p_tlm)
 {
     s1_bits_t bits = { (uint8_t *)p_input, 0 };
 
-    if (p_input == 0 || p_tlm == 0 || len != S1_TLM_BYTES)
+    if ((0 == p_input) || (0 == p_tlm) || (len != S1_TLM_BYTES))
     {
         return -1;
     }
@@ -192,7 +192,8 @@ int32_t s1_barcode_encode(const uint8_t * p_text, int32_t len,
     s1_bits_t bits = { p_output, 0 };
     int32_t   idx;
 
-    if (p_text == 0 || p_output == 0 || len < 1 || len > S1_BARCODE_MAX_CHARS)
+    if ((0 == p_text) || (0 == p_output) || (len < 1) ||
+        (len > S1_BARCODE_MAX_CHARS))
     {
         return -1;
     }
@@ -204,11 +205,12 @@ int32_t s1_barcode_encode(const uint8_t * p_text, int32_t len,
     {
         int32_t code = 0;
 
-        while (alphabet[code] != '\0' && (uint8_t)alphabet[code] != p_text[idx])
+        while ((alphabet[code] != '\0') &&
+               ((uint8_t)alphabet[code] != p_text[idx]))
         {
             code++;
         }
-        if (alphabet[code] == '\0')
+        if ('\0' == alphabet[code])
         {
             return -1;
         }
@@ -236,12 +238,12 @@ s1_request_t s1_cmd_decode(const uint8_t * p_payload, int32_t len)
 {
     s1_cmd_t code;
 
-    if (p_payload == 0 || (len != 1 && len != 2))
+    if ((0 == p_payload) || ((len != 1) && (len != 2)))
     {
         return S1_REQ_INVALID;
     }
     code = s1_cmd_code(p_payload[0]);
-    if (len == 1)
+    if (1 == len)
     {
         switch (code)
         {

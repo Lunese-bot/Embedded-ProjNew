@@ -87,8 +87,12 @@ static const uint16_t k_phi[385] = {
 
 typedef struct
 {
-    float32_t s, e, c, w; /* start, end, centre, width (trace units)   */
-    int32_t   peak;       /* highest point above the floor               */
+    /* start, end, centre, width (trace units)   */
+    float32_t s;
+    float32_t e;
+    float32_t c;
+    float32_t w;
+    int32_t   peak; /* highest point above the floor               */
 } hump_t;
 
 typedef struct
@@ -222,14 +226,16 @@ static uint32_t find_humps(uint32_t count2, int32_t thr2, hump_t * p_out,
             if ((NULL != p_out) && (count < max_out))
             {
                 hump_t * p_h = &p_out[count];
-                p_h->s       = (idx2 > 0u) ? cross(idx2 - 1u, idx2, thr2)
-                                           : ((float32_t)g_pos[idx2] / (float32_t)Q);
-                p_h->e       = ((jdx + 1u) < count2)
-                                   ? cross(jdx, jdx + 1u, thr2)
-                                   : ((float32_t)g_pos[jdx] / (float32_t)Q);
-                p_h->c       = 0.5f * (p_h->s + p_h->e);
-                p_h->w       = p_h->e - p_h->s;
-                p_h->peak    = peak;
+
+                p_h->s = (idx2 > 0u) ? cross(idx2 - 1u, idx2, thr2)
+                                     : ((float32_t)g_pos[idx2] / (float32_t)Q);
+
+                p_h->e    = ((jdx + 1u) < count2)
+                                ? cross(jdx, jdx + 1u, thr2)
+                                : ((float32_t)g_pos[jdx] / (float32_t)Q);
+                p_h->c    = 0.5f * (p_h->s + p_h->e);
+                p_h->w    = p_h->e - p_h->s;
+                p_h->peak = peak;
             }
             /* insert into the 6 highest */
             for (kdx = 0u; kdx < N_WIDE; kdx++)

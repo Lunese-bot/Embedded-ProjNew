@@ -23,15 +23,20 @@ typedef struct
 
 ID                      g_mbf_s3_events = 1;
 volatile uint32_t       g_s2_odo_ticks;
-volatile int32_t        g_lt_bc_en, g_lt_lost_en, g_lt_next_nav = NAV_LEFT;
-char                    g_lt_bc_text[16], g_lt_bc_hist[48];
+volatile int32_t        g_lt_bc_en;
+volatile int32_t        g_lt_lost_en;
+volatile int32_t        g_lt_next_nav = NAV_LEFT;
+char                    g_lt_bc_text[16];
+char                    g_lt_bc_hist[48];
 static s3_line_status_t line_status;
 static s3_event_t       queued_event;
 static bool             g_b_event_ready;
 static bool             g_b_bypass_active;
 static uint32_t         clock_ms;
 static uint8_t          barcode_payload[8];
-static int              barcode_len, barcode_error, post_result;
+static int              barcode_len;
+static int              barcode_error;
+static int              post_result;
 
 static int32_t tk_rcv_mbf(ID obj_id, void * p_output, TMO timeout)
 {
@@ -59,7 +64,7 @@ static void app_check(ER result, const char * p_what)
 }
 ER s1_post(const char * p_topic, const void * p_payload, int32_t len)
 {
-    assert(strcmp(p_topic, "barcode") == 0 && len > 0 && len <= 8);
+    assert(0 == strcmp(p_topic, "barcode") && len > 0 && len <= 8);
     memcpy(barcode_payload, p_payload, (size_t)len);
     barcode_len = len;
     return post_result;
@@ -150,15 +155,15 @@ int main(void)
                                     .text = "AB" };
     g_b_event_ready = true;
     assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
-    assert(event.type == VC_EV_BARCODE_DECODED &&
-           strcmp(event.barcode_text, "AB") == 0);
-    assert(barcode_len == 2 && barcode_payload[0] == 0x2c &&
-           barcode_payload[1] == 0xc0 && barcode_error == 0);
+    assert(VC_EV_BARCODE_DECODED == event.type &&
+           0 == strcmp(event.barcode_text, "AB"));
+    assert(2 == barcode_len && 0x2c == barcode_payload[0] &&
+           0xc0 == barcode_payload[1] && 0 == barcode_error);
 
     post_result     = E_TMOUT;
     g_b_event_ready = true;
     assert(vc_bridge_s3_next(&event, VC_ST_FOLLOW_LINE));
-    assert(event.type == VC_EV_BARCODE_DECODED && barcode_error == E_TMOUT);
+    assert(VC_EV_BARCODE_DECODED == event.type && E_TMOUT == barcode_error);
     puts("[TEST] S6-BC01 PASS  barcode publish and failure reporting preserve "
          "controller event");
     /* U-turn watch: every new sample (black or white) with the odometer,

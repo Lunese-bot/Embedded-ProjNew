@@ -84,9 +84,9 @@ void subsystem1_test(void)
         {
             len     = s1_test_bridge_pop(topic, sizeof(topic), payload,
                                          sizeof(payload));
-            b_found = (len == S1_TLM_BYTES) &&
+            b_found = (S1_TLM_BYTES == len) &&
                       str_eq(topic, S1_TOPIC_ROOT S1_TOPIC_TLM) &&
-                      (s1_tlm_decode(payload, len, &tlm) == 0);
+                      (0 == s1_tlm_decode(payload, len, &tlm));
             if (!b_found)
             {
                 tk_dly_tsk(20);

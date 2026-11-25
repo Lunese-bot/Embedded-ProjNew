@@ -20,7 +20,7 @@ int32_t s1_cfg_decode_request(const uint8_t * p_in, int32_t len,
 {
     uint32_t idx;
 
-    if (p_req == 0)
+    if (0 == p_req)
     {
         return -1;
     }
@@ -31,23 +31,23 @@ int32_t s1_cfg_decode_request(const uint8_t * p_in, int32_t len,
     {
         p_req->map[idx] = 0u;
     }
-    if (p_in == 0 || len < S1_CFG_READ_LEN || p_in[0] != S1_CFG_MARKER)
+    if ((0 == p_in) || (len < S1_CFG_READ_LEN) || (p_in[0] != S1_CFG_MARKER))
     {
         return -1;
     }
     p_req->request_id = get_be16(&p_in[2]);
-    if (p_in[1] == S1_CFG_OP_READ || p_in[1] == S1_CFG_OP_WRITE ||
-        p_in[1] == S1_CFG_OP_FACTORY)
+    if ((S1_CFG_OP_READ == p_in[1]) || (S1_CFG_OP_WRITE == p_in[1]) ||
+        (S1_CFG_OP_FACTORY == p_in[1]))
     {
         p_req->op = p_in[1];
     }
-    if (p_req->request_id == 0u || p_req->op == 0u)
+    if ((0u == p_req->request_id) || (0u == p_req->op))
     {
         return -1;
     }
     if (p_req->op != S1_CFG_OP_WRITE)
     {
-        return (len == S1_CFG_READ_LEN) ? 0 : -1;
+        return (S1_CFG_READ_LEN == len) ? 0 : -1;
     }
     if (len != S1_CFG_WRITE_LEN)
     {

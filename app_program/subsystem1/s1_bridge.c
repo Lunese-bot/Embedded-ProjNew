@@ -146,7 +146,7 @@ void s1_bridge_on_command(const uint8_t * p_payload, int32_t len)
     vc_event_type_t event;
 
     g_s1_stat.commands++;
-    if ((p_payload == NULL) || ((len != 1) && (len != 2)))
+    if ((NULL == p_payload) || ((len != 1) && (len != 2)))
     {
         post_ack(S1_ACK_REJECTED, 0);
         return;
@@ -168,7 +168,7 @@ void s1_bridge_on_command(const uint8_t * p_payload, int32_t len)
         case S1_REQ_RESUME:
 #if S1_ENABLE_REMOTE_PAUSE
             event =
-                (command == S1_REQ_PAUSE) ? VC_EV_CMD_PAUSE : VC_EV_CMD_RESUME;
+                (S1_REQ_PAUSE == command) ? VC_EV_CMD_PAUSE : VC_EV_CMD_RESUME;
             if (vc_post_event(VC_SRC_COMMS, event, s1_cmd_seq(command_byte), 0,
                               TMO_POL) < E_OK)
             {
@@ -337,7 +337,7 @@ int32_t s1_bridge_service(s1_publish_fn_t publish, int32_t max_attempts)
         }
         s1_unlock();
         s_b_unfinished = false;
-        if ((!s_b_unfinished_bad) && (s_unfinished_err == S1_ERR_OK))
+        if ((!s_b_unfinished_bad) && (S1_ERR_OK == s_unfinished_err))
         {
             g_s1_stat.sent++;
             accepted++;
@@ -407,7 +407,7 @@ void s1_bridge_publish_done(void * p_tag, int32_t err)
         s1_lock_failed();
         return;
     }
-    if ((kind1 == 0U) ||
+    if ((0U == kind1) ||
         (kind1 > (uintptr_t)(S1_EVT_KINDS - 1 + S1_TAG_KIND_BIAS)))
     {
         g_s1_stats.cb_stale++; /* not a tag S1 made */
@@ -423,7 +423,7 @@ void s1_bridge_publish_done(void * p_tag, int32_t err)
 
 void s1_bridge_heartbeat_result(int32_t err)
 {
-    if (err == S1_ERR_OK)
+    if (S1_ERR_OK == err)
     {
         return;
     }

@@ -137,7 +137,7 @@ ER s1_post(const char * p_topic, const void * p_data, int32_t data_len)
     int32_t         kind;
     ER              ercd;
 
-    if ((p_topic == NULL) || (data_len < 1) || (p_data == NULL))
+    if ((NULL == p_topic) || (data_len < 1) || (NULL == p_data))
     {
         return E_PAR;
     }
@@ -168,7 +168,7 @@ ER s1_post(const char * p_topic, const void * p_data, int32_t data_len)
         s1_lock_failed();
         return E_TMOUT; /* dropped: never wait longer than S1_LOCK_TMO_MS */
     }
-    if (kind == S1_KIND_TLM)
+    if (S1_KIND_TLM == kind)
     {
         s1_txq_post_tlm(&g_s1_txq, &g_s1_stats, line, len);
         ercd = E_OK;
