@@ -495,12 +495,72 @@ static void lp_phase(vc_sm_t * p_sm, uint8_t phase, vc_lift_note_t why,
     }
 }
 
-/* A lift interrupted line following.  S4 has already latched S2 off; the
-   controller stops too and holds every motion request from now on. */
+/* Pause mode: the running states a lift may pause.  The lift wins over
+   whatever the robot was doing (a junction, a turn, a barcode read, a
+   bypass): S3 sees black under a lifted robot and may report a junction or
+   a barcode first (owner's robot run, 2026-11-25). */
+static bool lp_can_pause(vc_state_t state)
+{
+    return (VC_ST_FOLLOW_LINE == state) || (VC_ST_LOST_LINE == state) ||
+           (VC_ST_AVOID_OBSTACLE == state) || (VC_ST_DECODE_BARCODE == state) ||
+           (VC_ST_JUNCTION_STOP == state) || (VC_ST_EXECUTE_ACTION == state) ||
+           (VC_ST_TERRAIN_CHECK == state);
+}
+
+/* Leave the manoeuvre the lift interrupted and become FOLLOW_LINE without
+   starting anything (enter() would send FORWARD).  A turn that had started
+   is dropped (the robot is put back by hand); a barcode action not yet
+   started stays pending for the next junction.  S5's bypass is aborted
+   (S5 is enabled again on resume, lp_go). */
+static void lp_takeover(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
+{
+    vc_state_t prev = p_sm->st.state;
+
+    if (VC_ST_EXECUTE_ACTION == prev)
+    {
+        vc_uturn_t zero_ut = { 0 };
+
+        drop_pending(p_sm, p_out);
+        p_sm->ut         = zero_ut;
+        p_sm->turn_gate  = 0u;
+        p_sm->exec_phase = 0u;
+        request(p_out, VC_SRC_LINE, VC_REQ_LINE_WATCH, 0); /* U-turn's */
+    }
+    else if (VC_ST_AVOID_OBSTACLE == prev)
+    {
+        p_sm->avoid_wait_stop = false;
+        request(p_out, VC_SRC_OBST, VC_REQ_STOP_ALL, 0);
+    }
+    else
+    {
+        /* junction stop, barcode read, line search, hump: nothing running */
+    }
+    p_sm->junction_stopped  = 0u;
+    p_sm->retries           = 0u;
+    p_sm->rejoin_steer_left = 0u;
+    p_sm->st.prev_state     = prev;
+    p_sm->st.state          = VC_ST_FOLLOW_LINE;
+    p_sm->st.state_since_ms = now_ms;
+    p_sm->attempt_since_ms  = now_ms;
+    (void)emit(p_out, VC_ACT_STATE, VC_SRC_VC, (int32_t)VC_ST_FOLLOW_LINE,
+               (int32_t)prev);
+}
+
+/* A lift interrupted the run.  S4 has already latched S2 off; the
+   controller stops too and holds every motion request from now on.  S3
+   stops reading barcodes (hands over the sensors); lp_go turns it on. */
 static void lp_begin(vc_sm_t * p_sm, uint32_t now_ms, vc_actions_t * p_out)
 {
     vc_lift_t zero = { 0 };
-    bool      b_op = p_sm->st.paused; /* operator Pause already on */
+    bool      b_op;
+
+    if (VC_ST_FOLLOW_LINE != p_sm->st.state)
+    {
+        lp_takeover(p_sm, now_ms, p_out);
+        p_sm->st.paused = false;
+    }
+    b_op = p_sm->st.paused; /* operator Pause already on */
+    request(p_out, VC_SRC_LINE, VC_REQ_BARCODE_OFF, 0);
 
     p_sm->lp            = zero;
     p_sm->lp.op_hold    = b_op;
@@ -581,6 +641,7 @@ static void lp_go(vc_sm_t * p_sm, vc_actions_t * p_out)
     p_sm->pause_stopped     = false;
     p_sm->st.lift_resumes++;
     p_sm->rejoin_steer_left = VC_REJOIN_STEER_SAMPLES;
+    request(p_out, VC_SRC_OBST, VC_REQ_OBST_MONITOR, 0);
     request(p_out, VC_SRC_LINE, VC_REQ_LINE_FOLLOW, 0);
     move(p_out, VC_MOVE_SET_SPEED, VC_SPEED_SLOW_MMS);
     move(p_out, VC_MOVE_FORWARD, VC_SPEED_SLOW_MMS);
@@ -641,9 +702,10 @@ static void lp_sample(vc_sm_t * p_sm, const vc_event_t * p_event,
 {
     uint32_t t    = p_event->time_ms;
     int32_t  mask = p_event->p1 & (VC_LINE_C | VC_LINE_R);
-    /* Cast: VC_LINE_C / VC_LINE_R, or 0 */
-    uint8_t  pat  = ((VC_LINE_C == mask) || (VC_LINE_R == mask)) ? (uint8_t)mask
-                                                                  : 0u;
+    /* Cast: VC_LINE_C, VC_LINE_R or both (on the tape, owner 2026-11-25:
+       C and R both black after a set-down is a placement on the line);
+       both white = 0 = no line */
+    uint8_t  pat  = (uint8_t)mask;
 
     if ((VC_LP_WAIT_LINE != p_sm->lp.phase) &&
         (VC_LP_RESUMING != p_sm->lp.phase))
@@ -666,7 +728,7 @@ static void lp_sample(vc_sm_t * p_sm, const vc_event_t * p_event,
     {
         if (0u == pat)
         {
-            lp_forget_line(p_sm); /* both white, both black: not a line */
+            lp_forget_line(p_sm); /* both white: not a line */
         }
         else if (pat == p_sm->lp.pattern)
         {
@@ -1319,11 +1381,10 @@ static void lift(vc_sm_t * p_sm, vc_source_t src, uint32_t code,
 {
     vc_state_t state = p_sm->st.state;
 
-    if ((VC_LIFT_MODE_PAUSE == p_sm->st.lift_mode) &&
-        (VC_ST_FOLLOW_LINE == state))
+    if ((VC_LIFT_MODE_PAUSE == p_sm->st.lift_mode) && lp_can_pause(state))
     {
-        /* Pause on lift: the same mission waits (vc_sm.h).  Only line
-           following: any other manoeuvre ends the run below. */
+        /* Pause on lift: the same mission waits (vc_sm.h).  The lift wins
+           over a junction, turn, barcode read or bypass (lp_takeover). */
         if (lp_active(p_sm))
         {
             lp_relift(p_sm, now_ms, p_out);

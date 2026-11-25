@@ -32,6 +32,11 @@ static int32_t g_watch_off;
 static int32_t g_complete;   /* entries to MISSION_COMPLETE */
 static int32_t g_last_fwd;   /* value of the last FORWARD */
 static int32_t g_last_speed; /* value of the last SET_SPEED */
+static int32_t g_bc_off;     /* S3 barcode reading off */
+static int32_t g_follow;     /* S3 line following (barcodes back on) */
+static int32_t g_obst_stop;  /* S5 aborted + disabled */
+static int32_t g_obst_mon;   /* S5 back to monitoring */
+static int32_t g_dropped;    /* pending barcode actions dropped */
 
 #define CHECK(id, cond, desc)                                            \
     do                                                                   \
@@ -61,6 +66,7 @@ static void tally_clear(void)
 {
     memset(g_moves, 0, sizeof(g_moves));
     g_motion = g_selfcheck = g_watch_on = g_watch_off = g_complete = 0;
+    g_bc_off = g_follow = g_obst_stop = g_obst_mon = g_dropped = 0;
 }
 
 static void tally(void)
@@ -106,6 +112,27 @@ static void tally(void)
             {
                 g_watch_off++;
             }
+        }
+        else if ((VC_ACT_REQUEST == a->kind) && (VC_REQ_BARCODE_OFF == a->p1))
+        {
+            g_bc_off++;
+        }
+        else if ((VC_ACT_REQUEST == a->kind) && (VC_REQ_LINE_FOLLOW == a->p1))
+        {
+            g_follow++;
+        }
+        else if ((VC_ACT_REQUEST == a->kind) && (VC_REQ_STOP_ALL == a->p1) &&
+                 (VC_SRC_OBST == a->target))
+        {
+            g_obst_stop++;
+        }
+        else if ((VC_ACT_REQUEST == a->kind) && (VC_REQ_OBST_MONITOR == a->p1))
+        {
+            g_obst_mon++;
+        }
+        else if ((VC_ACT_JUNCTION == a->kind) && (VC_JX_DROPPED == a->p1))
+        {
+            g_dropped++;
         }
         else if ((VC_ACT_STATE == a->kind) && (VC_ST_MISSION_COMPLETE == a->p1))
         {
@@ -382,9 +409,10 @@ static void test_no_line(void)
     lift();
     carry(500);
     tally_clear();
-    down_and_wait(30000, VC_LINE_C | VC_LINE_R);
-    CHECK("LP-31", (0 == g_motion) && (0 == g_selfcheck) && paused_on_lift(),
-          "both black (crossing or no floor): zero motion");
+    down_and_wait(3000, VC_LINE_C | VC_LINE_R);
+    CHECK("LP-31", (1 == g_moves[VC_MOVE_FORWARD]) && (1 == g_motion) &&
+                       (1 == g_selfcheck) && !g_sm.st.paused,
+          "set down with C and R both black (on the tape): resumes once (owner 2026-11-25)");
 
     start(VC_LIFT_MODE_PAUSE);
     lift();
@@ -421,6 +449,42 @@ static void test_no_line(void)
     }
     CHECK("LP-33", (0 == g_motion) && (0 == g_selfcheck),
           "black that keeps changing sensor: zero motion");
+
+    start(VC_LIFT_MODE_PAUSE);
+    lift();
+    carry(500);
+    tally_clear();
+    {
+        uint32_t i;
+
+        g_ready_auto = 1;
+        for (i = 0u; i < 3000u; i++)
+        {
+            /* C alone, then C and R, in turn: the pattern never holds */
+            run_s2(10, 0, ((i / 10u) % 2u) ? (VC_LINE_C | VC_LINE_R) : VC_LINE_C);
+        }
+        g_ready_auto = 0;
+    }
+    CHECK("LP-34", (0 == g_motion) && (0 == g_selfcheck),
+          "black that flips between one and both sensors: zero motion");
+
+    /* both black holding until READY, then one goes white: no go */
+    start(VC_LIFT_MODE_PAUSE);
+    lift();
+    carry(500);
+    tally_clear();
+    {
+        uint32_t i;
+
+        for (i = 0u; (i < 500u) && (0 == g_selfcheck); i++)
+        {
+            run(10, 0, VC_LINE_C | VC_LINE_R);
+        }
+    }
+    feed(VC_SRC_MOTION, VC_EV_READY, 0, 0);
+    run(50, 0, VC_LINE_R);
+    CHECK("LP-35", (0 == g_motion) && (VC_LP_WAIT_LINE == g_sm.st.lift_phase),
+          "both black confirmed, then only R after READY: back to Waiting, no motion");
 }
 
 static void test_stale(void)
@@ -806,35 +870,132 @@ static void test_operator_pause(void)
           "Pause during the S2 handshake: accepted, holds the robot");
 }
 
-static void test_other_states(void)
+/* the lift wins over the manoeuvre it interrupted (owner, 2026-11-25) */
+static void expect_resume(const char * id, const char * desc)
 {
-    /* mid-turn (EXECUTE_ACTION) */
-    start(VC_LIFT_MODE_PAUSE);
+    down_and_wait(3000, VC_LINE_R);
+    CHECK(id, (1 == g_moves[VC_MOVE_FORWARD]) && (VC_ST_FOLLOW_LINE == g_sm.st.state) &&
+                  !g_sm.st.paused && (0 == g_complete) && (g_follow >= 1),
+          desc);
+}
+
+static void junction_hold(void)
+{
     feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
     feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
-    run(VC_JUNCTION_HOLD_MS + 20, 0, 0);
-    CHECK("LP-90", VC_ST_EXECUTE_ACTION == g_sm.st.state, "(setup) junction manoeuvre running");
+}
+
+static void test_other_states(void)
+{
+    /* the robot log: S3 reports a junction as the robot leaves the floor,
+       the IMU lift comes ~200 ms later, during JUNCTION_STOP */
+    start(VC_LIFT_MODE_PAUSE);
+    feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_LEFT, 0);
+    feed(VC_SRC_LINE, VC_EV_JUNCTION, 0, 0);
+    run(200, 0, 0);
     tally_clear();
     lift();
-    down_and_wait(5000, VC_LINE_R);
-    CHECK("LP-91", (VC_ST_MISSION_COMPLETE == g_sm.st.state) && (0 == g_motion),
-          "pause mode, lift mid-turn: run ends (operator recovery), no resume");
+    CHECK("LP-90", paused_on_lift() && (VC_LP_LIFTED == g_sm.st.lift_phase) &&
+                       (0 == g_complete) && (g_moves[VC_MOVE_STOP] >= 1) &&
+                       (1 == g_bc_off) && (0 == g_motion),
+          "lift during a junction stop: paused (Lifted), not MISSION_COMPLETE");
+    CHECK("LP-91", (NAV_LEFT == g_sm.pending_nav) && (0 == g_dropped),
+          "the barcode action not yet started stays pending for the next junction");
+    run(VC_JUNCTION_HOLD_MS + VC_JUNCTION_STOP_MS, VC_CAUSE_IMU_LIFT, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
+    CHECK("LP-92", paused_on_lift() && (0 == g_motion),
+          "while lifted, the junction's hold / timeout and a late MOTION_STOPPED do nothing");
+    expect_resume("LP-93", "then set down on the tape: resumes line following once");
 
+    /* mid-turn (EXECUTE_ACTION, left turn) */
+    start(VC_LIFT_MODE_PAUSE);
+    feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_LEFT, 0);
+    junction_hold();
+    run(VC_JUNCTION_HOLD_MS + 20, 0, 0);
+    CHECK("LP-100", VC_ST_EXECUTE_ACTION == g_sm.st.state, "(setup) junction turn running");
+    tally_clear();
+    lift();
+    CHECK("LP-101", paused_on_lift() && (0 == g_complete) && (1 == g_dropped) &&
+                        (NAV_NONE == g_sm.pending_nav) && (0 == g_motion),
+          "lift mid-turn: paused, the started turn and its action are dropped");
+    feed(VC_SRC_MOTION, VC_EV_MANOEUVRE_DONE, 1, 0);
+    feed(VC_SRC_LINE, VC_EV_LINE_FOUND, 0, 0);
+    CHECK("LP-102", paused_on_lift() && (0 == g_motion),
+          "the old turn's MANOEUVRE_DONE / LINE_FOUND while lifted: ignored");
+    carry(300);
+    expect_resume("LP-103", "set down on the tape after a mid-turn lift: resumes once");
+
+    /* mid U-turn */
+    start(VC_LIFT_MODE_PAUSE);
+    feed(VC_SRC_LINE, VC_EV_BARCODE_DECODED, (int32_t)NAV_U_TURN, 0);
+    junction_hold();
+    run(VC_JUNCTION_HOLD_MS + 20, 0, 0);
+    tally_clear();
+    lift();
+    CHECK("LP-104", paused_on_lift() && (0 == g_complete) && (1 == g_dropped) &&
+                        (g_watch_off >= 1) && (0 == g_motion),
+          "lift mid U-turn: paused, U-turn dropped, its line watch off");
+    carry(300);
+    expect_resume("LP-105", "set down after a mid U-turn lift: resumes once");
+
+    /* barcode read (S3 sees the hand / the black under a lifted robot) */
     start(VC_LIFT_MODE_PAUSE);
     feed(VC_SRC_LINE, VC_EV_BARCODE_START, 0, 0);
     tally_clear();
     lift();
-    down_and_wait(5000, VC_LINE_R);
-    CHECK("LP-92", (VC_ST_MISSION_COMPLETE == g_sm.st.state) && (0 == g_motion),
-          "pause mode, lift while decoding a barcode: run ends, no resume");
+    CHECK("LP-106", paused_on_lift() && (0 == g_complete) && (1 == g_bc_off) &&
+                        (0 == g_motion),
+          "lift while reading a barcode: paused, barcode reading off");
+    run(5000, VC_CAUSE_IMU_LIFT, VC_LINE_C | VC_LINE_R);
+    CHECK("LP-107", paused_on_lift() && (0 == g_motion),
+          "the decode timeout / retries do nothing while lifted");
+    expect_resume("LP-108", "set down on the tape: resumes once, barcode reading on again");
 
+    /* obstacle bypass */
     start(VC_LIFT_MODE_PAUSE);
     feed(VC_SRC_OBST, VC_EV_OBSTACLE, 150, 0);
+    feed(VC_SRC_MOTION, VC_EV_MOTION_STOPPED, 0, 0);
     tally_clear();
     lift();
-    down_and_wait(5000, VC_LINE_R);
-    CHECK("LP-93", (VC_ST_MISSION_COMPLETE == g_sm.st.state) && (0 == g_motion),
-          "pause mode, lift during the obstacle bypass: run ends, no resume");
+    CHECK("LP-109", paused_on_lift() && (0 == g_complete) && (1 == g_obst_stop) &&
+                        (0 == g_motion),
+          "lift during the obstacle bypass: paused, S5's bypass aborted");
+    feed(VC_SRC_OBST, VC_EV_MOVE_REQUEST, VC_MOVE_FORWARD, 100);
+    feed(VC_SRC_OBST, VC_EV_AVOID_FAILED, 0, 0);
+    CHECK("LP-110", paused_on_lift() && (0 == g_motion),
+          "S5's late move request / AVOID_FAILED while lifted: no motion, no fault");
+    carry(300);
+    expect_resume("LP-111", "set down on the tape: resumes once");
+    CHECK("LP-112", g_obst_mon >= 1, "S5 is back to monitoring on resume");
+
+    /* line search, hump */
+    start(VC_LIFT_MODE_PAUSE);
+    feed(VC_SRC_LINE, VC_EV_LINE_LOST, 1, 0);
+    tally_clear();
+    lift();
+    CHECK("LP-113", paused_on_lift() && (0 == g_complete),
+          "lift during the line search: paused");
+    run(20000, VC_CAUSE_IMU_LIFT, 0);
+    CHECK("LP-114", paused_on_lift() && (0 == g_motion),
+          "the line search attempts / timeout do nothing while lifted");
+    expect_resume("LP-115", "set down on the tape: resumes once");
+
+    start(VC_LIFT_MODE_PAUSE);
+    feed(VC_SRC_IMU, VC_EV_HUMP_START, 0, 0);
+    tally_clear();
+    lift();
+    CHECK("LP-116", paused_on_lift() && (0 == g_complete), "lift on a hump: paused");
+    expect_resume("LP-117", "set down on the tape: resumes once");
+
+    /* default mode: a lift at a junction still ends the run */
+    start(VC_LIFT_MODE_END);
+    junction_hold();
+    tally_clear();
+    lift();
+    down_and_wait(3000, VC_LINE_R);
+    CHECK("LP-118", (VC_ST_MISSION_COMPLETE == g_sm.st.state) && (0 == g_motion) &&
+                        (VC_FC_IMU_SAFETY == g_sm.st.last_fault_code),
+          "default mode, lift at a junction: MISSION_COMPLETE 0x4005 as before");
 
     g_now = 0u;
     vc_sm_init(&g_sm, g_now);

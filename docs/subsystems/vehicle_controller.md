@@ -60,14 +60,18 @@ the firmware.
   Reset restarts the run (Reset also clears S2's latch). An overturn is FAULT 0x4005 and needs Reset.
 - **Pause on lift, resume on line** (optional, `make ... LIFT_RESUME=1`, image
   `*_liftresume.uf2`; default off = the lift ends the run as above). A lift during
-  FOLLOW_LINE keeps the same mission paused (state FOLLOW_LINE, telemetry paused bit,
+  the mission (line following, junction stop or turn, barcode read, bypass, line search,
+  hump) keeps the same mission paused (state FOLLOW_LINE, telemetry paused bit,
   reason in the fault field: 0x0010 Lifted, 0x0011 Settling, 0x0012 Waiting for line,
   0x0013 Resuming). It restarts by itself only after S4's own set-down rule cleared the
-  interlock, 500 ms more with the wheels still, then exactly one of C / R black in 30
-  fresh S3 samples in a row (at least 250 ms), an S2 RESET + READY handshake and 3 more
-  fresh samples; then slow line following, then cruise. Both white (centred on the tape
-  or off the track), both black, or anything that changes keeps it stopped, without a
-  timeout. A lift in any other running state still ends the run. See `vc_sm.h`, tests
+  interlock, 500 ms more with the wheels still, then the same black pattern (C only,
+  R only, or C and R both) in 30 fresh S3 samples in a row (at least 250 ms), an S2
+  RESET + READY handshake and 3 more fresh samples; then slow line following, then
+  cruise. Both white (centred on the tape or off the track) or anything that changes
+  keeps it stopped, without a timeout. The lift wins over the manoeuvre it interrupted:
+  a turn already started is dropped (with its barcode action), an action not yet started
+  stays pending for the next junction, S5's bypass is aborted, and barcode reading is off
+  while paused. A lift in MISSION_START is still a FAULT. See `vc_sm.h`, tests
   `host_test/test_vc_lift.c` (LP-xx).
 - **Command arbitration** (design review 8.3): a subsystem asks to move with
   `VC_EV_MOVE_REQUEST`. The controller forwards it only if that subsystem owns

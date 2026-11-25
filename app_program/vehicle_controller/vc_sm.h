@@ -99,11 +99,19 @@ _Static_assert((VC_UTURN_REFRESH_MS * 2) < 500,
  *  mode it started with (vc_status_t.lift_mode, taken at Start).
  *    VC_LIFT_MODE_END    (0, DEFAULT, the assessed demo): a lift ends the
  *                        run, MISSION_COMPLETE, fault code 0x4005.
- *    VC_LIFT_MODE_PAUSE  (1): a lift during FOLLOW_LINE pauses the SAME
- *                        mission; it resumes by itself only after the
- *                        checks below.  A lift in any other running state
- *                        still ends the run (MISSION_COMPLETE): an old
- *                        turn, bypass or barcode read is never resumed.
+ *    VC_LIFT_MODE_PAUSE  (1): a lift while the mission is running pauses
+ *                        the SAME mission; it resumes by itself only after
+ *                        the checks below.  The lift wins over any
+ *                        manoeuvre (owner, 2026-11-25: a lifted robot's S3
+ *                        sees black and may report a junction or barcode
+ *                        first): from JUNCTION_STOP, EXECUTE_ACTION,
+ *                        DECODE_BARCODE, AVOID_OBSTACLE, LOST_LINE or
+ *                        TERRAIN_CHECK the controller drops that manoeuvre
+ *                        and pauses in FOLLOW_LINE.  A turn already started
+ *                        is never resumed (its barcode action is dropped);
+ *                        an action not yet started stays pending; S5's
+ *                        bypass is aborted.  A lift in MISSION_START is
+ *                        still a FAULT.
  *  Selected at build time: make ... LIFT_RESUME=1 (pico_rp2040.mk) sets
  *  -DVC_LIFT_MODE=1 and names the .uf2 *_liftresume.  vc_sm_set_lift_mode()
  *  changes it only while no mission is running.
@@ -117,12 +125,14 @@ _Static_assert((VC_UTURN_REFRESH_MS * 2) < 500,
  *               (odometer within VC_LIFT_ODO_TOL) for VC_LIFT_SETTLE_MS.
  *    WAIT_LINE  only line samples taken after this point count, each one
  *               once (its own time must be later than the last one used).
- *               Line confirmed = exactly ONE of C / R black, the same one,
- *               in VC_LIFT_LINE_SAMPLES fresh samples in a row spanning at
- *               least VC_LIFT_LINE_MS.  Both white (centred on the tape OR
- *               plain floor: the straddle layout cannot tell them apart),
- *               both black (a crossing, or no floor under the sensors) and
- *               anything changing keep the robot stopped, for ever.
+ *               Line confirmed = the same black pattern (C only, R only,
+ *               or C and R both: on the tape, owner 2026-11-25) in
+ *               VC_LIFT_LINE_SAMPLES fresh samples in a row spanning at
+ *               least VC_LIFT_LINE_MS.  "No floor" is already ruled out by
+ *               S4's set-down rule and the settle time.  Both white
+ *               (centred on the tape OR plain floor: the straddle layout
+ *               cannot tell them apart) and anything changing keep the
+ *               robot stopped, for ever.
  *    RESUMING   S2 RESET + readiness check (VC_EV_READY from S2 within
  *               VC_LIFT_READY_MS), then VC_LIFT_VERIFY_SAMPLES fresh samples
  *               taken after READY must still show the same sensor black,
@@ -249,7 +259,7 @@ typedef enum
 /* VC_ACT_LIFT p2: why the phase changed ("vc: lift <phase> <why>") */
 typedef enum
 {
-    VC_LN_LIFT = 1,      /* a lift interrupted line following */
+    VC_LN_LIFT = 1,      /* a lift interrupted the run */
     VC_LN_RELIFT,        /* lifted again: a new lift episode */
     VC_LN_DOWN,          /* S4: set down, level and still */
     VC_LN_WHEELS,        /* the wheels turned (pushed): settle again */
