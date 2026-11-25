@@ -292,6 +292,7 @@ void s5_set_state(s5_state_t state) { robot.state = state; }
 void s5_set_fault(s5_fault_code_t fault) { robot.fault = fault; }
 void s5_count_avoid_ok(void) { robot.successes++; }
 void s5_load_profile(s5_profile_t *profile) { *profile = (s5_profile_t){ 0 }; }
+void s5_load_width_est(s5_width_est_t *est) { *est = (s5_width_est_t){ .status = S5_WE_NO_PROFILE }; }
 ER s5_get_status(s5_status_t *status) { *status = (s5_status_t){ 0 }; return E_OK; }
 void s5_port_set_line_search(bool b_active)
 {

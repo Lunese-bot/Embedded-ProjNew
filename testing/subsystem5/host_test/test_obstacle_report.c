@@ -57,6 +57,7 @@ static struct
     int32_t  odo_frac10;
     int32_t  box_len, box_width;
     s5_profile_t prof;
+    s5_we_status_t width_est_status;
     s5_motion_req_t move;
     bool     moving, have_move;
     int32_t  remaining10;
@@ -110,7 +111,7 @@ void s5_load_profile(s5_profile_t *p) { *p = w.prof; }
 void s5_load_width_est(s5_width_est_t *e)
 {
     *e = (s5_width_est_t){ 0 };
-    e->status = (uint8_t)S5_WE_OK;
+    e->status = (uint8_t)w.width_est_status;
     e->raw_r_deg = w.prof.right_edge_deg;
     e->raw_l_deg = w.prof.left_edge_deg;
     e->raw_width_mm = w.prof.width_mm;
@@ -398,9 +399,9 @@ int main(int argc, char **argv)
         encounter(lens[i], 180, FAR_MM);
         run_encounter();
         const s5_obst_report_t *f = stage_rec(S5_OR_STAGE_FRONT), *l = stage_rec(S5_OR_STAGE_LENGTH), *z = last_rec();
-        CHECK("S5-R02", f && S5_OR_W_MEASURED == f->width_status && 180U == f->width_mm && FAR_MM == f->front_mm &&
+        CHECK("S5-R02", f && S5_OR_W_MEASURED == f->width_status && (S5_REPORT_SUPPORTED_WIDTH ? 160U : 180U) == f->width_mm && FAR_MM == f->front_mm &&
               S5_OR_L_MEASURING == f->length_status && 0U == f->length_mm,
-              "front stage: width 180 mm from the profile (front 200 mm kept separate), length measuring");
+              "front stage carries the selected width, front distance and pending length");
         CHECK("S5-R02", w.nhist >= 1 && S5_OR_STAGE_SCANNING == w.hist[0].stage && 0U == w.hist[0].width_mm,
               "the encounter opens with a SCANNING record holding no sizes");
         CHECK("S5-R03", l && S5_OR_L_MEASURED == l->length_status && iabs((int32_t)l->length_mm - lens[i]) <= 60,
@@ -461,12 +462,20 @@ int main(int argc, char **argv)
           "obstacle #2 opens a new id and the previous length is cleared at once");
     {
         const s5_obst_report_t *f = stage_rec(S5_OR_STAGE_FRONT), *l = stage_rec(S5_OR_STAGE_LENGTH);
-        CHECK("S5-R07", f && 120U == f->width_mm && S5_OR_L_MEASURING == f->length_status && 0U == f->length_mm &&
+        CHECK("S5-R07", f && (S5_REPORT_SUPPORTED_WIDTH ? 100U : 120U) == f->width_mm && S5_OR_L_MEASURING == f->length_status && 0U == f->length_mm &&
               l && iabs((int32_t)l->length_mm - 300) <= 60 && first.length_mm != l->length_mm,
               "obstacle #2 reports its own width and length, never #1's");
         CHECK("S5-R07", f && f->t0_ms != first.t0_ms, "each encounter carries its own start time (restart and merge guard)");
     }
 
+#if S5_REPORT_SUPPORTED_WIDTH
+    encounter(240, 180, FAR_MM);
+    w.width_est_status = S5_WE_NO_SUPPORT;
+    run_encounter();
+    const s5_obst_report_t *weak = stage_rec(S5_OR_STAGE_FRONT);
+    CHECK("S5-W08", weak && weak->width_status == S5_OR_W_NONE && weak->width_mm == 0 && weak->front_mm == FAR_MM,
+          "an unsupported scan keeps its front distance and publishes no width");
+#endif
     printf("[TEST] obstacle report SUMMARY %d checks, %d failed\n", g_checks, g_fails);
     return g_fails ? 1 : 0;
 #endif

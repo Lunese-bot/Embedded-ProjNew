@@ -205,9 +205,17 @@ static int32_t ref_range(const s5_trip_t * p_trips, int32_t idx, int32_t near)
     return (int32_t)p_trips[idx].used;
 }
 
-static int16_t offset_mm(const s5_trip_t * p_t)
+/* The boundary lies between the last supported angle and the next
+   sample. Interpolate only across one fine step. At a scan limit or
+   across a coarse gap, keep the observed endpoint. */
+static int16_t offset_mm(const s5_trip_t *trips, int32_t edge, int32_t outer, int32_t n)
 {
-    return (int16_t)(((int32_t)p_t->used * s5_sin1000(p_t->deg)) / 1000);
+    int32_t sine = s5_sin1000(trips[edge].deg);
+    if ((outer >= 0) && (outer < n) && (iabs(trips[outer].deg - trips[edge].deg) <= 5))
+    {
+        sine = (sine + s5_sin1000(trips[outer].deg)) / 2;
+    }
+    return (int16_t)(((S5_SERVO_ARM_MM + trips[edge].used) * sine) / 1000);
 }
 
 s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t n,
@@ -254,12 +262,6 @@ s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t n,
     p_est->raw_r_support = (uint8_t)support_of(&p_trips[low], ref_range(p_trips, low, near));
     p_est->raw_l_support = (uint8_t)support_of(&p_trips[high], ref_range(p_trips, high, near));
 
-    if ((0 == low) || ((n - 1) == high))
-    {
-        p_est->status = (uint8_t)S5_WE_CLIPPED;
-        return S5_WE_CLIPPED;
-    }
-
     /* outermost supported sample on each side, walking inward */
     for (rs = low; rs <= high; rs++)
     {
@@ -292,8 +294,9 @@ s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t n,
         return S5_WE_COLLAPSED;
     }
     {
-        int16_t r_mm = offset_mm(&p_trips[rs]);
-        int16_t l_mm = offset_mm(&p_trips[ls]);
+        bool clipped = (0 == low) || ((n - 1) == high);
+        int16_t r_mm = offset_mm(p_trips, rs, rs, n);
+        int16_t l_mm = offset_mm(p_trips, ls, ls, n);
 
         if (l_mm <= r_mm)
         {
@@ -301,12 +304,17 @@ s5_we_status_t s5_width_estimate(const s5_trip_t * p_trips, int32_t n,
             p_est->status = (uint8_t)S5_WE_COLLAPSED;
             return S5_WE_COLLAPSED;
         }
+        if (!clipped)
+        {
+            r_mm = offset_mm(p_trips, rs, rs - 1, n);
+            l_mm = offset_mm(p_trips, ls, ls + 1, n);
+        }
         p_est->sup_right_mm = r_mm;
         p_est->sup_left_mm  = l_mm;
         p_est->sup_width_mm = (uint16_t)(l_mm - r_mm);
     }
-    p_est->status = (uint8_t)S5_WE_OK;
-    return S5_WE_OK;
+    p_est->status = ((0 == low) || ((n - 1) == high)) ? S5_WE_CLIPPED : S5_WE_OK;
+    return (s5_we_status_t)p_est->status;
 }
 
 const char * s5_we_name(uint8_t status)

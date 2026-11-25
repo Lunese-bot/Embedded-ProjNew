@@ -105,7 +105,7 @@ static s5_we_status_t estimate_checked(const s5_trip_t * t, int32_t n, s5_width_
     CHECK(e->raw_right_mm == before.right_mm);
     CHECK(e->raw_left_mm == before.left_mm);
     CHECK(e->raw_width_mm == before.width_mm);
-    if (S5_WE_OK == st)
+    if ((S5_WE_OK == st) || (S5_WE_CLIPPED == st))
     {
         /* supported edges lie on or inside the raw edges, and left of right */
         CHECK(e->sup_r_deg >= e->raw_r_deg);
@@ -197,7 +197,8 @@ int main(int argc, char ** argv)
         CHECK((-25 == e.raw_r_deg) && (15 == e.raw_l_deg));
         CHECK((1 == e.raw_r_support) && (1 == e.raw_l_support));
         CHECK((-20 == e.sup_r_deg) && (10 == e.sup_l_deg));   /* [188,0,190] supports */
-        CHECK(e.sup_width_mm < e.raw_width_mm);
+        /* 30 mm mount arm, with edges bracketed at -25..-20 and +10..+15. */
+        CHECK(e.sup_right_mm == -84 && e.sup_left_mm == 47);
         check_mirror(t, n, &e);
     }
 
@@ -265,6 +266,7 @@ int main(int argc, char ** argv)
         static const double dists[] = { 120, 150, 180, 200, 225 };
         static const uint16_t bgs[2][3] = { { 0, 0, 0 }, { 0, 455, 0 } };
         int wi, oi, di, bi, resolved = 0, total = 0;
+        int raw_error_mm = 0, reported_error_mm = 0;
 
         if (b_table) { printf("box  off  stop bg | raw w  sup w  status\n"); }
         for (wi = 0; wi < 3; wi++)
@@ -278,6 +280,11 @@ int main(int argc, char ** argv)
                         s5_we_status_t st = estimate_checked(t, n, &e);
                         total++;
                         resolved += (S5_WE_OK == st) ? 1 : 0;
+                        if (S5_WE_OK == st)
+                        {
+                            raw_error_mm += abs((int)e.raw_width_mm - (int)widths[wi]);
+                            reported_error_mm += abs((int)e.sup_width_mm - (int)widths[wi]);
+                        }
                         check_mirror(t, n, &e);
                         if (b_table)
                         {
@@ -287,6 +294,7 @@ int main(int argc, char ** argv)
                     }
         CHECK(total == 90);
         CHECK(resolved > 0);
+        CHECK(reported_error_mm < raw_error_mm);
     }
 
     printf("[TEST] S5-W01..W04 PASS  supported-edge estimate beside an unchanged bypass  (%d fixtures, %d checks)\n",

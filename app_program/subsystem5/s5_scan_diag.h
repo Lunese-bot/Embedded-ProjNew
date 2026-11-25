@@ -77,15 +77,14 @@ extern int32_t s5_format_trips(char * p_buf, int32_t size,
    distant background echo is not two supporting pings.  A fine trip that
    replaced a coarse one at the same angle brings only its own pings;
    coarse and fine pings are never pooled.  The sideways offset of a
-   supported edge is its own median x sin(angle), as for a raw edge. */
+   supported edge from the servo shaft is (median + servo arm) x sin(angle). */
 #define S5_WE_MIN_SUPPORT 2
 
 /* 1 = the obstacle size report (MQTT width_mm, USB "s5: obstacle" line)
-   carries the supported width when it is resolved, the raw width
-   otherwise; the USB line says which ("sup" / "raw").  0 (default) = the
-   raw width, exactly as before.  Never changes the bypass. */
+   carries the span between supported edges.  0 selects the raw width
+   used by the bypass planner. */
 #ifndef S5_REPORT_SUPPORTED_WIDTH
-#define S5_REPORT_SUPPORTED_WIDTH 0
+#define S5_REPORT_SUPPORTED_WIDTH 1
 #endif
 
 typedef enum
@@ -113,7 +112,7 @@ typedef struct
     uint8_t  raw_r_support; /* plausible pings of the raw edge trips     */
     uint8_t  raw_l_support;
     /* supported; angles and ranges are those found, the mm values and the
-       width are 0 unless status is S5_WE_OK */
+       width are 0 unless status is S5_WE_OK or S5_WE_CLIPPED */
     int8_t   sup_r_deg;
     int8_t   sup_l_deg;
     uint16_t sup_r_range;

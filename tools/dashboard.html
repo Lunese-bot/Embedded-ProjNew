@@ -156,6 +156,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 .tile .m { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .obprof { display: grid; grid-template-columns: max-content 1fr; gap: 0 8px; font-size: 13px; margin: 6px 0 0; }
 .obprof dt { color: var(--muted); } .obprof dd { margin: 0; font-variant-numeric: tabular-nums; }
+.obprof #ob_width { font-size: 1rem; font-weight: 700; }
 .small3 { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); margin-bottom: 10px; }
 .reads, .runs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .reads li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--line); }
@@ -266,7 +267,9 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
       <div class="tile obst" id="obstTile"><div class="k">Obstacle</div><div class="v small" id="t_obs">–</div>
         <div class="m">Ultrasonic <span id="t_us">–</span> <span id="t_us_u">mm</span></div>
         <dl class="obprof" aria-label="Obstacle profile">
-          <dt>Front</dt><dd id="ob_front">–</dd><dt>Width</dt><dd id="ob_width">–</dd><dt>Length</dt><dd id="ob_length">–</dd>
+          <dt>Width</dt><dd id="ob_width">–</dd>
+          <dt>Front</dt><dd id="ob_front">–</dd>
+          <dt>Length</dt><dd id="ob_length">–</dd>
         </dl>
         <div class="m"><span id="ob_id"></span> <span id="ob_detail">Profile not reported</span></div></div>
     </div>
@@ -1499,7 +1502,7 @@ const DashCore = (() => {
       detail: "Profile not reported (firmware without the obstacle size report, or no obstacle yet)", status: "Profile not reported", resolved: false };
     const mm = v => v + " mm";
     const width = r.widthStatus === 1 ? mm(r.widthMm) : r.widthStatus === 2 ? "≥ " + mm(r.widthMm) + " (lower bound)" :
-      r.widthStatus === 3 ? "Not measured (one beam)" : r.widthStatus === 4 ? "Not measured (no profile)" : "Measuring";
+      r.widthStatus === 3 ? "Not measured (one beam)" : r.widthStatus === 4 ? "Not measured (edges unresolved)" : "Measuring";
     const reason = OBST_REASON[r.lengthReason] || "";
     const length = r.lengthStatus === 2 ? mm(r.lengthMm) : r.lengthStatus === 3 ? "≥ " + mm(r.lengthMm) + " (partial)" :
       r.lengthStatus === 4 ? "Unavailable" + (reason ? " (" + reason + ")" : "") : "Measuring";
